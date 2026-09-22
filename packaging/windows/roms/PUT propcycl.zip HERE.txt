@@ -1,0 +1,4 @@
+Put your propcycl.zip in this folder.
+
+propcycl.zip is the MAME ROM set for Prop Cycle. It is not included --
+you need your own copy. Don't unzip it, just drop the zip file in here.

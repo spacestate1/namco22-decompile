@@ -1,0 +1,20 @@
+# Game files are yours and never belong in git.
+/extracted/
+/roms/
+*.zip
+windows-release/extracted/
+windows-release/roms/*
+!windows-release/roms/*.txt
+
+# Made by the build or the game.
+/build/
+/build-win/
+/sounds/
+/screenshots/
+/recordings/
+propcycl.log
+propcycl_controls.cfg
+propcycl_scores.nv
+propcycl_scores.nv.tmp
+palette_dump.bin
+dspram_dump.bin

@@ -1,0 +1,34 @@
+PROP CYCLE
+==========
+
+1. Put your propcycl.zip into the "roms" folder.
+   (It is the MAME ROM set for Prop Cycle. Don't unzip it.)
+
+2. Double-click PropCycle.exe.
+
+That's it. The first start takes a few seconds while it unpacks the ROMs.
+
+
+KEYS
+----
+  5             insert a coin
+  Enter         start
+  Arrow keys    steer and lean
+  Esc           menu  (File > Restart or Exit, volume, controls, levels)
+  F12           screenshot
+
+A game controller works too.
+
+
+PROBLEMS?
+---------
+"Prop Cycle needs its ROMs"     propcycl.zip is not in the roms folder, or
+                                it is the wrong game. You need the MAME set
+                                called "propcycl" (World, PR2 Ver.A).
+
+"Windows protected your PC"     Click "More info", then "Run anyway".
+                                (The game is not signed.)
+
+Black screen or won't start     Update your graphics driver.
+
+Needs Windows 10 or 11, 64-bit.
