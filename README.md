@@ -3,6 +3,12 @@
 This is the 1996 Namco arcade game **Prop Cycle**, rebuilt so it runs on a
 normal computer. You fly a pedal-powered glider and pop balloons.
 
+![The rider flies past the namco logo](docs/images/attract-namco.png)
+![The title screen](docs/images/attract-title.png)
+![The demo, popping balloons](docs/images/attract-demo.png)
+
+Press `Esc` any time for the menu:
+
 ![Title screen with the File menu open](docs/images/title-file-menu.png)
 ![The demo with the Levels menu open](docs/images/demo-levels-menu.png)
 
