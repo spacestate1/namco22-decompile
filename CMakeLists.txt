@@ -67,12 +67,18 @@ endif()
 if(WIN32)
     add_compile_options(-include ${CMAKE_SOURCE_DIR}/include/win_compat.h)
     # A normal windowed program (no console window). Errors are shown in
-    # dialog boxes. Static libgcc so the .exe needs only SDL2.dll beside it.
+    # dialog boxes. Static libgcc and SDL2 (below): the .exe needs no DLL beside it.
     add_link_options(-mwindows -static-libgcc -static)
 endif()
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(SDL2 REQUIRED sdl2)
+# Windows: link SDL2 STATICALLY (libSDL2.a + its Windows system libraries), so the
+# .exe is one file. Everything else it imports ships with Windows -- OPENGL32.dll
+# too, which hands over to the installed GPU driver and must never be bundled.
+if(WIN32)
+    set(SDL2_LINK_LIBRARIES ${SDL2_STATIC_LDFLAGS})
+endif()
 set(OpenGL_GL_PREFERENCE GLVND)
 find_package(OpenGL REQUIRED)
 find_package(ZLIB REQUIRED)
@@ -149,7 +155,14 @@ add_executable(propcycl
 )
 
 target_include_directories(propcycl PRIVATE include ${SDL2_INCLUDE_DIRS})
-target_link_libraries(propcycl PRIVATE ${SDL2_LINK_LIBRARIES} OpenGL::GL m ZLIB::ZLIB)
+if(WIN32)
+    # Windows: no opengl32 import -- src/gl_dyn.c resolves OpenGL at run time, so the
+    # game can fall back to the bundled Mesa (mesa/) when there is no real driver
+    target_sources(propcycl PRIVATE src/gl_dyn.c)
+    target_link_libraries(propcycl PRIVATE ${SDL2_LINK_LIBRARIES} m ZLIB::ZLIB)
+else()
+    target_link_libraries(propcycl PRIVATE ${SDL2_LINK_LIBRARIES} OpenGL::GL m ZLIB::ZLIB)
+endif()
 # Hand-written files get normal warnings
 set_source_files_properties(
     src/main.c src/memory.c src/trace.c src/hw_regs.c

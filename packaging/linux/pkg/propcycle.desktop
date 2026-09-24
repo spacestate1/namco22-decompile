@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Prop Cycle
+Comment=Namco's 1996 pedal-powered flying game (decompiled engine)
+Exec=propcycle
+Icon=propcycle
+Terminal=false
+Categories=Game;ArcadeGame;

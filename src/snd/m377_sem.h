@@ -2,8 +2,8 @@
  * m377_sem.h -- the 7700-family instruction SEMANTICS, shared by
  *   tools/sndoracle/m37710.c   the test oracle (fetches and decodes from memory), and
  *   gen/snd_driver.c           the TRANSLATED sound program (opcode and operand bytes
- *                              are build-time constants; always_inline folds each
- *                              m377_exec() call down to that one instruction).
+ *                              are build-time constants; it calls m377_exec(),
+ *                              which it marks noinline -- see tools/gen/snd_translate.py).
  * Split out of this tree's validated src/m37710.c without changing a line of
  * semantics -- which is what lets the translation be gated as EQUAL to it.
  */

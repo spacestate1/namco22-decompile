@@ -52,8 +52,16 @@ typedef struct {
                             * on every real call but never fuzzed */
 } rd_entry;
 
-extern const rd_entry rd_table[];
-extern const int      rd_count;
+/* The registry: every file in src/rd/ registers its own table with
+ * RD_REGISTER(tbl) (a constructor, so batches never edit a shared list);
+ * rd_init merges them into rd_table, sorted by entry address, and refuses
+ * a duplicate entry point. */
+extern const rd_entry *rd_table;
+extern int             rd_count;
+void rd_register(const rd_entry *t, int n);
+#define RD_REGISTER(tbl) \
+    __attribute__((constructor)) static void rd_register_##tbl(void) \
+    { rd_register(tbl, (int)(sizeof tbl / sizeof tbl[0])); }
 extern int            rd_on;
 int rd_hook(uint32_t ep);          /* called from each lifted entry; 1 = handled */
 
@@ -74,6 +82,17 @@ static inline void     set_d8(int n, uint8_t v)   { RS1((uint32_t)n * 4 + 3, v);
  * a timing word (WRAM 0x79A) drifts while picture and sound stay identical. */
 static inline void charge(int n) { rr_budget -= n; }
 static inline void poll(void) { RR_POLL(); }
+/* condition codes (R bytes 0x44 N, 0x45 Z, 0x46 V, 0x47 C): a caller may branch on
+ * them straight after the call (bsr f ; beq ...), so a function whose last flag-setting
+ * instruction matters must leave them as the 68K does */
+static inline void rd_flags_nzvc(int n, int z, int v, int c) { RS1(0x44, n); RS1(0x45, z); RS1(0x46, v); RS1(0x47, c); }
+/* cmp.w / cmpi.w: flags of dst - src */
+static inline void rd_flags_cmp16(uint16_t dst, uint16_t src)
+{
+    uint16_t r = (uint16_t)(dst - src);
+    rd_flags_nzvc((r & 0x8000) != 0, r == 0, ((dst ^ src) & (dst ^ r) & 0x8000) != 0, src > dst);
+}
+
 #define RD_RTS 0u                  /* return value: a plain rts */
 /* A computed jmp (jmp (An,Dn)) polls the scheduler before it jumps, like a taken
  * backward branch; a forward bcc into other code does not. RD_JMP(t) returns t
@@ -82,4 +101,46 @@ extern int rd_jmp_poll;
 #define RD_JMP(t) (rd_jmp_poll = 1, (uint32_t)(t))
 /* 68K cdecl stack argument i (0 = first), as seen at entry: SP -> return address */
 static inline uint32_t stack_arg(int i)         { return rr_read(a_reg(7) + 4 + 4 * (uint32_t)i, 4); }
+/* ---- calls from readable code (a function that is not a leaf) ----
+ * Exactly what the lifted code does at `bsr`/`jsr`: push the return address on
+ * the 68K stack, register it on the shadow stack, poll the scheduler, call.
+ * The callee runs through its own entry hook, so it is itself readable where
+ * one exists (lifted inside a check). Charge your own instructions up to and
+ * INCLUDING the bsr/jsr before calling -- the callee charges its own.
+ * Returns:
+ *   0          the callee returned here normally: carry on
+ *   RD_UNWIND  a callee unwound the stack past this frame: return RD_UNWIND at once
+ *   other      the callee returned to a different address: return it (the
+ *              dispatcher continues there, as the lifted code would)
+ * so every call site reads:  if ((r = rd_call(L_2400, 0x468))) return r;      */
+#define RD_UNWIND 0xFFFFFFFFu
+void rr_jump(uint32_t pc, uint32_t at);
+void rr_call_ind(uint32_t t, uint32_t at);
+extern uint32_t rr_ret_to;
+int  rr_call_push(uint32_t ret);
+int  rr_after_call(int j);
+static inline uint32_t rd_call_common(uint32_t ret, int j)
+{
+    if (rr_after_call(j)) return RD_UNWIND;
+    return rr_ret_to == ret ? 0u : rr_ret_to;
+}
+static inline uint32_t rd_call(void (*fn)(void), uint32_t ret)
+{
+    uint32_t sp = a_reg(7) - 4;
+    set_a(7, sp); vwr32(sp, ret);
+    int j = rr_call_push(ret);
+    RR_POLL();
+    fn();
+    return rd_call_common(ret, j);
+}
+/* jsr (An) / jsr through a table: `at` is the jsr's own address */
+static inline uint32_t rd_call_ind(uint32_t target, uint32_t ret, uint32_t at)
+{
+    uint32_t sp = a_reg(7) - 4;
+    set_a(7, sp); vwr32(sp, ret);
+    int j = rr_call_push(ret);
+    RR_POLL();
+    rr_call_ind(target, at);
+    return rd_call_common(ret, j);
+}
 #endif

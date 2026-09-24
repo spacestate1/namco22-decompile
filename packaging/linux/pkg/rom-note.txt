@@ -1,0 +1,18 @@
+
+ ==================================================================
+  Prop Cycle / Rave Racer are installed.  THE GAMES NEED ROM FILES.
+ ==================================================================
+  No game data is included. Put the MAME ROM sets here:
+
+    Prop Cycle:  propcycl.zip
+                 -> ~/.local/share/namco22/propcycle/roms/
+
+    Rave Racer:  raverace.zip  AND  namcoc74.zip
+                 -> ~/.local/share/namco22/raverace/roms/
+
+  (Each user has their own folder. Starting a game once creates it
+   and opens it for you. Zips already in ~/Downloads are found
+   automatically.)  Then start "Prop Cycle" or "Rave Racer" from
+  the applications menu, or run:  propcycle   /   raveracer
+ ==================================================================
+

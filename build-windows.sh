@@ -1,21 +1,29 @@
 #!/bin/bash
-# Build the WINDOWS version of Prop Cycle, from Linux.
+# Build the WINDOWS versions of Prop Cycle and Rave Racer, from Linux.
 #
 #   ./build-windows.sh
 #
-# Makes windows-release/ -- everything Windows needs: PropCycle.exe, SDL2.dll,
-# an empty roms/ folder and HOW TO PLAY.txt -- plus windows-release.zip.
-# On Windows: put propcycl.zip (the MAME ROM set) in roms/ and double-click
-# PropCycle.exe. The first start unpacks the ROMs into extracted/ beside it.
+# Makes windows-release/ -- everything Windows needs: PropCycle.exe and
+# RaveRacer.exe (each ONE file: SDL2 and the C runtime are linked in; OpenGL
+# comes with Windows and the GPU driver), an empty roms/ folder and
+# HOW TO PLAY.txt -- plus windows-release.zip.
+# On Windows: put the MAME ROM sets in roms/ (propcycl.zip for Prop Cycle;
+# raverace.zip + namcoc74.zip for Rave Racer) and double-click the game. The
+# first start unpacks the ROMs into extracted/ beside it.
 #
 # Needs the MinGW-w64 cross compiler (Arch: mingw-w64-gcc, Debian/Ubuntu:
-# gcc-mingw-w64-x86-64, Fedora: mingw64-gcc) plus cmake, curl, make and zip
-# or python3. SDL2 and zlib are downloaded into build-win/deps the first time.
+# gcc-mingw-w64-x86-64, Fedora: mingw64-gcc) plus cmake, curl, make, 7z (p7zip)
+# and python3. SDL2, zlib and Mesa are downloaded into build-win/deps the first time.
+#
+# mesa/ (Mesa's software OpenGL, llvmpipe, from mesa-dist-win): Prop Cycle uses
+# it ONLY when Windows offers no real OpenGL driver -- a virtual machine, Remote
+# Desktop, a PC without its GPU driver ("GDI Generic"). See src/gl_dyn.c.
 set -e
 cd "$(dirname "$0")"
 
 SDL_VER=2.32.10
 ZLIB_VER=1.3.1
+MESA_VER=26.2.1
 CC=x86_64-w64-mingw32-gcc
 TOP="$PWD"
 DEPS="$TOP/build-win/deps"
@@ -46,6 +54,17 @@ if [ ! -f "$ZL/lib/libz.a" ]; then
     cp "$DEPS/zlib-$ZLIB_VER/libz.a" "$ZL/lib/"
 fi
 
+# --- Mesa (software OpenGL fallback for Prop Cycle) --------------------------
+MESA="$DEPS/mesa-$MESA_VER"
+if [ ! -f "$MESA/libgallium_wgl.dll" ]; then
+    echo "Downloading Mesa $MESA_VER (mesa-dist-win)..."
+    command -v 7z >/dev/null || { echo "Install 7z (p7zip) to unpack Mesa."; exit 1; }
+    curl -fsSL -o "$DEPS/mesa.7z" \
+        "https://github.com/pal1000/mesa-dist-win/releases/download/$MESA_VER/mesa3d-$MESA_VER-release-mingw.7z"
+    mkdir -p "$MESA"
+    7z e -y -o"$MESA" "$DEPS/mesa.7z" x64/opengl32.dll x64/libgallium_wgl.dll >/dev/null
+fi
+
 # --- cross-compile -----------------------------------------------------------
 cat > "$TOP/build-win/toolchain.cmake" <<EOF
 set(CMAKE_SYSTEM_NAME Windows)
@@ -61,6 +80,11 @@ EOF
 cmake -S . -B build-win/cmake -DCMAKE_TOOLCHAIN_FILE="$TOP/build-win/toolchain.cmake" \
       -DCMAKE_BUILD_TYPE=RelWithDebInfo >/dev/null
 cmake --build build-win/cmake --target propcycl -j"$(nproc)"
+# Rave Racer (raverace/): the same toolchain; its generated sources (gen/) come
+# with the tree, the sound program is translated at build time with the host python
+cmake -S raverace -B build-win/rr -DCMAKE_TOOLCHAIN_FILE="$TOP/build-win/toolchain.cmake" \
+      -DCMAKE_BUILD_TYPE=Release >/dev/null
+cmake --build build-win/rr --target rr -j"$(nproc)"
 
 # --- package: windows-release/ ---------------------------------------------------
 # Everything Windows needs, in one folder. The instructions and the roms/
@@ -70,8 +94,17 @@ rm -rf "$REL" "$TOP/windows-release.zip" "$TOP/dist"
 mkdir -p "$REL"
 cp -r "$TOP/packaging/windows/." "$REL/"
 cp build-win/cmake/propcycl.exe "$REL/PropCycle.exe"
-x86_64-w64-mingw32-strip "$REL/PropCycle.exe"
-cp "$SDL/bin/SDL2.dll" "$REL/"
+cp build-win/rr/rr.exe "$REL/RaveRacer.exe"
+mkdir -p "$REL/mesa"
+cp "$MESA/opengl32.dll" "$MESA/libgallium_wgl.dll" "$REL/mesa/"
+x86_64-w64-mingw32-strip "$REL/PropCycle.exe" "$REL/RaveRacer.exe"
+# the .exe must need nothing beside it: every DLL it imports must ship with Windows
+# (OPENGL32.dll does -- it hands over to the installed GPU driver and is never bundled)
+for exe in PropCycle.exe RaveRacer.exe; do
+    bad=$(x86_64-w64-mingw32-objdump -p "$REL/$exe" | awk '/DLL Name/ {print $3}' |
+          grep -viE '^(kernel32|user32|gdi32|opengl32|advapi32|shell32|ole32|oleaut32|imm32|setupapi|version|winmm|dinput8|api-ms-win-crt-.*)\.dll$' || true)
+    [ -z "$bad" ] || { echo "$exe needs DLLs Windows does not ship: $bad"; exit 1; }
+done
 (cd "$TOP" && python3 -c "import shutil; shutil.make_archive('windows-release', 'zip', '.', 'windows-release')")
 echo
 echo "Done:  windows-release/      (copy this folder to a Windows PC)"

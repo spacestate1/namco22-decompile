@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Rave Racer
+Comment=Namco's 1995 arcade racer (decompiled engine)
+Exec=raveracer
+Icon=raveracer
+Terminal=false
+Categories=Game;ArcadeGame;

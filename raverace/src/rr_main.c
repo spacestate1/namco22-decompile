@@ -14,6 +14,8 @@
  *
  *   rr <rom_dir> [--frames N] [--dump DIR]    headless run
  */
+#include <SDL.h>
+#include "rr_romzip.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -77,8 +79,10 @@ static int in_irq;
 static uint32_t n_irq[8];
 static uint32_t n_traps;
 
+void rd_budget_out(void);   /* src/rd: unwind a checker probe (budget ran out, or it trapped) */
 void rr_trap(uint32_t at, uint32_t target, const char *what)
 {
+    rd_budget_out();                                 /* a probe's mutated state trapped: abandon the probe */
     { extern int rd_quiet; if (rd_quiet) return; }   /* a fuzz probe's mutated state (src/rd), not the game */
     n_traps++;
     if (n_traps <= 40)
@@ -96,6 +100,15 @@ uint32_t rr_trace_pc;                         /* current instruction, for RR_WAT
 void rr_trace_ins(uint32_t pc)
 {
     rr_trace_pc = pc;
+    {   /* RR_WATCHPC=a,b,...: at each listed PC print D0/D1 and the flags (state BEFORE it runs) */
+        static uint32_t wp[16]; static int nwp = -1;
+        if (nwp < 0) { nwp = 0; const char *e = getenv("RR_WATCHPC");
+            for (char *q = (char *)e; e && *q && nwp < 16; ) { char *end; unsigned long v = strtoul(q, &end, 16);
+                if (end == q) { q++; continue; } wp[nwp++] = (uint32_t)v; q = end; } }
+        for (int i = 0; i < nwp; i++) if (wp[i] == pc) {
+            fprintf(stderr, "[PCW] %06X D0=%08X D1=%08X N%dZ%dV%dC%d\n", pc, (uint32_t)RG4(0), (uint32_t)RG4(4),
+                    (int)RG1(0x44), (int)RG1(0x45), (int)RG1(0x46), (int)RG1(0x47)); break; }
+    }
     { extern int rd_cov_on; extern void rd_cov_ins(uint32_t); if (rd_cov_on) rd_cov_ins(pc); }
     static int off = -1;
     if (off < 0) off = getenv("RR_TRACE_OFF") != NULL;
@@ -124,11 +137,13 @@ void rr_trace_ins(uint32_t pc)
 static uint32_t sh_ret[SHADOW_MAX], sh_sp[SHADOW_MAX];
 static int sh_n, sh_target = -1;          /* sh_target: frame index the unwind stops at */
 uint32_t rr_ret_to;
+long rr_ncalls;             /* calls made (bsr/jsr/IRQ): the checker's fuzz skips callers */
 
 int rr_call_push(uint32_t ret)
 {
     if (sh_n >= SHADOW_MAX) { fprintf(stderr, "[RR] shadow stack overflow at %08X\n", ret); exit(4); }
     sh_ret[sh_n] = ret; sh_sp[sh_n] = (uint32_t)RG4(REG_SP);   /* SP after the push */
+    rr_ncalls++;
     return sh_n++;
 }
 int rr_irq_push(void) { int j = rr_call_push(SH_IRQ); return j; }
@@ -136,6 +151,7 @@ int rr_irq_push(void) { int j = rr_call_push(SH_IRQ); return j; }
 int rr_after_call(int j)
 {
     if (sh_target < 0) {                   /* callee came back with a plain C return (trap) */
+        rd_budget_out();                   /* inside a checker probe: abandon the probe, not the run */
         fprintf(stderr, "[RR] call frame %d returned without rts -- stopping\n", j); exit(5);
     }
     if (sh_target < j) return 1;           /* unwinding further up */
@@ -232,6 +248,7 @@ static int vblank_slices;
 
 void rr_tick(void)
 {
+    rd_budget_out();
     rr_budget = polls_per_frame / SLICES;
     if (in_irq) { rr_budget = 1000; return; }      /* finish the handler first */
     g_rr_in_vblank = vblank_slices > 0;
@@ -280,7 +297,12 @@ void rr_tick(void)
     rr_dsp_vblank();
     rr_hw_vblank();
     deliver_irqs();
-    if (dump_dir && (frame % 60 == 0 || frame == max_frames)) dump_state();
+    if (dump_dir) {             /* RR_DUMP_EVERY=n (default 60), RR_DUMP_FROM=f: dump cadence */
+        static unsigned every, from; static int init;
+        if (!init) { const char *e = getenv("RR_DUMP_EVERY"), *f = getenv("RR_DUMP_FROM");
+                     every = e && atoi(e) > 0 ? (unsigned)atoi(e) : 60; from = f ? (unsigned)atoi(f) : 0; init = 1; }
+        if ((frame >= from && frame % every == 0) || frame == max_frames) dump_state();
+    }
     if (frame % 60 == 0)
         fprintf(stderr, "[RR] frame %u  traps %u  unmapped %u  romwrites %u  irqs %u/%u/%u/%u/%u/%u/%u  en %02X pc_sr %04X\n",
                 frame, n_traps, g_rr.n_unmapped, g_rr.n_romwrite, n_irq[1], n_irq[2], n_irq[3], n_irq[4], n_irq[5], n_irq[6], n_irq[7],
@@ -296,9 +318,16 @@ void rr_tick(void)
     }
 }
 
+#ifdef _WIN32
+void rr_win_startup(void);          /* src/rr_win.c */
+#endif
 int main(int argc, char **argv)
 {
+#ifdef _WIN32
+    rr_win_startup();               /* the program's folder, raveracer.log, DPI */
+#endif
     const char *rom_dir = "extracted";
+    if (argc == 1) windowed = -1;               /* started with no arguments (a double-click): play */
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--frames") && i + 1 < argc) max_frames = (uint32_t)atoi(argv[++i]);
         else if (!strcmp(argv[i], "--dump") && i + 1 < argc) dump_dir = argv[++i];
@@ -331,6 +360,28 @@ int main(int argc, char **argv)
     if (windowed) {
         if (!rr_host_open(windowed > 0 ? windowed : 0)) return 2;
         max_frames = 0xFFFFFFFFu;
+    }
+    /* First run: take the ROMs out of MAME's raverace.zip + namcoc74.zip if the ROM
+     * folder is incomplete (src/rr_romzip.c) -- how the Windows build is set up;
+     * chips unzipped loose into roms/ work too. */
+    if (rr_romzip_missing(rom_dir) && !strcmp(rom_dir, "extracted") && !rr_romzip_missing("roms"))
+        rom_dir = "roms";
+    if (rr_romzip_missing(rom_dir)) {
+        char err[512], *base = SDL_GetBasePath();
+        if (!rr_romzip_autosetup(rom_dir, base, err, sizeof err)) {
+            fprintf(stderr, "Rave Racer needs its ROMs: %s\n", err);
+            if (windowed) {
+                char msg[1024];
+                snprintf(msg, sizeof msg,
+                         "Rave Racer needs its ROMs.\n\n"
+                         "Put raverace.zip and namcoc74.zip (the MAME ROM sets) in the \"roms\" "
+                         "folder next to this program, then start it again.\n\n(%s)", err);
+                SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Rave Racer", msg, NULL);
+            }
+            SDL_free(base);
+            return 2;
+        }
+        SDL_free(base);
     }
     if (!rr_load_program(rom_dir)) return 2;
     rr_audio_init(rom_dir);

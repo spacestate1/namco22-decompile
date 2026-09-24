@@ -18,6 +18,8 @@
  * I/O READS are allowed -- nothing advances between the two runs, so a read
  * with a side effect shows up as a mismatch rather than slipping through.
  */
+#include <setjmp.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -77,8 +79,55 @@ static eff_t *collect(int from, int *n)
     return e;
 }
 
+/* ---- registry: tables from every src/rd file, merged in rd_init ---- */
+const rd_entry *rd_table;
+int rd_count;
+static struct { const rd_entry *t; int n; } regs[64];
+static int nregs;
+void rd_register(const rd_entry *t, int n)
+{
+    if (nregs == 64) { fprintf(stderr, "[RD] too many rd tables\n"); exit(7); }
+    regs[nregs].t = t; regs[nregs].n = n; nregs++;
+}
+static int ep_cmp(const void *a, const void *b)
+{
+    uint32_t x = ((const rd_entry *)a)->ep, y = ((const rd_entry *)b)->ep;
+    return x < y ? -1 : x > y;
+}
+/* RR_RD_SKIP / RR_RD_ONLY: comma- or space-separated hex entry points, matched
+ * EXACTLY (a bisecting aid: leave some replacements lifted, or run only some) */
+static int ep_listed(const char *list, uint32_t ep)
+{
+    const char *p = list;
+    while (*p) {
+        char *end;
+        unsigned long v = strtoul(p, &end, 16);
+        if (end == p) { p++; continue; }
+        if ((uint32_t)v == ep) return 1;
+        p = end;
+    }
+    return 0;
+}
+static void merge_tables(void)
+{
+    int n = 0;
+    for (int i = 0; i < nregs; i++) n += regs[i].n;
+    rd_entry *all = malloc((size_t)(n ? n : 1) * sizeof *all);
+    n = 0;
+    const char *skip = getenv("RR_RD_SKIP"), *only = getenv("RR_RD_ONLY");
+    for (int i = 0; i < nregs; i++)
+        for (int k = 0; k < regs[i].n; k++) {
+            uint32_t ep = regs[i].t[k].ep;
+            if (skip && ep_listed(skip, ep)) continue;
+            if (only && !ep_listed(only, ep)) continue;
+            all[n++] = regs[i].t[k];
+        }
+    qsort(all, (size_t)n, sizeof *all, ep_cmp);
+    rd_table = all; rd_count = n;
+}
+
 /* ---- registry lookup ---- */
-typedef struct { long calls, pass, fail, unver, fz, fz_fail, fz_unver, cost_bad; double cost_sum; long cost_n; int cost_min, cost_max, disabled; } rd_stat;
+typedef struct { long seen, calls, pass, fail, unver, fz, fz_fail, fz_unver, cost_bad; double cost_sum; long cost_n; int cost_min, cost_max, disabled; } rd_stat;
 static rd_stat *st;
 static const rd_entry *find(uint32_t ep, int *idx)
 {
@@ -154,9 +203,13 @@ uint32_t rd_ior_serve(vaddr_t a, int size)
 int rd_stop_on;
 static void (*stop_fn)(uint32_t); static uint32_t stop_target; static int stopped;
 extern void (*rd_lifted_entry(uint32_t ep))(uint32_t);
+static int stop_depth;      /* shadow-stack depth when the checked run started */
 int rd_jump_stop(uint32_t t, uint32_t at)
 {
     if (!stop_fn || stopped || rd_lifted_entry(at) != stop_fn) return 0;
+    /* only the function's OWN jump: not one inside a callee whose code a lifted
+     * function shares (Ghidra's function ranges overlap -- FUN_0001e5c4 / 1e62c) */
+    { int n, tg; uint32_t rt; rr_shadow_save(&n, &tg, &rt); if (n != stop_depth) return 0; }
     stopped = 1; stop_target = t;
     return 1;
 }
@@ -187,6 +240,39 @@ typedef struct { int bad, io, cost, rcost; uint32_t jump; int jpoll; char why[51
  * start from the current state; the journal keeps everything above `mark`.
  * keep_lifted: leave the lifted result in place (the real call); otherwise
  * leave the state exactly as it was before the pair (a fuzz probe). */
+/* ---- registers at every poll (see RR_POLL): the lifted run's sequence and the
+ * readable run's must match -- an interrupt can land at any of them ---- */
+int rd_poll_rec;                    /* 1 = recording into set A (lifted), 2 = set B (readable) */
+#define POLL_CAP 2048
+static uint32_t pollA[POLL_CAP][15], pollB[POLL_CAP][15];
+static int npollA, npollB;
+void rd_poll_snap(void)
+{
+    int *n = rd_poll_rec == 1 ? &npollA : &npollB;
+    uint32_t (*buf)[15] = rd_poll_rec == 1 ? pollA : pollB;
+    if (*n < POLL_CAP) for (int r = 0; r < 15; r++) buf[*n][r] = (uint32_t)RG4((uint32_t)(r < 8 ? r * 4 : 0x20 + (r - 8) * 4));
+    (*n)++;
+}
+
+/* (Also called by rr_trap and by rr_after_call on a plain C return: a probe that
+ * traps is abandoned the same way.)
+ * A probe (a fuzz round or the learning pair) runs on MUTATED or rolled-back
+ * state, and a mutation can send a loop round forever (a scan that never meets
+ * its terminator). The instruction budget would then run out and rr_tick run
+ * whole frames -- DSP, sound, the next frames of game -- INSIDE the probe, which
+ * never returns: the checked function never completes and the run is lost. So a
+ * probe gets PROBE_CAP instructions; rr_tick calls rd_budget_out(), which
+ * unwinds out of a probe, and the probe is counted unverifiable. Real calls keep
+ * the unbounded budget. */
+#define PROBE_CAP (1 << 20)
+static jmp_buf probe_jb;
+static int probe_live;
+long rd_probe_timeouts;
+void rd_budget_out(void)
+{
+    if (probe_live) { probe_live = 0; longjmp(probe_jb, 1); }
+}
+
 static pair_res run_pair(const rd_entry *e, int keep_lifted)
 {
     pair_res res = { 0, 0, 0, 0, 0, 0, "" };
@@ -195,8 +281,23 @@ static pair_res run_pair(const rd_entry *e, int keep_lifted)
     memcpy(R0, R, sizeof R0);
     rr_shadow_save(&sn0, &stg0, &srt0);
     int32_t budget0 = rr_budget;
-    const int32_t BIG = 1 << 30;
+    const int32_t BIG = keep_lifted ? 1 << 30 : PROBE_CAP;
     int mark = jr_n;
+    if (!keep_lifted) {
+        if (setjmp(probe_jb)) {                          /* the probe ran past PROBE_CAP */
+            rd_stop_on = 0; stop_fn = 0; rd_cov_on = 0; rd_read_log = 0;
+            rd_ior_replay = 0; rd_jmp_poll = 0; rd_poll_rec = 0;
+            jr_undo(mark);
+            memcpy(R, R0, sizeof R0);
+            rr_shadow_load(sn0, stg0, srt0);
+            rr_budget = budget0;
+            rd_probe_timeouts++;
+            res.io = 1;
+            snprintf(res.why, sizeof res.why, "probe trapped or ran past %d instructions", PROBE_CAP);
+            return res;
+        }
+        probe_live = 1;
+    }
 
     /* lifted */
     rd_io_touched = 0; rd_io_written = 0; iol_n = 0; rr_budget = BIG;
@@ -206,8 +307,10 @@ static pair_res run_pair(const rd_entry *e, int keep_lifted)
     void (*lf)(uint32_t) = rd_lifted_entry(e->ep);
     if (!lf) { fprintf(stderr, "[RD] no lifted function at %06X\n", (unsigned)e->ep); exit(7); }
     if (cov_bits) rd_cov_on = 1;
-    stop_fn = lf; stopped = 0; rd_stop_on = 1;
+    stop_fn = lf; stopped = 0; rd_stop_on = 1; stop_depth = sn0;
+    npollA = 0; rd_poll_rec = 1;
     lf(e->ep);
+    rd_poll_rec = 0;
     rd_stop_on = 0; stop_fn = 0;
     uint32_t ljump = stopped ? stop_target : 0;
     rd_cov_on = 0; rd_read_log = 0;
@@ -226,14 +329,35 @@ static pair_res run_pair(const rd_entry *e, int keep_lifted)
     rd_io_touched = 0; rd_io_written = 0; iol_n = 0; rr_budget = BIG;
     ior_i = 0; ior_bad = 0; rd_ior_replay = 1;
     rd_jmp_poll = 0;
+    npollB = 0; rd_poll_rec = 2;
     uint32_t tj = e->fn();
     res.jpoll = rd_jmp_poll; rd_jmp_poll = 0;
-    if (!tj) do_rts(e->ep);                            /* a jump is compared, not made */
+    /* a jump that polls first (computed jmp, tail jump): the lifted run polls right
+     * before it, the readable run's poll is made later by rd_hook -- same registers */
+    if (tj && tj != RD_UNWIND && res.jpoll) rd_poll_snap();
+    rd_poll_rec = 0;
+    if (!tj) {                                         /* the rts, as the lifted epilogue does it */
+        uint32_t sp = a_reg(7), t = rr_read(sp, 4);
+        set_a(7, sp + 4);
+        RS4(0x50, t);
+        /* an rts whose address is not a call site on the shadow stack is a JUMP
+         * (the lifted run stops at it, rr_jump -> rd_jump_stop): compared as one,
+         * not made -- a probe that overwrote the return address must not run it */
+        if (!rr_return(t)) { tj = t; res.jpoll = 1; rd_poll_rec = 2; rd_poll_snap(); rd_poll_rec = 0; }
+    }
+    if (tj == RD_UNWIND) tj = 0;                       /* unwound: compared by the shadow stack */
     res.rcost = (BIG - rr_budget) + e->cost;
     rd_ior_replay = 0;
     res.io |= rd_io_touched;
     if (ior_n > 256) res.io = 1;
-    else if (!res.bad && (ior_bad || ior_i != ior_n)) { res.bad = 1; snprintf(res.why, sizeof res.why, "I/O reads differ (%d made, lifted %d)", ior_i, ior_n); }
+    else if (!res.bad && (ior_bad || ior_i != ior_n)) {
+        /* in a PROBE (a mutated pointer landing on a device) the read COUNT can differ
+         * only by Ghidra's p-code, which reads a memory operand twice for flags where
+         * the 68K reads once (tst.w, add.w to memory): unverifiable there. A real call
+         * is compared strictly. */
+        if (!keep_lifted) res.io = 1;
+        else { res.bad = 1; snprintf(res.why, sizeof res.why, "I/O reads differ (%d made, lifted %d)", ior_i, ior_n); }
+    }
     res.jump = ljump;
     if (tj != ljump) { res.bad = 1; snprintf(res.why, sizeof res.why, "leaves by %s %06X, lifted by %s %06X",
                                               tj ? "jump to" : "rts", (unsigned)tj, ljump ? "jump to" : "rts", (unsigned)ljump); }
@@ -260,8 +384,33 @@ static pair_res run_pair(const rd_entry *e, int keep_lifted)
             uint32_t vB = (uint32_t)RG4(off);
             uint32_t v0 = (uint32_t)(R0[off] << 24 | R0[off + 1] << 16 | R0[off + 2] << 8 | R0[off + 3]);
             uint32_t vL = (uint32_t)(RL[off] << 24 | RL[off + 1] << 16 | RL[off + 2] << 8 | RL[off + 3]);
-            if (!(e->kill & (1u << b)) && vB != v0) { res.bad = 1; snprintf(res.why, sizeof res.why, "%s not preserved: %08X, was %08X", regname(b), vB, v0); }
+            /* outside the kill mask the register must be preserved -- unless the LIFTED
+             * run changed it too: Ghidra's mask cannot see through an indirect call
+             * (FUN_0000f4da's sub-state handler sets A4), so then it must match lifted */
+            if (!(e->kill & (1u << b)) && vB != v0 && vL == v0) { res.bad = 1; snprintf(res.why, sizeof res.why, "%s not preserved: %08X, was %08X", regname(b), vB, v0); }
             else if (!(e->scratch & (1u << b)) && vB != vL) { res.bad = 1; snprintf(res.why, sizeof res.why, "%s = %08X, lifted %08X", regname(b), vB, vL); }
+        }
+        {   /* RR_RD_FLAGS=1: report (do not fail) N/Z/V/C differing from the lifted run --
+             * a caller may branch on them right after the call (bsr ; beq) */
+            static int fl = -1; if (fl < 0) fl = getenv("RR_RD_FLAGS") != NULL;
+            if (fl && keep_lifted && memcmp(&R[0x44], &RL[0x44], 4)) {
+                static uint32_t seen[4096]; static int ns; int k;
+                for (k = 0; k < ns && seen[k] != e->ep; k++) ;
+                if (k == ns && ns < 4096) { seen[ns++] = e->ep;
+                    fprintf(stderr, "[RD] FLAGS %s (%06X): NZVC %d%d%d%d, lifted %d%d%d%d\n", e->name, (unsigned)e->ep,
+                            R[0x44], R[0x45], R[0x46], R[0x47], RL[0x44], RL[0x45], RL[0x46], RL[0x47]); }
+            }
+        }
+        if (!res.bad && keep_lifted) {           /* registers at every poll, in order (real calls) */
+            if (npollA != npollB) { res.bad = 1; snprintf(res.why, sizeof res.why, "%d polls, lifted %d", npollB, npollA); }
+            for (int k = 0; k < npollA && k < POLL_CAP && !res.bad; k++)
+                for (int r = 0; r < 15; r++)
+                    if (pollA[k][r] != pollB[k][r]) {
+                        res.bad = 1;
+                        snprintf(res.why, sizeof res.why, "at poll %d of %d: %s = %08X, lifted %08X (registers must be live at a poll: an interrupt saves them)",
+                                 k + 1, npollA, r < 14 ? regname(r) : "A6", pollB[k][r], pollA[k][r]);
+                        break;
+                    }
         }
         for (uint32_t off = 0x38; off <= 0x3C && !res.bad; off += 4) {          /* A6, SP */
             uint32_t vB = (uint32_t)RG4(off), vL = (uint32_t)(RL[off] << 24 | RL[off + 1] << 16 | RL[off + 2] << 8 | RL[off + 3]);
@@ -295,6 +444,7 @@ static pair_res run_pair(const rd_entry *e, int keep_lifted)
         rr_budget = budget0;
     }
     free(A); free(B);
+    probe_live = 0;
     return res;
 }
 
@@ -305,12 +455,23 @@ static uint32_t rnd(void) { rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5;
 
 static void fuzz(const rd_entry *e, rd_stat *s)
 {
+    static int trace = -1;
+    if (trace < 0) trace = getenv("RR_RD_FUZZTRACE") != NULL;
+    if (trace) fprintf(stderr, "[FZ] %s\n", e->name);
     /* what the lifted run READ: learned from one quiet, rolled-back pair */
     rr_hw_t hw_learn = g_hw;
     rl_n = 0; dict_n = 0; rd_read_log = 1;
+    extern long rr_ncalls;
+    long nc0 = rr_ncalls;
     run_pair(e, 0);
     rd_read_log = 0;
     g_hw = hw_learn;
+    /* Only LEAF calls are fuzzed. A mutated caller sends its callees down paths
+     * nothing bounds (tail jumps into whole state handlers), and their side
+     * effects outside the journal pulled the real run off course (a different
+     * song, the race 500 frames late). A caller is still checked on every
+     * real call; its callees are fuzzed at their own level. */
+    if (rr_ncalls != nc0) return;
     uint32_t sp = a_reg(7);
     static uint8_t Rsave[RR_REGSPACE];
     rr_hw_t hw_save = g_hw;                  /* fuzz probes' I/O reads must not advance the board */
@@ -395,12 +556,41 @@ static void fuzz(const rd_entry *e, rd_stat *s)
     }
 }
 
+/* RR_RD_LEAKCHECK=1: a fuzz round must leave NO trace. Hash the whole machine
+ * state the 68K can see (every RAM / register block of g_rr, the CPU register
+ * space, g_hw, the instruction budget, the shadow stack) before and after each
+ * fuzz round and name the first function whose probes changed it. */
+static uint64_t state_hash(void)
+{
+    uint64_t h = 1469598103934665603ull;
+    const uint8_t *b = (const uint8_t *)&g_rr + offsetof(rr_sys_t, wram);
+    size_t n = offsetof(rr_sys_t, n_unmapped) - offsetof(rr_sys_t, wram);
+    for (size_t i = 0; i < n; i++) h = (h ^ b[i]) * 1099511628211ull;
+    for (size_t i = 0; i < RR_REGSPACE; i++) h = (h ^ R[i]) * 1099511628211ull;
+    b = (const uint8_t *)&g_hw;
+    for (size_t i = 0; i < sizeof g_hw; i++) h = (h ^ b[i]) * 1099511628211ull;
+    int sn, stg; uint32_t srt;
+    rr_shadow_save(&sn, &stg, &srt);
+    h = (h ^ (uint64_t)(uint32_t)rr_budget) * 1099511628211ull;
+    h = (h ^ (uint64_t)(uint32_t)sn) * 1099511628211ull;
+    h = (h ^ (uint64_t)(uint32_t)stg) * 1099511628211ull;
+    h = (h ^ srt) * 1099511628211ull;
+    return h;
+}
 static uint32_t pend_jump; static int pend_poll;
 static int check(const rd_entry *e, int idx)
 {
     rd_stat *s = &st[idx];
     jr_n = 0; rd_journal_on = 1;
-    if (fuzz_n && !e->nofuzz && s->calls < 300) fuzz(e, s);
+    if (fuzz_n && !e->nofuzz && s->calls < 300) {
+        static int leakcheck = -1, leaks;
+        if (leakcheck < 0) leakcheck = getenv("RR_RD_LEAKCHECK") != NULL;
+        uint64_t h0 = leakcheck ? state_hash() : 0;
+        fuzz(e, s);
+        if (leakcheck && state_hash() != h0 && leaks++ < 20)
+            fprintf(stderr, "[RD] FUZZ LEAK %s (%06X): state differs after its fuzz round (call %ld)\n",
+                    e->name, (unsigned)e->ep, s->calls);
+    }
     rd_real = 1;
     pair_res r = run_pair(e, 1);
     rd_real = 0;
@@ -428,6 +618,11 @@ int rd_hook(uint32_t ep)
     if (!e || st[idx].disabled) return 0;
     if (mode == 2) {
         if (in_check) return 0;
+        /* A replaced function's callees run LIFTED inside its check, so a callee
+         * reached only through converted callers would never be checked itself.
+         * After a function's first two checks, every other call runs it lifted
+         * and unchecked, which lets its callees be checked at their own level. */
+        if (++st[idx].seen > 2 && (st[idx].seen & 1)) return 0;
         in_check = 1; pend_jump = 0; int r = check(e, idx); in_check = 0;
         if (pend_jump) {                               /* the lifted run's tail jump, made once */
             uint32_t t = pend_jump; pend_jump = 0;
@@ -440,6 +635,7 @@ int rd_hook(uint32_t ep)
     uint32_t tj = e->fn();
     rr_budget -= e->cost;
     if (rd_jmp_poll) { rd_jmp_poll = 0; RR_POLL(); }
+    if (tj == RD_UNWIND) return 1;                     /* a callee unwound past us: nothing to do */
     if (tj) rr_jump(tj, ep); else do_rts(ep);
     return 1;
 }
@@ -473,6 +669,7 @@ static void report(void)
         if (!s->calls) nz++; else if (s->fail || s->fz_fail) nf++; else if (s->pass) np++; else nu++;
     }
     fprintf(stderr, "[RD] %d replacements: %d pass, %d FAIL, %d unverifiable, %d not called\n", rd_count, np, nf, nu, nz);
+    if (rd_probe_timeouts) fprintf(stderr, "[RD] %ld probes abandoned (trap, or past the %d-instruction cap; counted unverifiable)\n", rd_probe_timeouts, PROBE_CAP);
     { extern long rd_div_overflows;
       fprintf(stderr, "[RD] divs.w overflows in FUN_0003124e on REAL calls (lifted + readable run each): %ld\n", rd_div_overflows); }
 }
@@ -486,10 +683,11 @@ void rd_init(void)
     const int dflt = 1;
 #endif
     mode = !e ? dflt : !strcmp(e, "check") ? 2 : !strcmp(e, "census") ? 3 : atoi(e) ? 1 : 0;
+    merge_tables();
     for (int i = 0; i < rd_count; i++)
         if (rd_table[i].scratch & ~rd_table[i].kill) { fprintf(stderr, "[RD] %s declares scratch outside its kill mask\n", rd_table[i].name); exit(7); }
     for (int i = 1; i < rd_count; i++)
-        if (rd_table[i].ep <= rd_table[i - 1].ep) { fprintf(stderr, "[RD] rd_table not sorted at %06X\n", (unsigned)rd_table[i].ep); exit(7); }
+        if (rd_table[i].ep <= rd_table[i - 1].ep) { fprintf(stderr, "[RD] two replacements for %06X\n", (unsigned)rd_table[i].ep); exit(7); }
     st = calloc(rd_count > 0 ? (size_t)rd_count : 1u, sizeof *st);
     rd_on = mode != 0 && (rd_count > 0 || mode == 3);
     { const char *f = getenv("RR_RD_FUZZ"); fuzz_n = (mode == 2 && f) ? atoi(f) : 0; }

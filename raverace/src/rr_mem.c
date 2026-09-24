@@ -131,7 +131,11 @@ void rr_write(vaddr_t a, int size, uint32_t v)
 #endif
     if (rd_journal_on && s_io_w && !(a >= 0x70000000u && a < 0x70000000u + RR_POLY_WORDS * 4)) {
         uint32_t o_, l_; bool r_;
-        if (!region(a, &o_, &l_, &r_)) { rd_io_log(a, size, v); return; }   /* src/rd: captured, replayed later */
+        /* syscon (0x40000000) is backed by memory but its writes have side effects
+         * (IRQ enables/acks, sound CPU hold/release, DSP control): an I/O write too */
+        if (!region(a, &o_, &l_, &r_) || (a >= 0x40000000u && a < 0x40000020u)) {
+            rd_io_log(a, size, v); return;                      /* src/rd: captured, replayed later */
+        }
     }
     if (s_io_w && s_io_w(a, size, v)) return;
     if (rd_journal_on && a >= 0x70000000u && a < 0x70000000u + RR_POLY_WORDS * 4) {   /* journal the word's 4 host bytes */

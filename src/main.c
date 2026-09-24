@@ -288,7 +288,11 @@ static void toggle_pause(const char *why)
 static bool init_sdl(void) {
     /* For headless: use offscreen video driver */
     if (headless) {
+#ifdef SDL_HINT_VIDEODRIVER
         SDL_SetHint(SDL_HINT_VIDEODRIVER, "offscreen");
+#else   /* SDL < 2.0.22 (Ubuntu 22.04 / Mint 21) reads only the environment */
+        setenv("SDL_VIDEODRIVER", "offscreen", 1);
+#endif
     }
 
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
@@ -351,6 +355,54 @@ static bool init_sdl(void) {
     }
 
     glctx = SDL_GL_CreateContext(window);
+#ifdef _WIN32
+    /* Windows: OpenGL is called through pointers (src/gl_dyn.c). If the system
+     * gives no usable OpenGL -- no context, or only "GDI Generic", the GL 1.1
+     * software stub of a virtual machine, Remote Desktop or a PC without a GPU
+     * driver -- reopen on the bundled Mesa (mesa\opengl32.dll beside the .exe,
+     * llvmpipe: software, slower, but it runs). PROPCYCL_FORCE_MESA=1 forces it. */
+    {
+        extern bool gl_dyn_resolve(const char *module, const char **missing);
+        const char *miss = NULL;
+        bool usable = glctx && gl_dyn_resolve(NULL, &miss);
+        if (usable) {
+            const char *ren = (const char *)glGetString(GL_RENDERER);
+            usable = ren && !strstr(ren, "GDI Generic") && !getenv("PROPCYCL_FORCE_MESA");
+        }
+        if (!usable) {
+            /* relative to the program's folder (main() changed to it with the wide
+             * API): no absolute path through the ANSI calls, which cannot name a
+             * folder outside the system code page */
+            const char *dll = "mesa\\opengl32.dll";
+            wchar_t wdir[32768];
+            DWORD wn = GetFullPathNameW(L"mesa", 32768, wdir, NULL);
+            FILE *t = fopen(dll, "rb");
+            if (t) {
+                fclose(t);
+                printf("No usable OpenGL driver: switching to the bundled Mesa (%s)\n", dll);
+                if (glctx) SDL_GL_DeleteContext(glctx);
+                glctx = NULL;
+                SDL_DestroyWindow(window);
+                SDL_GL_UnloadLibrary();
+                if (wn > 0 && wn < 32768) SetDllDirectoryW(wdir);   /* its libgallium_wgl.dll sits beside it */
+                if (SDL_GL_LoadLibrary(dll) == 0) {
+                    window = SDL_CreateWindow("Prop Cycle", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+                                              win_w, win_h, flags);
+                    if (window) glctx = SDL_GL_CreateContext(window);
+                    if (glctx && !gl_dyn_resolve(dll, &miss)) { SDL_GL_DeleteContext(glctx); glctx = NULL; }
+                } else fprintf(stderr, "cannot load %s: %s\n", dll, SDL_GetError());
+            }
+        }
+        if (!glctx && !headless) {
+            char msg[512];
+            snprintf(msg, sizeof msg, "Prop Cycle could not start OpenGL (%s%s%s).\n\n"
+                     "Install or update the graphics driver. In a virtual machine, keep the "
+                     "\"mesa\" folder beside PropCycle.exe (software rendering).",
+                     SDL_GetError(), miss ? ", missing " : "", miss ? miss : "");
+            SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Prop Cycle", msg, window);
+        }
+    }
+#endif
     if (!glctx) {
         fprintf(stderr, "SDL_GL_CreateContext failed: %s\n", SDL_GetError());
         return false;
@@ -366,7 +418,7 @@ static bool init_sdl(void) {
         const char *ren = (const char *)glGetString(GL_RENDERER);
         const char *ver = (const char *)glGetString(GL_VERSION);
         printf("OpenGL: %s | %s | %s\n", ven ? ven : "?", ren ? ren : "?", ver ? ver : "?");
-        if (!headless && ren && strstr(ren, "GDI Generic")) {
+        if (!headless && ren && strstr(ren, "GDI Generic")) {   /* Windows: only when no mesa/ folder either */
             SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Prop Cycle",
                 "No OpenGL graphics driver was found (Windows gave the basic "
                 "'GDI Generic' renderer).\n\nInstall or update the graphics "
@@ -444,7 +496,11 @@ int main(int argc, char* argv[]) {
 #ifdef _WIN32
     /* Double-clicked, or started from a shortcut: work from the program's own
      * folder, where extracted/, roms/ and the settings live. */
-    { char *base = SDL_GetBasePath(); if (base) { _chdir(base); SDL_free(base); } }
+    /* The WIDE path: the ANSI calls cannot name a folder outside the system code
+     * page (C:\\Users\\Zoë\\...), and then roms/, mesa/ and the settings were not
+     * found. Everything after this uses paths relative to that folder. */
+    { wchar_t p[32768]; DWORD n = GetModuleFileNameW(NULL, p, 32768);
+      if (n > 0 && n < 32768) { wchar_t *sl = wcsrchr(p, L'\\'); if (sl) { *sl = 0; _wchdir(p); } } }
     /* A windowed program has no console, so everything printed goes to
      * propcycl.log beside the exe -- the first thing to read when it fails. */
     if (freopen("propcycl.log", "w", stdout)) {
@@ -1858,11 +1914,17 @@ int main(int argc, char* argv[]) {
     if (!headless && ui_restart_requested()) {
         fflush(NULL);
 #ifdef _WIN32
-        char self[4096];
-        if (GetModuleFileNameA(NULL, self, sizeof self)) {
-            /* _spawnv, not _execv: _execv on Windows returns the console to
-             * the caller before the new process is up. */
-            if (_spawnv(_P_NOWAIT, self, (const char *const *)argv) != -1) return 0;
+        /* wide: the program's own path and command line as Windows has them
+         * (the ANSI forms mangle a folder outside the system code page) */
+        wchar_t self[32768];
+        DWORD sn = GetModuleFileNameW(NULL, self, 32768);
+        if (sn > 0 && sn < 32768) {
+            STARTUPINFOW si; PROCESS_INFORMATION pi;
+            memset(&si, 0, sizeof si); si.cb = sizeof si;
+            if (CreateProcessW(self, GetCommandLineW(), NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
+                CloseHandle(pi.hThread); CloseHandle(pi.hProcess);
+                return 0;
+            }
         }
 #else
         char self[4096];

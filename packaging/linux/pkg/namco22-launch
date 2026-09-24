@@ -1,0 +1,58 @@
+#!/bin/sh
+# Installed-package launcher for the Namco System 22 decompilations.
+#   namco22-launch prop [0-3] [args]     Prop Cycle (a number = straight to that level)
+#   namco22-launch rave [1-9] [args]     Rave Racer (a number = window scale)
+# Each game plays from its own folder under ~/.local/share/namco22/, which holds
+# its roms/, the unpacked chips, the settings, scores and recordings. The ROM zips
+# (MAME sets) go in that roms/ folder; ~/Downloads is checked on first start.
+LIB=/usr/lib/namco22
+game="$1"; [ $# -gt 0 ] && shift
+case "$game" in
+    prop|propcycle) title="Prop Cycle"; dir=propcycle; zips="propcycl.zip" ;;
+    rave|raverace)  title="Rave Racer"; dir=raverace;  zips="raverace.zip namcoc74.zip" ;;
+    *) sed -n '2,8p' "$0" | sed 's/^# \?//'; exit 1 ;;
+esac
+data="${XDG_DATA_HOME:-$HOME/.local/share}/namco22/$dir"
+mkdir -p "$data/roms" || exit 1
+cd "$data" || exit 1
+
+missing=""
+for z in $zips; do
+    [ -f "roms/$z" ] && continue
+    for s in "$HOME/Downloads/$z" "$HOME/$z"; do
+        if [ -f "$s" ]; then cp "$s" roms/ && break; fi
+    done
+    [ -f "roms/$z" ] || missing="$missing $z"
+done
+# Once unpacked the zips are no longer needed, so only complain before that.
+if [ -n "$missing" ] && [ -z "$(ls -A extracted 2>/dev/null)" ]; then
+    msg="$title needs its ROM files (no game data is included).
+
+Missing:$missing
+
+Copy the MAME ROM zip(s) into this folder, then start the game again:
+    $data/roms
+
+(This folder is now open. ~/.local is hidden: press Ctrl+H in a file manager.)"
+    echo "$msg" >&2
+    if [ -n "$DISPLAY$WAYLAND_DISPLAY" ]; then
+        if command -v zenity >/dev/null 2>&1; then zenity --error --title="$title" --text="$msg" 2>/dev/null
+        elif command -v kdialog >/dev/null 2>&1; then kdialog --title "$title" --error "$msg" 2>/dev/null
+        elif command -v notify-send >/dev/null 2>&1; then notify-send "$title" "$msg"; fi
+        command -v xdg-open >/dev/null 2>&1 && xdg-open "$data/roms" >/dev/null 2>&1 &
+    fi
+    exit 1
+fi
+
+case "$dir" in
+    propcycle)
+        case "${1:-}" in
+            0|1|2|3) c="$1"; shift; exec "$LIB/propcycl" extracted --autostart "$c" "$@" ;;
+            *)       PROPCYCL_NO_AUTOSTART=1 exec "$LIB/propcycl" extracted "$@" ;;
+        esac ;;
+    raverace)
+        if [ $# -eq 0 ] || expr "$1" : '[1-9]$' >/dev/null; then
+            exec "$LIB/rr" extracted --window ${1:+"$1"}
+        fi
+        exec "$LIB/rr" extracted "$@" ;;
+esac

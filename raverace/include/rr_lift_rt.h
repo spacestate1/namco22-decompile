@@ -124,7 +124,12 @@ static inline void rr_set_sr(uint32_t sr)
 /* The scheduler hook: every call and backward branch counts down a budget;
  * when it runs out the host delivers interrupts and steps the other chips. */
 void rr_tick(void);
-#define RR_POLL() do { if (rr_budget <= 0) rr_tick(); } while (0)
+/* rd_poll_rec (src/rd/rd_core.c): during a check, the register file is recorded at
+ * every poll -- an interrupt can only land there, and the vblank handler saves the
+ * registers to WRAM, so a readable function must hold the 68K's registers at each one */
+extern int rd_poll_rec;
+void rd_poll_snap(void);
+#define RR_POLL() do { if (rd_poll_rec) rd_poll_snap(); if (rr_budget <= 0) rr_tick(); } while (0)
 
 void rr_call_ind(uint32_t target, uint32_t at);
 

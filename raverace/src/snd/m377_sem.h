@@ -228,8 +228,8 @@ static inline void branch(m37710_t *c, bool take)
 #ifndef M377_EXEC_ATTR
 #define M377_EXEC_ATTR
 #endif
-/* gen/snd_driver.c defines M377_EXEC_ATTR as always_inline, so each call with a
- * constant opcode is folded to that one instruction's code. */
+/* gen/snd_driver.c defines M377_EXEC_ATTR as noinline: forcing this into its one
+ * huge function made the file need 8+ GB of RAM to compile, for no speed gain. */
 static inline M377_EXEC_ATTR bool m377_exec(m37710_t *c, uint16_t op)
 {
     switch (op) {

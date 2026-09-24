@@ -11,7 +11,7 @@
  * here as WRAM globals. A register a caller reads back is set exactly as the
  * 68K leaves it (move.w into Dn changes only the low word: set_d16).
  *
- * rd_table MUST stay sorted by entry address.
+ * Each rd_*.c file registers its own table (RD_REGISTER); keep each sorted.
  */
 #include "rd.h"
 
@@ -79,8 +79,9 @@ static uint32_t rd_send_sound_param(void)
 static uint32_t rd_update_flag_0804(void)
 {
     uint32_t v = 0;
-    if (!(vrd8(SND_STATUS) & 4)) v = 1;
-    if (!(vrd8(DSW_PORT_LO) & 1)) v = 1;
+    /* 7 instructions (the table's cost) when both bits are set; each moveq #1 adds one */
+    if (!(vrd8(SND_STATUS) & 4)) { v = 1; charge(1); }
+    if (!(vrd8(DSW_PORT_LO) & 1)) { v = 1; charge(1); }
     set_d(0, v);
     vwr16(G_FLAG_0804, v);
     return RD_RTS;
@@ -125,11 +126,12 @@ static uint32_t rd_merge_enabled_slots(void)
         }
         d6++;
         d5 += 0x10;
+        /* registers live at every poll (the vblank handler saves them) */
+        set_d16(1, d1); set_d16(2, d2); set_d16(3, d3); set_d16(4, d4);
+        set_d16(5, d5); set_d16(6, d6); set_d16(7, (uint16_t)(d7 - 1));
         if (d7-- == 0) break;
         poll();                                  /* dbf taken */
     } while (1);
-    set_d16(1, d1); set_d16(2, d2); set_d16(3, d3); set_d16(4, d4);
-    set_d16(5, d5); set_d16(6, d6); set_d16(7, d7);
     return RD_RTS;
 }
 
@@ -162,7 +164,13 @@ static uint32_t rd_store_slot(void)
 static uint32_t rd_random_next(void)
 {
     uint32_t x = vrd32(G_RANDOM) << 1;
-    if (((x >> 31) ^ (x >> 7)) & 1) { x += 1; charge(2); }   /* addq + bra */
+    if ((x >> 31) && !((x >> 7) & 1)) {
+        /* bmi, btst, beq back to the addq: a taken backward branch polls */
+        set_d(0, x);
+        charge(5); poll();                                  /* move, lsl, bmi, btst, beq */
+        x += 1; charge(4);                                  /* addq, bra, move, rts */
+    } else if (((x >> 31) ^ (x >> 7)) & 1) { x += 1; charge(9); }  /* bit 7 set, bit 31 clear: addq + bra */
+    else charge(7);
     vwr32(G_RANDOM, x);
     set_d(0, x);
     return RD_RTS;
@@ -174,10 +182,14 @@ static uint32_t rd_random_next(void)
  * (dbf) and D1w at 0, as the 68K leaves them. */
 static uint32_t rd_reset_display_header(void)
 {
+    /* registers live at every poll (the vblank handler saves them) */
     uint32_t base = vrd32(0x10008C42u);
+    set_a(3, base); set_d(0, 7);
     charge(2);                                   /* movea, moveq */
     for (int blk = 7; blk >= 0; blk--) {
+        set_d16(1, (uint16_t)(blk << 7));
         vwr32(base + (uint32_t)(int16_t)(blk << 7), 0);
+        set_d16(0, (uint16_t)(blk - 1));
         charge(4);                               /* move, lsl, move.l, dbf */
         if (blk) poll();                         /* dbf taken */
     }
@@ -185,9 +197,6 @@ static uint32_t rd_reset_display_header(void)
     vwr32(base + 0x400, 0x8002);
     vwr32(base + 0x404, 0);
     vwr32(base + 0x408, 0xFFFFFFFFu);
-    set_a(3, base);
-    set_d(0, 0x0000FFFFu);
-    set_d16(1, 0);
     return RD_RTS;
 }
 
@@ -195,8 +204,10 @@ static uint32_t rd_reset_display_header(void)
  * words from 0xA230 and set the count to -1. A0 ends past the cleared words. */
 static uint32_t rd_clear_pending_words(void)
 {
+    /* registers live at every poll (the vblank handler saves them) */
     uint32_t p = 0x1000A230u;
     uint16_t n = (uint16_t)vrd16(0x1000A22Eu);
+    set_a(0, p); set_d16(0, n);
     charge(3);                                   /* lea, move, bmi */
     if (!(n & 0x8000)) {
         set_d(1, 0);
@@ -204,6 +215,7 @@ static uint32_t rd_clear_pending_words(void)
         uint16_t c = n;
         for (;;) {
             vwr16(p, 0); p += 2;
+            set_a(0, p); set_d16(0, (uint16_t)(c - 1));
             charge(2);                           /* move.w, dbf */
             if (c-- == 0) break;
             poll();                              /* dbf taken */
@@ -245,12 +257,13 @@ static uint32_t rd_latch_45ec_block(void)
  * slot * 16, D0w = the mask, as the 68K leaves them. */
 static uint32_t rd_reset_disabled_slots(void)
 {
+    /* registers live at every poll (the vblank handler saves them) */
     uint16_t mask = (uint16_t)vrd16(0x10009104u);
-    set_d16(0, mask);
+    set_d16(0, mask); set_d(6, 15); set_d(5, 0);
     charge(3);                                   /* move, moveq, moveq */
     for (int slot = 15; slot >= 0; slot--) {
         charge(3);                               /* btst, bne, dbf */
-        if (mask & (1u << slot)) { if (slot) poll(); continue; }
+        if (mask & (1u << slot)) { set_d16(6, (uint16_t)(slot - 1)); if (slot) poll(); continue; }
         charge(14);
         uint32_t o2 = (uint32_t)(slot * 2);
         vwr16(0x1000903Cu + o2, 0);
@@ -263,11 +276,10 @@ static uint32_t rd_reset_disabled_slots(void)
         vwr8 (r + 6, 0);
         vwr16(r + 8, 0); vwr16(r + 10, 0); vwr16(r + 12, 0);
         set_d16(1, (uint16_t)(slot << 4));
+        set_d16(6, (uint16_t)(slot - 1));
         if (slot) poll();                        /* dbf taken */
     }
     charge(1);                                   /* rts */
-    set_d(6, 0x0000FFFFu);
-    set_d(5, 0);
     return RD_RTS;
 }
 
@@ -311,7 +323,9 @@ static uint32_t rd_sound_flag_4020(void)
     set_d16(0, sel);
     uint16_t off = (uint16_t)vrd16(0x4D12u + sel * 2u);              /* the table, from ROM */
     set_d16(0, off);
-    if (0x4D12u + off == 0x4D1Au) return RD_RTS;                     /* cost 5 */
+    charge(4);                                                        /* move, andi, move, jmp */
+    poll();                                                           /* the computed jmp polls */
+    if (0x4D12u + off == 0x4D1Au) return RD_RTS;                     /* cost 1: the rts */
     charge(2);                                                        /* tst.b, beq */
     uint8_t f = (uint8_t)vrd8(0x100091A8u);
     if (!f) return RD_RTS;                                            /* 7 */
@@ -455,8 +469,10 @@ static uint32_t rd_input_sequence(void)
  * end. Registers end as the 68K leaves them. */
 static uint32_t rd_pack_records_4560(void)
 {
+    /* registers live at every poll (the vblank handler saves them) */
     uint32_t src = 0x1000C560u, out = vrd32(0x10008C46u);
     uint32_t d0 = 0, d1 = 0;
+    set_a(0, src); set_a(1, out); set_d(0, 0); set_d(1, 0); set_d16(5, 7);
     charge(5);                                   /* lea, movea, moveq, moveq, move.w */
     for (int n = 7; n >= 0; n--) {
         d0 = vrd16(src);
@@ -473,15 +489,13 @@ static uint32_t rd_pack_records_4560(void)
             charge(18);
         }
         src += 0x1C;
+        set_a(0, src); set_a(1, out); set_d(0, d0); set_d(1, d1); set_d16(5, (uint16_t)(n - 1));
         charge(2);                               /* adda, dbf */
         if (n) poll();                           /* dbf taken */
     }
     vwr32(out, 0xFFFFFFFFu);
     vwr32(0x10008C46u, out);
     charge(3);                                   /* move.l, move.l, rts */
-    set_a(0, src); set_a(1, out);
-    set_d(0, d0); set_d(1, d1);
-    set_d16(5, 0xFFFF);
     return RD_RTS;
 }
 
@@ -696,16 +710,17 @@ static uint32_t rd_palette_end_bytes(void)
 /* FUN_0000c656: a delay loop -- 60 x (D1 = D1w * 0xFFFF) */
 static uint32_t rd_delay_60(void)
 {
+    /* registers live at every poll (the vblank handler saves them) */
     uint32_t d1 = d_reg(1);
+    set_d(0, 0x3B);
     charge(1);                                                   /* moveq */
     for (int k = 0x3B; k >= 0; k--) {
         d1 = (d1 & 0xFFFFu) * 0xFFFFu;                           /* mulu.w #-1 */
+        set_d(1, d1); set_d16(0, (uint16_t)(k - 1));
         charge(2);                                               /* mulu, dbf */
         if (k) poll();
     }
     charge(1);                                                   /* rts */
-    set_d(1, d1);
-    set_d(0, 0x0000FFFFu);
     return RD_RTS;
 }
 
@@ -796,11 +811,17 @@ static uint32_t rd_fill_czram(void)
 /* FUN_0000575a: fill the 0x1000-word text tilemap at 0x9009E000 with 0x20 (spaces) */
 static uint32_t rd_clear_text(void)
 {
+    /* registers live at every poll (the vblank handler saves them) */
     uint32_t a = 0x9009E000u;
+    set_d16(1, 0xFFF); set_a(1, a); set_d16(0, 0x20);
     charge(3);
-    for (int k = 0xFFF; k >= 0; k--) { vwr16(a, 0x20); a += 2; charge(2); if (k) poll(); }
+    for (int k = 0xFFF; k >= 0; k--) {
+        vwr16(a, 0x20); a += 2;
+        set_a(1, a); set_d16(1, (uint16_t)(k - 1));
+        charge(2);
+        if (k) poll();
+    }
     charge(1);
-    set_a(1, a); set_d16(1, 0xFFFF); set_d16(0, 0x20);
     return RD_RTS;
 }
 
@@ -871,17 +892,19 @@ static uint32_t rd_dl_header_closed(void)
  * 64-byte entries (D6w ends 0x400, D7w 0xFFFF) */
 static uint32_t rd_clear_16c4_bit0(void)
 {
+    /* registers live at every poll (the vblank handler saves them) */
     uint16_t d6 = 0;
+    set_d16(6, 0); set_d16(7, 15);
     charge(2);
     for (int k = 15; k >= 0; k--) {
         uint32_t a = 0x100096C4u + (uint32_t)(int16_t)d6;
         vwr8(a, vrd8(a) & ~1u);
         d6 += 0x40;
+        set_d16(6, d6); set_d16(7, (uint16_t)(k - 1));
         charge(3);                                                /* bclr, addi, dbf */
         if (k) poll();
     }
     charge(1);
-    set_d16(6, d6); set_d16(7, 0xFFFF);
     return RD_RTS;
 }
 
@@ -920,11 +943,17 @@ static uint32_t rd_snd_5000_405d(void)
  * continue at the address in A4 (a continuation the caller supplied) */
 static uint32_t rd_restore_f000(void)
 {
+    /* registers live at every poll (the vblank handler saves them) */
     uint32_t src = 0x1001F000u, dst = 0x1000F000u;
+    set_a(2, src); set_a(3, dst); set_d16(6, 0x3FF);
     charge(3);
-    for (int k = 0x3FF; k >= 0; k--) { vwr32(dst, vrd32(src)); src += 4; dst += 4; charge(2); if (k) poll(); }
+    for (int k = 0x3FF; k >= 0; k--) {
+        vwr32(dst, vrd32(src)); src += 4; dst += 4;
+        set_a(2, src); set_a(3, dst); set_d16(6, (uint16_t)(k - 1));
+        charge(2);
+        if (k) poll();
+    }
     charge(1);                                                    /* jmp (A4) */
-    set_a(2, src); set_a(3, dst); set_d16(6, 0xFFFF);
     return RD_JMP(a_reg(4));
 }
 
@@ -932,11 +961,18 @@ static uint32_t rd_restore_f000(void)
  * 0x2FD44 with A4 = the old A3 and A3 = 0x2FB56 (the continuation) */
 static uint32_t rd_save_f000(void)
 {
+    /* registers live at every poll (the vblank handler saves them) */
     uint32_t src = 0x1000F000u, dst = 0x10001000u;
+    set_a(2, src); set_a(4, dst); set_d16(6, 0x3FF);
     charge(3);
-    for (int k = 0x3FF; k >= 0; k--) { vwr32(dst, vrd32(src)); src += 4; dst += 4; charge(2); if (k) poll(); }
+    for (int k = 0x3FF; k >= 0; k--) {
+        vwr32(dst, vrd32(src)); src += 4; dst += 4;
+        set_a(2, src); set_a(4, dst); set_d16(6, (uint16_t)(k - 1));
+        charge(2);
+        if (k) poll();
+    }
     charge(3);                                                    /* movea, lea, jmp */
-    set_a(2, src); set_a(4, a_reg(3)); set_a(3, 0x2FB56u); set_d16(6, 0xFFFF);
+    set_a(4, a_reg(3)); set_a(3, 0x2FB56u);
     return 0x2FD44u;
 }
 
@@ -1078,16 +1114,23 @@ static uint32_t rd_split_c024(void)
  * (a "within the window" test the caller reads back through D0) */
 static uint32_t in_window(uint16_t mode, int16_t lo, int16_t hi)
 {
+    /* the caller branches on Z straight after (FUN_00028c32: bsr ; beq): the flags
+     * are the last compare's, or moveq #0's (Z set) inside the window */
     charge(2);                                                    /* cmpi, bne */
-    if ((uint16_t)vrd16(0x1000A046u) != mode) return RD_RTS;
+    uint16_t m = (uint16_t)vrd16(0x1000A046u);
+    rd_flags_cmp16(m, mode);
+    if (m != mode) return RD_RTS;
     charge(3);                                                    /* move, cmpi, blt */
     int16_t v = (int16_t)vrd16(0x1000A04Cu);
     set_d16(0, (uint16_t)v);
+    rd_flags_cmp16((uint16_t)v, (uint16_t)lo);
     if (v < lo) return RD_RTS;
     charge(2);                                                    /* cmpi, bgt */
+    rd_flags_cmp16((uint16_t)v, (uint16_t)hi);
     if (v > hi) return RD_RTS;
     charge(1);
     set_d(0, 0);
+    rd_flags_nzvc(0, 1, 0, 0);                                    /* moveq #0 */
     return RD_RTS;
 }
 static uint32_t rd_window_mode0(void) { return in_window(0, 0x41A, 0x4B0); }
@@ -1109,15 +1152,17 @@ static uint32_t rd_mixer_from_table(void)
  * 0x90037F00, 0x9003FF00), then continue at 0xC74E */
 static uint32_t rd_palette_tails(void)
 {
+    /* registers live at every poll (the vblank handler saves them) */
     uint32_t a0 = 0x9002FF00u, a1 = 0x90037F00u, a2 = 0x9003FF00u;
+    set_a(0, a0); set_a(1, a1); set_a(2, a2); set_d(0, 0); set_d16(1, 0xFF);
     charge(5);
     for (int k = 0xFF; k >= 0; k--) {
         vwr8(a0++, 0); vwr8(a1++, 0); vwr8(a2++, 0);
+        set_a(0, a0); set_a(1, a1); set_a(2, a2); set_d16(1, (uint16_t)(k - 1));
         charge(4);
         if (k) poll();
     }
     charge(1);                                                    /* jmp (absolute: no poll) */
-    set_a(0, a0); set_a(1, a1); set_a(2, a2); set_d(0, 0); set_d16(1, 0xFFFF);
     return 0xC74Eu;
 }
 
@@ -1127,7 +1172,9 @@ static uint32_t rd_palette_tails(void)
  * -- or at 0xA8E2 -- 6000000 ... 10, 1. D1 ends as the last remainder. */
 static uint32_t pack_digits(uint32_t tbl)
 {
+    /* registers live at every poll (the vblank handler saves them) */
     uint32_t d0 = 0, d1 = d_reg(1);
+    set_a(1, tbl); set_d(0, 0); set_d(2, 7);
     charge(3);
     for (int k = 7; k >= 0; k--) {
         d0 = d0 << 4 | d0 >> 28;                                 /* rol.l #4 */
@@ -1135,10 +1182,10 @@ static uint32_t pack_digits(uint32_t tbl)
         uint32_t q = (uint32_t)UDIVREM(d1, div, '/');
         d1 = (uint32_t)UDIVREM(d1, div, '%');
         d0 |= q;
+        set_d(0, d0); set_d(1, d1); set_d(3, 0); set_a(1, tbl); set_d16(2, (uint16_t)(k - 1));
         charge(6);
         if (k) poll();
     }
-    set_d(0, d0); set_d(1, d1); set_d(2, 0x0000FFFFu); set_d(3, 0); set_a(1, tbl);
     return RD_RTS;
 }
 static uint32_t rd_time_digits(void)    { return pack_digits(0xA8A8u); }
@@ -1155,6 +1202,7 @@ static uint32_t rd_pick_a224(void)
         charge(3);                                                /* andi, cmpi, bne */
         if (d0 != 7) break;
         d1++; d0 = d1;
+        set_d16(0, d0); set_d16(1, d1);                           /* live at the poll */
         charge(3);                                                /* addq, move, bra */
         poll();                                                   /* bra backwards */
     }
@@ -1192,8 +1240,9 @@ static uint32_t rd_dispatch_d882(void)
         charge(2);                                                /* btst, bne */
         if (f & (1u << (i & 7))) break;
         i++;
+        set_d(0, i);                                              /* live at the poll */
         charge(3);                                                /* addq, cmpi, blt */
-        if (i >= 3) { set_d(0, i); charge(1); return RD_RTS; }       /* rts */
+        if (i >= 3) { charge(1); return RD_RTS; }                   /* rts */
         poll();
     }
     charge(3);                                                    /* lea, move, jmp */
@@ -1261,22 +1310,24 @@ static uint32_t rd_c1e8(void)
  * flag byte at +0x16C4 is set, copy the word at +0xCAAC to +0x96DC */
 static uint32_t rd_copy_flagged(void)
 {
+    /* registers live at every poll (the vblank handler saves them) */
     uint16_t d6 = (uint16_t)vrd16(0x1000CA94u), d7 = (uint16_t)vrd16(0x1000CA96u);
-    uint16_t d0 = (uint16_t)d_reg(0);
+    set_d16(6, d6); set_d16(7, d7);
     charge(2);
     for (;;) {
         charge(2);                                                /* btst, beq */
         if (vrd8(0x100096C4u + (uint32_t)(int16_t)d6) & 0x80) {
-            d0 = (uint16_t)vrd16(0x1000CAACu + (uint32_t)(int16_t)d6);
+            uint16_t d0 = (uint16_t)vrd16(0x1000CAACu + (uint32_t)(int16_t)d6);
             vwr16(0x100096DCu + (uint32_t)(int16_t)d6, d0);
+            set_d16(0, d0);
             charge(4);
         }
         d6 += 0x40;
+        set_d16(6, d6); set_d16(7, (uint16_t)(d7 - 1));
         charge(2);                                                /* addi, dbf */
         if (d7-- == 0) break;
         poll();
     }
-    set_d16(0, d0); set_d16(6, d6); set_d16(7, 0xFFFF);
     return RD_RTS;
 }
 
@@ -1488,8 +1539,10 @@ static uint32_t rd_step_2226(void)
  * (+0x16AE): a long into +0x4AC0 / a word into +0x4AC4 */
 static uint32_t car_table_fetch(uint32_t tbl_off, int is_long)
 {
+    /* registers live at every poll (the vblank handler saves them) */
     uint16_t d4 = (uint16_t)vrd16(A6W(0x4A94)), d7 = (uint16_t)vrd16(A6W(0x4A96));
     uint32_t d0 = d_reg(0), a1 = a_reg(1);
+    set_a(0, 0xECDCu); set_d16(4, d4); set_d16(7, d7);
     charge(3);
     for (;;) {
         uint32_t o = (uint32_t)(int16_t)d4;
@@ -1501,16 +1554,16 @@ static uint32_t car_table_fetch(uint32_t tbl_off, int is_long)
             d0 = (d0 & 0xFFFF0000u) | i;
             if (is_long) vwr32(A6W(0x4AC0) + o, vrd32(a1 + (uint32_t)(int16_t)i * 8u));
             else         vwr16(A6W(0x4AC4) + o, vrd16(a1 + (uint32_t)(int16_t)i * 2u));
+            set_a(1, a1); set_d(0, d0);
             charge(5);
         }
         d4 += 0x40;
+        set_d16(4, d4); set_d16(7, (uint16_t)(d7 - 1));
         charge(2);
         if (d7-- == 0) break;
         poll();
     }
     charge(1);
-    set_a(0, 0xECDCu); set_a(1, a1); set_d(0, d0);
-    set_d16(4, d4); set_d16(7, 0xFFFF);
     return RD_RTS;
 }
 static uint32_t rd_car_fetch_long(void) { return car_table_fetch(0x20, 1); }
@@ -1549,22 +1602,30 @@ static uint32_t rd_clear_c332(void)
  * palette planes at 0x90028000, 0x90030000 and 0x90038000 */
 static uint32_t rd_palette_load(void)
 {
-    uint32_t a0 = 0x90028000u, a1 = 0x90030000u, a2 = 0x90038000u, a3 = a_reg(3);
+    /* Registers stay LIVE at every poll: the vblank handler (0x44FE) saves them
+     * to WRAM 0x7BE.. when it interrupts the copy, so they must hold what the
+     * 68K would hold there, not values written back at the end. */
+    uint32_t dst[3] = { 0x90028000u, 0x90030000u, 0x90038000u }, a3 = a_reg(3);
     uint16_t d5 = (uint16_t)d_reg(5);
-    uint32_t *dst[3] = { &a0, &a1, &a2 };
+    set_a(0, dst[0]); set_a(1, dst[1]); set_a(2, dst[2]);
     charge(3);
     for (;;) {
         for (int p = 0; p < 3; p++) {
+            set_d16(4, 0xFF);
             charge(1);
-            for (int k = 0xFF; k >= 0; k--) { vwr8((*dst[p])++, vrd8(a3++)); charge(2); if (k) poll(); }
+            for (int k = 0xFF; k >= 0; k--) {
+                vwr8(dst[p]++, vrd8(a3++));
+                set_a(p, dst[p]); set_a(3, a3); set_d16(4, (uint16_t)(k - 1));
+                charge(2);
+                if (k) poll();
+            }
         }
         charge(1);
+        set_d16(5, (uint16_t)(d5 - 1));
         if (d5-- == 0) break;
         poll();
     }
     charge(1);
-    set_a(0, a0); set_a(1, a1); set_a(2, a2); set_a(3, a3);
-    set_d16(4, 0xFFFF); set_d16(5, 0xFFFF);
     return RD_RTS;
 }
 
@@ -1572,22 +1633,22 @@ static uint32_t rd_palette_load(void)
  * by the shift-and-decimal-add loop; D2b/D3b keep the middle/low digit pairs */
 static uint32_t to_bcd(void)
 {
+    /* registers live at every poll (the vblank handler saves them) */
     uint32_t d0 = d_reg(0);
     uint16_t v = (uint16_t)d0;
     uint32_t b1 = 0, b2 = 0, b3 = 0;
+    set_d16(1, 0); set_d16(2, 0); set_d16(3, 0); set_d(7, 15);
     charge(4);
     for (int k = 15; k >= 0; k--) {
         R[RR_XF] = (uint8_t)(v >> 15); v = (uint16_t)(v << 1);   /* add.w D0w,D0w: X = carry */
         b3 = rr_abcd(b3, b3); b2 = rr_abcd(b2, b2); b1 = rr_abcd(b1, b1);
+        set_d16(0, v); set_d8(3, (uint8_t)b3); set_d8(2, (uint8_t)b2); set_d8(1, (uint8_t)b1);
+        set_d16(7, (uint16_t)(k - 1));
         charge(5);
         if (k) poll();
     }
     charge(5);
-    set_d(0, d0 & 0xFFFF0000u);
     set_d(1, b1 << 16 | b2 << 8 | b3);
-    set_d(2, (d_reg(2) & 0xFFFF0000u) | b2);
-    set_d(3, (d_reg(3) & 0xFFFF0000u) | b3);
-    set_d(7, 0x0000FFFFu);
     return RD_RTS;
 }
 
@@ -1652,14 +1713,21 @@ static uint32_t rd_c03a(void)
  * +7 = 2, +0x4C = 3 */
 static uint32_t rd_mixer_init(void)
 {
+    /* registers live at every poll (the vblank handler saves them) */
     uint32_t a0 = 0x90020080u;
+    set_a(0, a0); set_d16(1, 0x7F); set_d(0, 0);
     charge(3);
-    for (int k = 0x7F; k >= 0; k--) { vwr8(a0++, 0); charge(2); if (k) poll(); }
+    for (int k = 0x7F; k >= 0; k--) {
+        vwr8(a0++, 0);
+        set_a(0, a0); set_d16(1, (uint16_t)(k - 1));
+        charge(2);
+        if (k) poll();
+    }
     a0 = 0x90020080u;
     for (uint32_t i = 1; i <= 6; i++) vwr8(a0 + i, 1);
     vwr8(a0 + 7, 2); vwr8(a0 + 0x4C, 3);
     charge(10);
-    set_a(0, a0); set_d(0, 0); set_d16(1, 0xFFFF);
+    set_a(0, a0);
     return RD_RTS;
 }
 
@@ -1668,9 +1736,16 @@ static uint32_t rd_mixer_init(void)
  * clear 0xF024/0xF026 and store the second read at 0xF004 */
 static uint32_t rd_input_reset(void)
 {
+    /* registers live at every poll (the vblank handler saves them) */
     uint32_t a1 = A6W(0x7004);
+    set_a(1, a1); set_d16(0, 0xE); set_d(1, 0);
     charge(3);
-    for (int k = 0xE; k >= 0; k--) { vwr16(a1, 0); a1 += 2; charge(2); if (k) poll(); }
+    for (int k = 0xE; k >= 0; k--) {
+        vwr16(a1, 0); a1 += 2;
+        set_a(1, a1); set_d16(0, (uint16_t)(k - 1));
+        charge(2);
+        if (k) poll();
+    }
     uint16_t r0 = (uint16_t)vrd16(0x20000002u), r1 = (uint16_t)vrd16(0x20000002u);
     vwr16(0x2000000Au, (uint16_t)~(r0 & r1));
     vwr16(A6W(0x7026), 0); vwr16(A6W(0x7024), 0);
@@ -1701,7 +1776,7 @@ static uint32_t rd_dispatch_a342(void)
     return RD_JMP(a0 + d0);
 }
 
-const rd_entry rd_table[] = {
+static const rd_entry rd_table_base[] = {
     /*  ep        fn                         kill    scratch cost  name */
     /* cost = lifted instructions on the shortest path; longer paths charge() the rest */
     { 0x004120, rd_dispatch_4120,          0x0101, 0,      6, "FUN_00004120" },
@@ -1714,7 +1789,7 @@ const rd_entry rd_table[] = {
     { 0x00472A, rd_update_flag_0804,       0x0001, 0,      7, "FUN_0000472a" },
     { 0x00494C, rd_reset_0816_block,       0x0000, 0,      9, "FUN_0000494c" },
     { 0x004988, rd_input_sequence,         0x0007, 0,      0, "FUN_00004988" },
-    { 0x004CFA, rd_sound_flag_4020,        0x0003, 0,      5, "FUN_00004cfa" },
+    { 0x004CFA, rd_sound_flag_4020,        0x0003, 0,      1, "FUN_00004cfa" },
     { 0x004D52, rd_sound_cpu_upload,       0x0303, 0,      0, "FUN_00004d52" },
     { 0x004FE6, rd_init_slots_780,         0x0201, 0,      0, "FUN_00004fe6" },
     { 0x005038, rd_init_records_8000,      0x0303, 0,      0, "FUN_00005038" },
@@ -1742,7 +1817,7 @@ const rd_entry rd_table[] = {
     { 0x00EF9C, rd_keycus_pair,            0x0030, 0,      6, "FUN_0000ef9c" },
     { 0x00EFB4, rd_input_reset,            0x0203, 0,      0, "FUN_0000efb4" },
     { 0x00EFEE, rd_keycus_sample,          0x0007, 0,      1, "FUN_0000efee" },
-    { 0x00F02E, rd_random_next,            0x0001, 0,      7, "FUN_0000f02e" },
+    { 0x00F02E, rd_random_next,            0x0001, 0,      0, "FUN_0000f02e" },
     { 0x00FE14, rd_fe14,                   0x0001, 0,      4, "FUN_0000fe14" },
     { 0x00FE22, rd_a21c,                   0x0001, 0,      3, "FUN_0000fe22" },
     { 0x00FE60, rd_pick_a224,              0x0003, 0,      2, "FUN_0000fe60" },
@@ -1826,4 +1901,4 @@ const rd_entry rd_table[] = {
     { 0x031724, rd_31724,                  0x003F, 0,      8, "FUN_00031724" },
     { 0x031742, rd_31742,                  0x003F, 0,      8, "FUN_00031742" },
 };
-const int rd_count = (int)(sizeof rd_table / sizeof rd_table[0]);
+RD_REGISTER(rd_table_base)

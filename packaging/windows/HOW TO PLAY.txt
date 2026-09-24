@@ -1,34 +1,57 @@
-PROP CYCLE
-==========
+PROP CYCLE and RAVE RACER
+=========================
 
-1. Put your propcycl.zip into the "roms" folder.
-   (It is the MAME ROM set for Prop Cycle. Don't unzip it.)
+1. Put the MAME ROM sets into the "roms" folder (don't unzip them):
+     Prop Cycle   propcycl.zip
+     Rave Racer   raverace.zip  and  namcoc74.zip
 
-2. Double-click PropCycle.exe.
+2. Double-click PropCycle.exe or RaveRacer.exe.
 
 That's it. The first start takes a few seconds while it unpacks the ROMs.
+Nothing needs installing. Keep the "mesa" folder beside PropCycle.exe: it is
+a software OpenGL that Prop Cycle uses only when Windows has no real graphics
+driver to offer (a virtual machine, Remote Desktop) -- slower, but it runs.
 
 
-KEYS
-----
+KEYS -- PROP CYCLE
+------------------
   5             insert a coin
   Enter         start
   Arrow keys    steer and lean
   Esc           menu  (File > Restart or Exit, volume, controls, levels)
   F12           screenshot
 
-A game controller works too.
+KEYS -- RAVE RACER
+------------------
+  5             insert a coin
+  X / Up        gas            Z / Down   brake
+  Left / Right  steer          A / S      shift down / up
+  V             change view    Esc        menu (free play, volume, ...)
+  F11           fullscreen     F12        screenshot
+
+A game controller works in both.
 
 
 PROBLEMS?
 ---------
-"Prop Cycle needs its ROMs"     propcycl.zip is not in the roms folder, or
-                                it is the wrong game. You need the MAME set
-                                called "propcycl" (World, PR2 Ver.A).
+"... needs its ROMs"            The zips are not in the roms folder, or they
+                                are the wrong game. You need the MAME sets
+                                "propcycl" (World, PR2 Ver.A), and "raverace"
+                                (World, RV2 Ver.B) plus "namcoc74".
 
 "Windows protected your PC"     Click "More info", then "Run anyway".
-                                (The game is not signed.)
+                                (The games are not signed.)
 
-Black screen or won't start     Update your graphics driver.
+Black screen or won't start     Update your graphics driver. In a virtual
+                                machine Prop Cycle falls back to the "mesa"
+                                folder (software rendering) -- keep it beside
+                                PropCycle.exe.
+
+Something else                  Each game writes a log beside it, from its
+                                last start: propcycl.log / raveracer.log.
+                                It says what went wrong.
+
+Keep the folder somewhere you can write to (Downloads, Desktop, Documents --
+not Program Files): the games unpack their ROMs and save settings there.
 
 Needs Windows 10 or 11, 64-bit.
