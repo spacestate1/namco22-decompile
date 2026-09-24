@@ -79,6 +79,18 @@ Put `propcycl.zip` in its `roms` folder. Then double-click **PropCycle.exe**.
 A game controller works in both games. In Rave Racer the keys can be
 changed in `raverace/rr_controls.cfg`.
 
+## Pictures
+
+Prop Cycle:
+
+![The rider flies past the namco logo](docs/images/attract-namco.png)
+![The title screen](docs/images/attract-title.png)
+![The demo, popping balloons](docs/images/attract-demo.png)
+
+Rave Racer:
+
+![Rave Racer: the START of a race](docs/images/raverace-race.png)
+
 ## Screen settings (Prop Cycle)
 
 Press `Esc` and open **Display**. Your choices are saved by themselves.
@@ -101,18 +113,6 @@ Press `Esc` and open **Display**. Your choices are saved by themselves.
 - **Black or white screen**: update your graphics driver.
 
 More about the game files: [docs/ROM_SETUP.md](docs/ROM_SETUP.md)
-
-## Pictures
-
-Prop Cycle:
-
-![The rider flies past the namco logo](docs/images/attract-namco.png)
-![The title screen](docs/images/attract-title.png)
-![The demo, popping balloons](docs/images/attract-demo.png)
-
-Rave Racer:
-
-![Rave Racer: the START of a race](docs/images/raverace-race.png)
 
 ## How it was made
 
