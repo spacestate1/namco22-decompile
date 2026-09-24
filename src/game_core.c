@@ -313,7 +313,7 @@ int32_t sound_play(int32_t scene_id) {
 
     {
         int32_t state = (int32_t)W[0x0CBC];
-        if ((state & ~1) != 2 && (state & ~1) != 4 && W[0x3FFC] == 0) return 0;
+        if ((state & ~1) != 2 && (state & ~1) != 4 && W16(0x3FFC) == 0) return 0;   /* 0x00F400 tst.w $e03ffc */
         if (state == 3 && W[0x0CC0] == 3) {
             if (W[0x0E44] <= 0x37 || W[0x0E18] != 0) return 0x38;
         }

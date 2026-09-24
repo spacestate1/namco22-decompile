@@ -145,11 +145,11 @@ static void dsp_init(void) {
     memset(g_sys.dspram, 0, 0x80);
 
     /* Set initial DSP params */
-    mem_write32(0xC00000, 1);
-    mem_write32(0xC00008, 4);
-    mem_write32(0xC00014, 1);
-    mem_write32(0xC00018, 0x32);
-    mem_write32(0xC0001C, 0x280);
+    dsp_w32(0x00, 1);
+    dsp_w32(0x08, 4);
+    dsp_w32(0x14, 1);
+    dsp_w32(0x18, 0x32);
+    dsp_w32(0x1C, 0x280);
 
     /* THE VIEWPORT BLOCKS. ROM dsp_init @0x022C7E calls 0x022D3A
      * (dsp_param_init) right after the polygon-RAM init; this hand-written
@@ -452,6 +452,14 @@ void game_init(void) {
      * an unpinned 4-aligned slot, so the W16_SET above is overwritten by the
      * first sync_wram_to_W and the screen ran 1200 frames (index 0). */
     WRAM_SET16(0x3FF8, (int)vrd16(0x3681E));
+    /* ...and 0xE03FFC, the ATTRACT SOUND setting (BE16 @0x3684E = 1, "on",
+     * which is what MAME's machine holds). It is the HIGH half of a 4-aligned
+     * slot, tested `tst.w $e03ffc.l` by sound_play (0x00F400) and
+     * sound_play_or_defer (0x00F4F8) outside gameplay/stage start; the
+     * whole-slot store in settings_ranking_defaults landed in the LOW half and
+     * the sync zeroed the slot, so the attract demo was SILENT -- every balloon
+     * pop, the ambience and the wind, on exactly MAME's frames, all dropped. */
+    WRAM_SET16(0x3FFC, (int)vrd16(0x3684E));
     /* THE HIGH-SCORE TABLES, by the same blank-EEPROM path: ROM 0x03179A
      * (highscore_table_reset_defaults) fills the top-ten list at 0xE04030
      * and the per-course bests at 0xE04088. Nothing called it, so the attract
@@ -945,12 +953,16 @@ void game_frame(void) {
     sync_wram_to_W();
     irq_vblank();
     sync_W_to_wram();
+    /* The vblank just rang the master (polygon-RAM word 1) if the CPU had
+     * finished the previous list and the master was idle: let it build the
+     * scene from that list now, as the board's DSP does during this frame. */
+    { extern void master_dsp_vblank(void); master_dsp_vblank(); }
 
     /* Kick watchdog (no-op) */
     SYSCON(0x14) = 0;
 
     /* Signal DSP start */
-    mem_write32(0xC00000, 1);
+    dsp_w32(0x00, 1);   /* host-native like the rest of DSP RAM; mem_write32 stores big-endian there */
 
     /* Read MCU inputs (stub - input.c handles this) */
     keycus_write_1();
@@ -1115,6 +1127,10 @@ void game_frame(void) {
 
     /* --- Post-dispatch processing --- */
     tilemap_post_update();
+    /* ROM main_loop 0x00BFFA: `jsr $21da2` -- misnamed text_output_flush, it
+     * writes the camera's pitch/heading/roll sin/cos pairs into viewport 0's
+     * DSP-RAM block (0xC10004..) for the master DSP. */
+    { extern void text_output_flush(void); text_output_flush(); }
 
     /* coin_credit_update(): converts the coin/service EDGES that
      * input_read_service_buttons() puts in W[0x2B82] into the credit count
@@ -1131,6 +1147,10 @@ void game_frame(void) {
      * dispatch, before sprite_dma_kick. */
     if (getenv("PROPCYCL_NO_COINUPDATE") == NULL) coin_credit_update();
 
+    /* ROM main_loop 0x00C012: `jsr $2221c` (misnamed process_mcu_outputs)
+     * writes -1 at the list cursor -- the display-list terminator the master
+     * DSP stops on. */
+    { extern void process_mcu_outputs(void); process_mcu_outputs(); }
     sprite_dma_kick();
 
     /* LIVE 2D FEED DUMP (PROPCYCL_FEEDDUMP=<dir>:<frame>).
@@ -1165,7 +1185,7 @@ void game_frame(void) {
     sync_W_to_wram();
 
     /* Clear DSP frame */
-    mem_write32(0xC00000, 0);
+    dsp_w32(0x00, 0);
 }
 
 /* Debug: dump tilemap to PPM image file */

@@ -28,10 +28,25 @@
 
 #include "ui_menu.h"
 #include "propcycl.h"
+#include "vaddr.h"
+#ifndef W
+#define W _W
+#endif
+
+/* FREE PLAY / coins required: the game's own setting, 16-bit WRAM 0xE03FF4
+ * (register row 168). -1 = not set by the config (game_init's default: free
+ * play). Applied only in an INTERACTIVE run (main.c), so a saved choice can
+ * never change what a headless gate measures. */
+int g_freeplay_cfg = -1;
 
 static struct nk_context *ctx;
 static bool menu_open;
 static SDL_Window *g_win;
+/* display settings (defined in the display section below; saved in the cfg) */
+static nk_bool widescreen;
+static int cur_aspect, win_mode, want_w, want_h;
+static int display_cfg;          /* the cfg carried display settings: apply them at startup */
+static int naspect(void);
 
 /* ---- controls ---------------------------------------------------------- */
 SDL_Scancode ui_binding[ACT_COUNT];
@@ -67,6 +82,12 @@ int ui_controls_save(void) {
     for (int i = 0; i < ACT_COUNT; i++)
         fprintf(f, "%s=%d\n", act_names[i], (int)ui_binding[i]);
     fprintf(f, "volume=%d\n", (int)(audio_hle_volume() * 100.0f + 0.5f));
+    fprintf(f, "freeplay=%d\n", W16(0x3FF4) ? 1 : 0);
+    fprintf(f, "widescreen=%d\n", widescreen ? 1 : 0);
+    fprintf(f, "aspect=%d\n", cur_aspect);
+    fprintf(f, "window_mode=%d\n", win_mode);
+    fprintf(f, "resolution=%dx%d\n", want_w, want_h);
+    { extern void input_joy_cfg_save(FILE *); input_joy_cfg_save(f); }
     fclose(f);
     return 1;
 }
@@ -81,6 +102,16 @@ int ui_controls_load(void) {
         if (!eq) continue;
         *eq = '\0';
         if (!strcmp(line, "volume")) { audio_hle_set_volume(atoi(eq + 1) / 100.0f); continue; }
+        if (!strcmp(line, "freeplay")) { g_freeplay_cfg = atoi(eq + 1) ? 1 : 0; continue; }
+        if (!strcmp(line, "widescreen")) { widescreen = atoi(eq + 1) ? 1 : 0; display_cfg = 1; continue; }
+        if (!strcmp(line, "aspect")) { int a = atoi(eq + 1); if (a >= 0 && a < naspect()) cur_aspect = a;
+                                       else if (a == naspect()) widescreen = 1;   /* the old list's last entry */
+                                       display_cfg = 1; continue; }
+        if (!strcmp(line, "window_mode")) { int m = atoi(eq + 1); if (m >= 0 && m <= 2) win_mode = m; display_cfg = 1; continue; }
+        if (!strcmp(line, "resolution")) { int w, h; if (sscanf(eq + 1, "%dx%d", &w, &h) == 2 &&
+                                                          ((w >= 320 && h >= 240) || (w == 0 && h == 0))) { want_w = w; want_h = h; }
+                                           display_cfg = 1; continue; }
+        { extern int input_joy_cfg(const char *, const char *); if (input_joy_cfg(line, eq + 1)) continue; }
         for (int i = 0; i < ACT_COUNT; i++)
             if (!strcmp(line, act_names[i]))
                 ui_binding[i] = (SDL_Scancode)atoi(eq + 1);
@@ -196,20 +227,73 @@ void ui_map_camera(float m[3][3], float t[3], float *zoom) {
 }
 
 /* ---- display ------------------------------------------------------------ */
-static const struct { int w, h; const char *label; } modes[] = {
-    { 640,  480,  "640 x 480 (native)" },
-    { 960,  720,  "960 x 720" },
-    { 1280, 960,  "1280 x 960" },
-    { 1600, 1200, "1600 x 1200" },
-    { 1920, 1440, "1920 x 1440" },
+/* RESOLUTIONS. A preset list covering 4:3, 16:10, 16:9 and 21:9, plus every
+ * mode the monitor itself reports (merged, de-duplicated, sorted). A pick is
+ * the RENDER size, not the window size, so in a window or desktop fullscreen
+ * any of them is fine -- the picture is scaled to fit. Exclusive fullscreen
+ * lists only what the monitor can actually switch to, and still goes through
+ * SDL_GetClosestDisplayMode. */
+#define MAXMODES 96
+static struct { int w, h; } modes[MAXMODES];
+static int nmodes;
+static const struct { int w, h; } preset_modes[] = {
+    { 640, 480 }, { 800, 600 }, { 960, 720 }, { 1024, 768 }, { 1280, 960 }, { 1600, 1200 }, { 1920, 1440 },
+    { 1280, 800 }, { 1440, 900 }, { 1680, 1050 }, { 1920, 1200 }, { 2560, 1600 },
+    { 1280, 720 }, { 1366, 768 }, { 1600, 900 }, { 1920, 1080 }, { 2560, 1440 }, { 3840, 2160 },
+    { 2560, 1080 }, { 3440, 1440 },
 };
-#define NMODES ((int)(sizeof modes / sizeof modes[0]))
-static int cur_mode = 2;
 static int win_mode;        /* 0 windowed, 1 fullscreen desktop, 2 exclusive */
+/* The chosen RESOLUTION: the size the game renders at, scaled to the
+ * window (render_target.c). 0 x 0 = native, the window's own pixel size.
+ * In exclusive fullscreen it is also the display mode. */
+static int want_w, want_h;
 
-/* Aspect: the game renders a fixed 640x480 (4:3). Stretching that to a
- * 16:9 window distorts it, so offer pillarboxing and the original 8:7 the
- * hardware actually scanned out. */
+static const char *ratio_name(int w, int h) {
+    const double r = (double)w / h;
+    if (r < 1.30) return "5:4";
+    if (r < 1.40) return "4:3";
+    if (r < 1.65) return "16:10";
+    if (r < 1.85) return "16:9";
+    return "21:9";
+}
+static void mode_add(int w, int h) {
+    if (w < 640 || h < 480 || nmodes >= MAXMODES) return;
+    for (int i = 0; i < nmodes; i++) if (modes[i].w == w && modes[i].h == h) return;
+    modes[nmodes].w = w; modes[nmodes].h = h; nmodes++;
+}
+static int mode_cmp(const void *a, const void *b) {
+    const int *x = a, *y = b;
+    /* group by shape (4:3 first), then by size */
+    double rx = (double)x[0] / x[1], ry = (double)y[0] / y[1];
+    if (rx < ry - 0.02) return -1;
+    if (rx > ry + 0.02) return 1;
+    return x[0] * x[1] - y[0] * y[1];
+}
+static void build_modes(void) {
+    nmodes = 0;
+    int disp = g_win ? SDL_GetWindowDisplayIndex(g_win) : 0;
+    if (disp < 0) disp = 0;
+    if (win_mode == 2) {
+        const int n = SDL_GetNumDisplayModes(disp);
+        for (int i = 0; i < n; i++) {
+            SDL_DisplayMode dm;
+            if (SDL_GetDisplayMode(disp, i, &dm) == 0) mode_add(dm.w, dm.h);
+        }
+    } else {
+        for (size_t i = 0; i < sizeof preset_modes / sizeof preset_modes[0]; i++)
+            mode_add(preset_modes[i].w, preset_modes[i].h);
+        const int n = SDL_GetNumDisplayModes(disp);   /* plus the monitor's own sizes */
+        for (int i = 0; i < n; i++) {
+            SDL_DisplayMode dm;
+            if (SDL_GetDisplayMode(disp, i, &dm) == 0) mode_add(dm.w, dm.h);
+        }
+    }
+    if (nmodes == 0) mode_add(640, 480);
+    qsort(modes, (size_t)nmodes, sizeof modes[0], mode_cmp);
+}
+
+/* Aspect: the game renders a 640x480 (4:3) scene. When WIDESCREEN is off a
+ * window of another shape either stretches it or gets bars. */
 static const struct { float ar; const char *label; } aspects[] = {
     { 0.0f,        "Stretch to window" },
     { 4.0f / 3.0f, "4:3 (pillarboxed)" },
@@ -218,21 +302,50 @@ static const struct { float ar; const char *label; } aspects[] = {
 };
 #define NASPECT ((int)(sizeof aspects / sizeof aspects[0]))
 static int cur_aspect = 1;
-float ui_aspect(void) { return aspects[cur_aspect].ar; }
+/* WIDESCREEN: fill the whole window and widen the 3D view to it
+ * (renderer_3d.c g_scene_x0/x1) -- more world at the sides, not a stretch. */
+static nk_bool widescreen;
+static int naspect(void) { return NASPECT; }
+float ui_aspect(void) { return widescreen ? -1.0f : aspects[cur_aspect].ar; }
+/* The size actually rendered. WIDESCREEN puts the chosen resolution into
+ * the window's own shape: its HEIGHT is kept and the width follows the
+ * window, so 640x480 in a 16:9 window renders 854x480 and fills it with
+ * more world at the sides -- no bars, no stretch. */
+void ui_render_res(int *w, int *h) {
+    *w = want_w; *h = want_h;
+    if (!widescreen || want_w <= 0 || want_h <= 0 || !g_win) return;
+    int dw, dh; SDL_GL_GetDrawableSize(g_win, &dw, &dh);
+    if (dw < 1 || dh < 1) SDL_GetWindowSize(g_win, &dw, &dh);
+    if (dw < 1 || dh < 1) return;
+    *w = ((int)((double)want_h * dw / dh + 0.5) + 1) & ~1;
+}
 
 static void apply_display(void) {
     if (!g_win) return;
+    /* The window's SIZE is the player's (drag it, maximise it); only the
+     * mode is set here. The resolution is applied by the renderer. */
     if (win_mode == 0) {
-        SDL_SetWindowFullscreen(g_win, 0);
-        SDL_SetWindowSize(g_win, modes[cur_mode].w, modes[cur_mode].h);
-        SDL_SetWindowPosition(g_win, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+        SDL_SetWindowFullscreen(g_win, 0);             /* SDL restores the windowed size */
     } else if (win_mode == 1) {
         SDL_SetWindowFullscreen(g_win, SDL_WINDOW_FULLSCREEN_DESKTOP);
     } else {
-        SDL_DisplayMode dm = { 0, modes[cur_mode].w, modes[cur_mode].h, 0, 0 };
-        SDL_SetWindowDisplayMode(g_win, &dm);
-        SDL_SetWindowFullscreen(g_win, SDL_WINDOW_FULLSCREEN);
+        int disp = SDL_GetWindowDisplayIndex(g_win); if (disp < 0) disp = 0;
+        SDL_DisplayMode want = { 0, want_w, want_h, 0, 0 }, got;
+        if (want_w <= 0 || want_h <= 0 || !SDL_GetClosestDisplayMode(disp, &want, &got))
+            SDL_GetDesktopDisplayMode(disp, &got);     /* native: the desktop's own mode */
+        SDL_SetWindowFullscreen(g_win, 0);
+        SDL_SetWindowDisplayMode(g_win, &got);
+        if (SDL_SetWindowFullscreen(g_win, SDL_WINDOW_FULLSCREEN) != 0) {
+            fprintf(stderr, "[DISPLAY] exclusive %dx%d failed (%s), using desktop fullscreen\n",
+                    got.w, got.h, SDL_GetError());
+            win_mode = 1;
+            SDL_SetWindowFullscreen(g_win, SDL_WINDOW_FULLSCREEN_DESKTOP);
+        } else { want_w = got.w; want_h = got.h; }
     }
+    build_modes();
+    { int w, h; SDL_GetWindowSize(g_win, &w, &h);
+      fprintf(stderr, "[DISPLAY] mode %d want %dx%d -> window %dx%d%s\n", win_mode, want_w, want_h, w, h,
+              (SDL_GetWindowFlags(g_win) & SDL_WINDOW_MAXIMIZED) ? " (maximized)" : ""); }
 }
 
 /* ---- lifecycle ---------------------------------------------------------- */
@@ -247,6 +360,12 @@ void ui_init(SDL_Window *win) {
     /* PROPCYCL_MENU_OPEN=1: start with the menu up, so a headless
      * screenshot can verify it actually renders. */
     { const char *e = getenv("PROPCYCL_MENU_OPEN"); if (e && *e != '0') menu_open = true; }
+    /* The saved display choice (Escape -> Display). Only a SHOWN window: a
+     * headless run keeps its fixed 640x480 offscreen frame. */
+    if (display_cfg && g_win && !(SDL_GetWindowFlags(g_win) & SDL_WINDOW_HIDDEN)) apply_display();
+    /* PROPCYCL_FULLSCREEN=1: start in desktop fullscreen (the Steam Deck launcher) */
+    { const char *e = getenv("PROPCYCL_FULLSCREEN");
+      if (e && *e != '0' && g_win && !(SDL_GetWindowFlags(g_win) & SDL_WINDOW_HIDDEN)) { win_mode = 1; apply_display(); } }
     /* PROPCYCL_MAP=<course>: open the map viewer straight away, so it can be
      * verified headlessly. */
     { const char *e = getenv("PROPCYCL_MAP");
@@ -308,6 +427,7 @@ void ui_draw(SDL_Window *win, bool *quit) {
     if (!ctx || !menu_open) return;
     int ww, wh;
     SDL_GetWindowSize(win, &ww, &wh);
+    { static int lw, lh; if (ww != lw || wh != lh) { fprintf(stderr, "[DISPLAY] f%u window now %dx%d\n", g_sys.frame_count, ww, wh); lw = ww; lh = wh; } }
 
     if (nk_begin(ctx, "menubar", nk_rect(0, 0, (float)ww, 28),
                  NK_WINDOW_NO_SCROLLBAR)) {
@@ -328,22 +448,72 @@ void ui_draw(SDL_Window *win, bool *quit) {
 
         /* ---- Display ---- */
         nk_layout_row_push(ctx, 90);
-        if (nk_menu_begin_label(ctx, "Display", NK_TEXT_LEFT, nk_vec2(240, 320))) {
+        if (nk_menu_begin_label(ctx, "Display", NK_TEXT_LEFT, nk_vec2(330, 520))) {
+            bool changed = false;
+            nk_layout_row_dynamic(ctx, 24, 1);
+            /* The one most people are looking for, first and on its own. */
+            { nk_bool w = widescreen;
+              nk_checkbox_label(ctx, widescreen ? "Widescreen: ON  (fill the window)" : "Widescreen: OFF (4:3 picture)", &widescreen);
+              if (w != widescreen) changed = true; }
+            nk_layout_row_dynamic(ctx, 18, 1);
+            nk_label(ctx, "  more world at the sides, HUD in the corners", NK_TEXT_LEFT);
+
             nk_layout_row_dynamic(ctx, 20, 1);
             nk_label(ctx, "Window mode", NK_TEXT_LEFT);
             int prev_wm = win_mode;
             if (nk_option_label(ctx, "Windowed", win_mode == 0)) win_mode = 0;
             if (nk_option_label(ctx, "Fullscreen (desktop)", win_mode == 1)) win_mode = 1;
             if (nk_option_label(ctx, "Fullscreen (exclusive)", win_mode == 2)) win_mode = 2;
-            nk_label(ctx, "Resolution", NK_TEXT_LEFT);
-            int prev_mode = cur_mode;
-            for (int i = 0; i < NMODES; i++)
-                if (nk_option_label(ctx, modes[i].label, cur_mode == i)) cur_mode = i;
-            if (win_mode != prev_wm || cur_mode != prev_mode) apply_display();
-            nk_label(ctx, "Aspect ratio", NK_TEXT_LEFT);
+            if (win_mode != prev_wm) {
+                apply_display(); changed = true;
+            }
+
+            nk_label(ctx, "Resolution (render size, scaled to the window)", NK_TEXT_LEFT);
+            if (nmodes == 0) build_modes();
+            {   int cw, ch; SDL_GetWindowSize(win, &cw, &ch);
+                int pw, ph; SDL_GL_GetDrawableSize(win, &pw, &ph);
+                if (pw < 1 || ph < 1) { pw = cw; ph = ch; }
+                int rw, rh; ui_render_res(&rw, &rh);
+                if (rw <= 0 || rh <= 0) { rw = pw; rh = ph; }
+                char cur[80];
+                snprintf(cur, sizeof cur, "Rendering %d x %d  %s%s", rw, rh, ratio_name(rw, rh),
+                         (widescreen && want_w > 0 && rw != want_w) ? "  (widescreen)" : "");
+                nk_layout_row_dynamic(ctx, 20, 1);
+                nk_label(ctx, cur, NK_TEXT_LEFT);
+                snprintf(cur, sizeof cur, "  window %d x %d px", pw, ph);
+                nk_layout_row_dynamic(ctx, 18, 1);
+                nk_label(ctx, cur, NK_TEXT_LEFT);
+                /* A scrollable list, not a combo: a combo is a popup, and a
+                 * popup inside this menu (itself a popup) draws half-open
+                 * behind it in Nuklear. */
+                nk_layout_row_dynamic(ctx, 150, 1);
+                if (nk_group_begin(ctx, "resolutions", NK_WINDOW_BORDER)) {
+                    nk_layout_row_dynamic(ctx, 18, 1);
+                    for (int i = -1; i < nmodes; i++) {
+                        const int mw = i < 0 ? 0 : modes[i].w, mh = i < 0 ? 0 : modes[i].h;
+                        char b[64];
+                        const int on = mw == want_w && mh == want_h;
+                        if (i < 0) snprintf(b, sizeof b, "Native (window size)");
+                        else snprintf(b, sizeof b, "%d x %d  %s", mw, mh, ratio_name(mw, mh));
+                        if (nk_option_label(ctx, b, on) && !on) {
+                            want_w = mw; want_h = mh;
+                            /* a wide resolution is what widescreen is for */
+                            if (mw > 0 && (double)mw / mh > 1.4 && !widescreen && cur_aspect != 0) widescreen = 1;
+                            if (win_mode == 2) apply_display();   /* exclusive: it is the display mode too */
+                            changed = true;
+                        }
+                    }
+                    nk_group_end(ctx);
+                }
+            }
+
+            nk_layout_row_dynamic(ctx, 20, 1);
+            nk_label(ctx, widescreen ? "Aspect ratio (widescreen is on)" : "Aspect ratio", NK_TEXT_LEFT);
+            if (widescreen) nk_widget_disable_begin(ctx);
             for (int i = 0; i < NASPECT; i++)
-                if (nk_option_label(ctx, aspects[i].label, cur_aspect == i)) cur_aspect = i;
-            if (nk_button_label(ctx, "Apply")) apply_display();
+                if (nk_option_label(ctx, aspects[i].label, cur_aspect == i) && cur_aspect != i) { cur_aspect = i; changed = true; }
+            if (widescreen) nk_widget_disable_end(ctx);
+            if (changed) ui_controls_save();          /* display choices stick without a Save button */
             nk_menu_end(ctx);
         }
 
@@ -445,7 +615,14 @@ void ui_draw(SDL_Window *win, bool *quit) {
 
         /* ---- Controls ---- */
         nk_layout_row_push(ctx, 90);
-        if (nk_menu_begin_label(ctx, "Controls", NK_TEXT_LEFT, nk_vec2(300, 360))) {
+        if (nk_menu_begin_label(ctx, "Controls", NK_TEXT_LEFT, nk_vec2(300, 400))) {
+            /* the game's own coin option: toggles live, Save keeps it */
+            nk_layout_row_dynamic(ctx, 22, 1);
+            { nk_bool fp = W16(0x3FF4) != 0;
+              if (nk_checkbox_label(ctx, "Free play (no coins needed)", &fp)) {
+                  W16_SET(0x3FF4, fp ? 1 : 0);
+                  g_freeplay_cfg = fp ? 1 : 0;
+              } }
             nk_layout_row_dynamic(ctx, 20, 2);
             for (int i = 0; i < ACT_COUNT; i++) {
                 nk_label(ctx, act_names[i], NK_TEXT_LEFT);

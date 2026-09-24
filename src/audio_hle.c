@@ -51,10 +51,25 @@ static bool           g_chip_ready;
 static bool           g_chip_on;
 static SDL_SpinLock   g_chip_lock;
 
-#define CHIP_FIFO 4096
+/* THE CHIP RUNS ON THE SOUND DRIVER'S CLOCK. On the board the C352 and the
+ * M37710 share one timeline, and the driver READS the chip back: after a
+ * key-on its next tick reads the voice flags (BUSY set, KEYON cleared by the
+ * chip) and writes them back with its own bits. With the chip advanced lazily
+ * on the audio thread the driver only ever saw what it had written, so it
+ * re-wrote KEYON and every note it keyed played TWICE, 8 ms apart -- MAME
+ * writes 0x8008 there, we wrote 0x4008 (the attract demo's balloon pop).
+ * So, as MAME does with stream->update() before every register access, the
+ * driver side brings the chip up to the current MCU cycle before each read
+ * and write (audio_hle_c352_sync) and appends what it generated to this FIFO;
+ * the audio device -- or the headless WAV dump -- only drains it.
+ * One chip frame is exactly 192 MCU cycles: (16.384 MHz) / (24.576 MHz / 288). */
+#define CHIP_FIFO 32768
+#define MCU_CYC_PER_CHIP_FRAME 192u
 static int16_t        g_cfifo[CHIP_FIFO * 4];  /* FL,FR,RL,RR per frame */
 static int            g_cfifo_n;               /* frames held */
 static double         g_cfifo_frac;            /* fractional read cursor */
+static uint64_t       g_chip_done;             /* chip frames generated so far, in MCU time */
+static bool           g_chip_synced;
 
 static audio_music_t g_music_current = AUDIO_MUSIC_NONE;
 static double         g_music_pos;
@@ -206,21 +221,56 @@ void audio_hle_c352_dump(const char *path)
     fclose(f);
 }
 
+/* Bring the chip up to MCU cycle `cyc`: generate the frames it would have
+ * produced by then and append them to the FIFO. Game thread only -- the chip
+ * itself is never touched by the audio thread any more. */
+void audio_hle_c352_sync(uint64_t cyc)
+{
+    if (!g_chip_ready) return;
+    const uint64_t target = cyc / MCU_CYC_PER_CHIP_FRAME;
+    if (!g_chip_synced) { g_chip_done = target; g_chip_synced = true; return; }
+    while (g_chip_done < target) {
+        int16_t tmp[512 * 4];
+        uint64_t left = target - g_chip_done;
+        int n = left > 512 ? 512 : (int)left;
+        c352_generate(&g_chip, tmp, n);
+        g_chip_done += (uint64_t)n;
+        if (!g_chip_on) continue;                 /* keep time, emit nothing */
+        SDL_AtomicLock(&g_chip_lock);
+        if (g_cfifo_n + n > CHIP_FIFO) {          /* nobody draining: drop the oldest */
+            int drop = g_cfifo_n + n - CHIP_FIFO;
+            if (drop > g_cfifo_n) drop = g_cfifo_n;
+            memmove(g_cfifo, g_cfifo + drop * 4, (size_t)(g_cfifo_n - drop) * 4 * sizeof(int16_t));
+            g_cfifo_n -= drop; g_cfifo_frac -= drop; if (g_cfifo_frac < 0) g_cfifo_frac = 0;
+        }
+        memcpy(g_cfifo + g_cfifo_n * 4, tmp, (size_t)n * 4 * sizeof(int16_t));
+        g_cfifo_n += n;
+        SDL_AtomicUnlock(&g_chip_lock);
+    }
+}
+
 void audio_hle_c352_write(unsigned word_off, unsigned val)
 {
     if (!g_chip_ready) return;
-    SDL_AtomicLock(&g_chip_lock);
     c352_write(&g_chip, (uint32_t)word_off, (uint16_t)val, 0xFFFF);
-    SDL_AtomicUnlock(&g_chip_lock);
+}
+
+/* What the driver reads back: the chip's LIVE register, not an echo of the
+ * last write. The caller syncs to the current cycle first. */
+unsigned audio_hle_c352_read(unsigned word_off)
+{
+    if (!g_chip_ready) return 0;
+    return c352_read(&g_chip, (uint32_t)word_off);
 }
 
 static void chip_set_gameplay(int on)
 {
     if (!g_chip_ready) return;
-    SDL_AtomicLock(&g_chip_lock);
     if (on && !g_chip_on) {
         /* Nothing to program: the MCU owns these registers. */
+        SDL_AtomicLock(&g_chip_lock);
         g_cfifo_n = 0; g_cfifo_frac = 0.0;
+        SDL_AtomicUnlock(&g_chip_lock);
         g_chip_on = true;
     } else if (!on && g_chip_on) {
         for (int v = 0; v < 32; v++)                 /* KEYOFF everything */
@@ -228,39 +278,31 @@ static void chip_set_gameplay(int on)
         c352_write(&g_chip, 0x202, 0x0000, 0xFFFF);
         g_chip_on = false;
     }
-    SDL_AtomicUnlock(&g_chip_lock);
 }
 
 
 /* Pulls `frames` output-rate frames out of the chip, resampling from its own
  * 85333.33Hz. Keeps the fractional cursor and any unconsumed chip frames
  * across calls so the stream does not click at buffer boundaries. */
-static void chip_mix(int32_t *acc, int frames, int rate)
+static void chip_mix(int32_t *acc, int frames, int rate, bool live)
 {
     if (!g_chip_ready || !g_chip_on || rate <= 0) return;
     const double chip_hz = (double)C352_CLOCK / (double)C352_DIVIDER;
-    const double step = chip_hz / (double)rate;
+    double step = chip_hz / (double)rate;
 
     SDL_AtomicLock(&g_chip_lock);
+    if (live) {
+        /* The game (and so the driver) is paced by the display; the device by
+         * its own crystal. Trim the drain rate by up to 2% to hold the FIFO
+         * near CHIP_TARGET instead of letting it run dry or pile up. */
+        const double CHIP_TARGET = 4096.0;
+        double e = ((double)g_cfifo_n - CHIP_TARGET) / CHIP_TARGET;
+        if (e > 1.0) e = 1.0; else if (e < -1.0) e = -1.0;
+        step *= 1.0 + 0.02 * e;
+    }
     for (int i = 0; i < frames; i++) {
-        int need = (int)(g_cfifo_frac) + 2;
-        if (need > g_cfifo_n) {
-            int want = need - g_cfifo_n;
-            if (g_cfifo_n + want > CHIP_FIFO) {      /* compact */
-                int drop = (int)g_cfifo_frac;
-                if (drop > g_cfifo_n) drop = g_cfifo_n;
-                memmove(g_cfifo, g_cfifo + drop * 4,
-                        (size_t)(g_cfifo_n - drop) * 4 * sizeof(int16_t));
-                g_cfifo_n -= drop; g_cfifo_frac -= drop;
-                if (g_cfifo_n + want > CHIP_FIFO) want = CHIP_FIFO - g_cfifo_n;
-            }
-            if (want > 0) {
-                c352_generate(&g_chip, g_cfifo + g_cfifo_n * 4, want);
-                g_cfifo_n += want;
-            }
-        }
         int i0 = (int)g_cfifo_frac;
-        if (i0 + 1 >= g_cfifo_n) break;
+        if (i0 + 1 >= g_cfifo_n) break;            /* underrun: silence */
         double fr = g_cfifo_frac - i0;
         /* front L/R only; the rear pair is the cabinet's other speaker pair */
         double l = g_cfifo[i0 * 4 + 0] + (g_cfifo[(i0 + 1) * 4 + 0] - g_cfifo[i0 * 4 + 0]) * fr;
@@ -269,7 +311,6 @@ static void chip_mix(int32_t *acc, int frames, int rate)
         acc[i * 2 + 1] += (int32_t)r;
         g_cfifo_frac += step;
     }
-    /* drop what we consumed */
     int drop = (int)g_cfifo_frac;
     if (drop > g_cfifo_n) drop = g_cfifo_n;
     if (drop > 0) {
@@ -280,7 +321,18 @@ static void chip_mix(int32_t *acc, int frames, int rate)
     SDL_AtomicUnlock(&g_chip_lock);
 }
 
-static void mix_frames(int16_t *dst, int frames, int rate)
+/* Output frames the FIFO can supply right now at `rate` (headless dump). */
+static int chip_avail(int rate)
+{
+    if (!g_chip_ready || !g_chip_on || rate <= 0) return 0;
+    const double step = (double)C352_CLOCK / (double)C352_DIVIDER / (double)rate;
+    SDL_AtomicLock(&g_chip_lock);
+    double room = (double)(g_cfifo_n - 1) - g_cfifo_frac;
+    SDL_AtomicUnlock(&g_chip_lock);
+    return room > 0 ? (int)(room / step) + 1 : 0;
+}
+
+static void mix_frames(int16_t *dst, int frames, int rate, bool live)
 {
     if (frames > 0) memset(dst, 0, (size_t)frames * 2 * sizeof(int16_t));
     if (rate <= 0 || frames <= 0) return;
@@ -337,7 +389,7 @@ static void mix_frames(int16_t *dst, int frames, int rate)
     SDL_AtomicUnlock(&g_music_lock);
 
 
-    chip_mix(acc, frames, rate);
+    chip_mix(acc, frames, rate, live);
 
     {
         float g = g_volume;
@@ -352,7 +404,7 @@ static void mix_frames(int16_t *dst, int frames, int rate)
 static void audio_hle_fill(int16_t *dst, int frames, void *user)
 {
     (void)user;
-    mix_frames(dst, frames, audio_sample_rate());
+    mix_frames(dst, frames, audio_sample_rate(), true);
 }
 
 static void wav_patch_header_at_exit(void)
@@ -544,16 +596,19 @@ void audio_hle_tick(void)
 
     if (!g_dump_f || audio_sample_rate() > 0) return;
 
-    static double acc = 0.0;
-    double fps = 25600000.0 / (814.0 * 525.0); /* namcos22.cpp PIXEL_CLOCK/HTOTAL/VTOTAL */
-    acc += (double)g_dump_rate / fps;
-    int n = (int)acc;
-    acc -= n;
-    if (n <= 0) return;
-    if (n > 8192) n = 8192;
-
-    int16_t buf[8192 * 2];
-    mix_frames(buf, n, g_dump_rate);
-    fwrite(buf, sizeof(int16_t), (size_t)n * 2, g_dump_f);
-    g_dump_bytes += (long)n * 2 * (long)sizeof(int16_t);
+    /* Headless: write exactly what the driver's clock produced this frame. */
+    int n = chip_avail(g_dump_rate);
+    if (!g_chip_ready || !g_chip_on) {          /* no chip: keep the old pacing */
+        static double acc = 0.0;
+        acc += (double)g_dump_rate / (25600000.0 / (814.0 * 525.0));
+        n = (int)acc; acc -= n;
+    }
+    while (n > 0) {
+        int16_t buf[8192 * 2];
+        int k = n > 8192 ? 8192 : n;
+        mix_frames(buf, k, g_dump_rate, false);
+        fwrite(buf, sizeof(int16_t), (size_t)k * 2, g_dump_f);
+        g_dump_bytes += (long)k * 2 * (long)sizeof(int16_t);
+        n -= k;
+    }
 }

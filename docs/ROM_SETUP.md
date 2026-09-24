@@ -30,9 +30,9 @@ extracted/
   c71.bin                                               # 8 KiB, optional
 ```
 
-The four `pr2ver-a.*` program ROMs are enough for the decoder tests. The full
-list is required for rendered 3D scenes, sprites, and model/course viewers.
-`pr1data.8k` and the two wave ROMs provide the native sound path. The optional
+The full list is needed to play. `pr1data.8k` and the two wave ROMs are the
+sound: the build turns the sound program in `pr1data.8k` into C, so build
+after the files are in place. The optional
 `palette_mame_runtime.bin` is not a ROM and is not required: without it, the
 renderer uses the static palette decoded from the program ROM.
 

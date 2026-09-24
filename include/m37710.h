@@ -78,6 +78,8 @@ struct m37710_s {
     uint16_t ad_result[8];
     uint64_t ad_due;            /* 0 = no conversion in flight */
     bool     use_b;             /* set for one instruction by the 0x42 prefix */
+    const uint8_t *ops;         /* operand bytes supplied by translated code (NULL = fetch from the bus) */
+    uint32_t fetches;           /* bytes fetched as instruction stream (length census) */
     uint64_t cycles;
 
     m377_read8_fn  read8;
@@ -123,5 +125,7 @@ void m37710_service(m37710_t *c);
  * (namcos22.cpp's `mcu_irq` scanline timer, at 480 and 240); the internal
  * timers raise themselves from the registers above. */
 void m37710_irq  (m37710_t *c, int vector_offset);
+
+uint64_t m37710_next_event(const m37710_t *c);
 
 #endif /* PROPCYCL_M37710_H */

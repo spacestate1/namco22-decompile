@@ -2,13 +2,12 @@
 /extracted/
 /roms/
 *.zip
-windows-release/extracted/
-windows-release/roms/*
-!windows-release/roms/*.txt
 
 # Made by the build or the game.
 /build/
 /build-win/
+/gen/
+windows-release/
 /sounds/
 /screenshots/
 /recordings/
@@ -18,3 +17,6 @@ propcycl_scores.nv
 propcycl_scores.nv.tmp
 palette_dump.bin
 dspram_dump.bin
+__pycache__/
+*.log
+*.ppm

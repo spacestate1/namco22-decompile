@@ -518,7 +518,7 @@ void settings_ranking_defaults(void)
   W[0x3FFE] = 1;
   W[0x3FFA] = vrd16(0x36806);
   W16_SET(0x3FF8, vrd16(0x3681E));
-  W[0x3FFC] = vrd16(0x3684E);
+  W16_SET(0x3FFC, vrd16(0x3684E));   /* attract sound, 16-bit (tst.w $e03ffc) */
   return;
 }
 

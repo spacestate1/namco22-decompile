@@ -112,10 +112,27 @@ const text_state *framedump_current_text(void)
     return g_cur_txt_ok ? &g_cur_txt : NULL;
 }
 
+/* Set only for the duration of framedump_render_words(): the LIVE master
+ * DSP's polygon RAM (master_dsp.c), walked with the same record walker. */
+static const uint32_t *g_live_words;
+
 static uint32_t pw(int i)
 {
     i &= 0x7FFF;
+    if (g_live_words) return g_live_words[i];
     return (i < g_poly_words) ? g_poly[i] : 0;
+}
+
+static void walk_records(geo_quad_cb cb, void *user);
+
+/* Walk a live polygon RAM (24-bit words, 0x8000 of them) produced by the
+ * master DSP. No capture state is touched: fog, fades and the 2D layers stay
+ * on their live sources. */
+void framedump_render_words(const uint32_t *words, geo_quad_cb cb, void *user)
+{
+    g_live_words = words;
+    walk_records(cb, user);
+    g_live_words = NULL;
 }
 
 static int32_t sext_n(uint32_t v, int bits)
@@ -375,6 +392,11 @@ void framedump_render(geo_quad_cb cb, void *user)
         }
     }
 
+    walk_records(cb, user);
+}
+
+static void walk_records(geo_quad_cb cb, void *user)
+{
     /* ---- camera state, persistent across records ---- */
     int32_t viewq[3][3] = {{0x7FFF,0,0},{0,0x7FFF,0},{0,0,0x7FFF}};
     int have_view = 0;                 /* oracle: `if not hasattr(self,"viewq")` */

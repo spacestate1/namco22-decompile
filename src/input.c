@@ -73,6 +73,7 @@
 #include "vaddr.h"
 #include <SDL2/SDL.h>
 #include <stdlib.h>
+#include <string.h>
 #include <math.h>
 #include <stdio.h>
 #include "ui_menu.h"
@@ -108,28 +109,142 @@ static int16_t analog_y = ADC_CENTER;
 #define MAX_PADS 4
 static SDL_GameController *pads[MAX_PADS];
 
+/* ---- raw joysticks ----------------------------------------------------
+ * Anything SDL does NOT recognise as a gamepad -- a wheel, handlebar rig,
+ * arcade stick, flight stick -- is opened as a plain joystick and mapped by
+ * axis/button NUMBER from propcycl_controls.cfg:
+ *   joy_steer=<n>[ invert]      handlebar left/right
+ *   joy_lean=<n>[ invert]       handlebar up/down
+ *   joy_pedal=<n>[ invert][ half]  pedal (full -32768..32767 travel, or half = 0..32767)
+ *   joy_coin / joy_start / joy_service / joy_test = <button>
+ * Find the numbers with `./build/propcycl --joytest`. -1 = unmapped. Extra
+ * gamepad layouts load from a gamecontrollerdb.txt beside the binary. */
+typedef struct { int axis; int invert, half; } joyaxis_t;
+static joyaxis_t joy_steer = { 0, 0, 0 }, joy_lean = { 1, 0, 0 }, joy_pedal = { -1, 0, 0 };
+static int joy_btn[ACT_COUNT] = { -1, -1, -1, -1, -1, -1, -1, -1, -1 };
+static SDL_Joystick *raws[MAX_PADS];
+static SDL_JoystickID pad_id[MAX_PADS], raw_id[MAX_PADS];
+
 static void pad_open_all(void) {
-    for (int i = 0; i < SDL_NumJoysticks() && i < MAX_PADS; i++) {
-        if (!SDL_IsGameController(i)) continue;
-        if (pads[i]) continue;
-        pads[i] = SDL_GameControllerOpen(i);
-        if (pads[i])
-            printf("  [PAD] %d: %s\n", i, SDL_GameControllerName(pads[i]));
+    for (int i = 0; i < SDL_NumJoysticks(); i++) {
+        SDL_JoystickID id = SDL_JoystickGetDeviceInstanceID(i);
+        int slot = -1, open = 0;
+        for (int k = 0; k < MAX_PADS; k++) {
+            if ((pads[k] && pad_id[k] == id) || (raws[k] && raw_id[k] == id)) open = 1;
+            if (!pads[k] && !raws[k] && slot < 0) slot = k;
+        }
+        if (open || slot < 0) continue;
+        if (SDL_IsGameController(i)) {
+            if ((pads[slot] = SDL_GameControllerOpen(i))) {
+                pad_id[slot] = id;
+                printf("  [PAD] %d: %s\n", slot, SDL_GameControllerName(pads[slot]));
+            }
+        } else if ((raws[slot] = SDL_JoystickOpen(i))) {
+            raw_id[slot] = id;
+            printf("  [JOY] %d: %s (%d axes, %d buttons) -- mapped by number, see --joytest\n", slot,
+                   SDL_JoystickName(raws[slot]), SDL_JoystickNumAxes(raws[slot]), SDL_JoystickNumButtons(raws[slot]));
+        }
     }
 }
 
 void input_pad_event(const SDL_Event *e) {
-    /* Only a REMOVE needs the close-and-rescan; an ADD can just open what
-     * is new. Closing everything on ADD re-opened the pads already opened
-     * by input_init() and printed the "[PAD]" banner a second time on
-     * every launch. */
-    if (e->type == SDL_CONTROLLERDEVICEREMOVED) {
-        for (int i = 0; i < MAX_PADS; i++)
-            if (pads[i]) { SDL_GameControllerClose(pads[i]); pads[i] = NULL; }
-        pad_open_all();
-    } else if (e->type == SDL_CONTROLLERDEVICEADDED) {
-        pad_open_all();          /* skips slots already open */
+    /* JOYDEVICE events fire for gamepads AND raw joysticks, so one pair of
+     * cases covers both; a remove closes only the device that left (by
+     * instance id -- the old code closed and re-opened every pad). */
+    if (e->type == SDL_JOYDEVICEREMOVED) {
+        for (int i = 0; i < MAX_PADS; i++) {
+            if (pads[i] && pad_id[i] == e->jdevice.which) {
+                printf("  [PAD] %d removed\n", i); SDL_GameControllerClose(pads[i]); pads[i] = NULL; }
+            if (raws[i] && raw_id[i] == e->jdevice.which) {
+                printf("  [JOY] %d removed\n", i); SDL_JoystickClose(raws[i]); raws[i] = NULL; }
+        }
+    } else if (e->type == SDL_JOYDEVICEADDED) {
+        pad_open_all();          /* skips devices already open */
     }
+}
+
+static int raw_button(int act) {
+    if (joy_btn[act] < 0) return 0;
+    for (int i = 0; i < MAX_PADS; i++)
+        if (raws[i] && SDL_JoystickGetButton(raws[i], joy_btn[act])) return 1;
+    return 0;
+}
+/* a raw axis as -32767..32767 (steer/lean, small deadzone for wheels) */
+static int raw_axis(const joyaxis_t *ax) {
+    if (ax->axis < 0) return 0;
+    int best = 0;
+    for (int i = 0; i < MAX_PADS; i++) {
+        if (!raws[i]) continue;
+        int v = SDL_JoystickGetAxis(raws[i], ax->axis);
+        if (ax->invert) v = -v;
+        if (v > -1500 && v < 1500) v = 0;
+        if (abs(v) > abs(best)) best = v;
+    }
+    return best < -32767 ? -32767 : best;
+}
+/* a raw pedal as 0..32767 */
+static int raw_pedal(void) {
+    if (joy_pedal.axis < 0) return 0;
+    int best = 0;
+    for (int i = 0; i < MAX_PADS; i++) {
+        if (!raws[i]) continue;
+        int r = SDL_JoystickGetAxis(raws[i], joy_pedal.axis);
+        double f = joy_pedal.half ? (r < 0 ? 0.0 : r / 32767.0) : (r + 32768) / 65535.0;
+        if (joy_pedal.invert) f = 1.0 - f;
+        int v = f > 0.03 ? (int)((f - 0.03) / 0.97 * 32767) : 0;
+        if (v > best) best = v;
+    }
+    return best;
+}
+
+/* propcycl_controls.cfg hooks (ui_menu.c): 1 if the line was ours */
+int input_joy_cfg(const char *key, const char *val) {
+    joyaxis_t *ax = !strcmp(key, "joy_steer") ? &joy_steer : !strcmp(key, "joy_lean") ? &joy_lean
+                  : !strcmp(key, "joy_pedal") ? &joy_pedal : NULL;
+    if (ax) {
+        ax->axis = atoi(val); ax->invert = strstr(val, "invert") != NULL; ax->half = strstr(val, "half") != NULL;
+        return 1;
+    }
+    static const char *bn[ACT_COUNT] = { "joy_coin", "joy_start", "joy_service", "joy_test" };
+    for (int a = 0; a < ACT_COUNT; a++)
+        if (bn[a] && !strcmp(key, bn[a])) { joy_btn[a] = atoi(val); return 1; }
+    return 0;
+}
+void input_joy_cfg_save(FILE *f) {
+    const joyaxis_t *ax[3] = { &joy_steer, &joy_lean, &joy_pedal };
+    const char *nm[3] = { "joy_steer", "joy_lean", "joy_pedal" };
+    fprintf(f, "# raw joysticks (wheels/sticks SDL does not know as a gamepad): axis[ invert][ half], -1 = off; see --joytest\n");
+    for (int i = 0; i < 3; i++)
+        fprintf(f, "%s=%d%s%s\n", nm[i], ax[i]->axis, ax[i]->invert ? " invert" : "", ax[i]->half ? " half" : "");
+    fprintf(f, "joy_coin=%d\njoy_start=%d\njoy_service=%d\njoy_test=%d\n",
+            joy_btn[ACT_COIN], joy_btn[ACT_START], joy_btn[ACT_SERVICE], joy_btn[ACT_TEST]);
+}
+
+/* --joytest: list every device and print axis/button/hat changes live */
+int input_joytest(void) {
+    SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+    if (SDL_Init(SDL_INIT_GAMECONTROLLER) != 0) { fprintf(stderr, "SDL: %s\n", SDL_GetError()); return 1; }
+    SDL_GameControllerAddMappingsFromFile("gamecontrollerdb.txt");
+    SDL_Delay(200); SDL_PumpEvents();
+    printf("%d device(s). Move every axis and press every button; Ctrl-C to stop.\n", SDL_NumJoysticks());
+    for (int i = 0; i < SDL_NumJoysticks() && i < 16; i++) {
+        SDL_Joystick *j = SDL_JoystickOpen(i);
+        printf("  %d: %s -- %s, %d axes, %d buttons, %d hats\n", i, SDL_JoystickName(j),
+               SDL_IsGameController(i) ? "GAMEPAD (standard layout, no mapping needed)" : "RAW joystick (map by number)",
+               SDL_JoystickNumAxes(j), SDL_JoystickNumButtons(j), SDL_JoystickNumHats(j));
+    }
+    fflush(stdout);
+    SDL_Event e;
+    while (SDL_WaitEvent(&e)) {
+        if (e.type == SDL_QUIT) break;
+        if (e.type == SDL_JOYAXISMOTION && (e.jaxis.value > 4000 || e.jaxis.value < -4000 || (e.jaxis.value > -300 && e.jaxis.value < 300)))
+            printf("dev %d  axis %d = %6d\n", e.jaxis.which, e.jaxis.axis, e.jaxis.value);
+        if (e.type == SDL_JOYBUTTONDOWN) printf("dev %d  button %d down\n", e.jbutton.which, e.jbutton.button);
+        if (e.type == SDL_JOYHATMOTION) printf("dev %d  hat %d = %d\n", e.jhat.which, e.jhat.hat, e.jhat.value);
+        fflush(stdout);
+    }
+    SDL_Quit();
+    return 0;
 }
 
 /* Any connected pad contributes; first non-neutral wins for the axes. */
@@ -142,7 +257,10 @@ static int pad_axis(SDL_GameControllerAxis a) {
     for (int i = 0; i < MAX_PADS; i++) {
         if (!pads[i]) continue;
         int v = SDL_GameControllerGetAxis(pads[i], a);
-        if (v > 8000 || v < -8000) return v;      /* deadzone */
+        /* deadzone, then rescale what is left to the full range so the output
+         * starts at 0 at the deadzone edge instead of jumping to ~24% */
+        if (v > 8000)  return  (int)(((long)(v - 8000) * 32767) / (32767 - 8000));
+        if (v < -8000) return -(int)(((long)(-v - 8000) * 32767) / (32768 - 8000));
     }
     return 0;
 }
@@ -279,7 +397,12 @@ void input_force_analog(int x, int y)
 }
 
 void input_init(void) {
-    if (SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER) == 0) pad_open_all();
+    SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+    if (SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER) == 0) {
+        if (SDL_GameControllerAddMappingsFromFile("gamecontrollerdb.txt") > 0)
+            printf("  [PAD] extra pad mappings from gamecontrollerdb.txt\n");
+        pad_open_all();
+    }
 
     /* The ADC pair and its calibration centres are produced here and
      * nowhere else, so _W[] must hold them: without the pin, sync_wram_to_W
@@ -343,6 +466,58 @@ static void axis_update(int16_t *v, int neg, int pos) {
     if (*v > ADC_MAX) *v = ADC_MAX;
 }
 
+/* Gameplay proper: state 3, sub-state 3. Where the pad's Start means pause. */
+int input_in_gameplay(void)
+{
+    return (int)_W[0x0CBC] == 3 && (int)_W[0x0CC0] == 3;
+}
+
+/* PAUSE CAMERA controls (renderer_3d.c pausecam_apply), called once per
+ * main-loop iteration while paused. Keyboard: the steer/lean keys (arrows)
+ * orbit, +/- (or PageUp/PageDown) zoom. Pad: left stick orbits, right stick
+ * Y and the triggers zoom. main.c zeroes all three on unpause, which is the
+ * snap back to the game's view. */
+extern float g_pausecam_yaw, g_pausecam_pitch, g_pausecam_dist;
+void input_pausecam_update(void)
+{
+    const uint8_t *keys = SDL_GetKeyboardState(NULL);
+    /* Rates per SECOND of wall clock: the main loop is paced only by vsync,
+     * so a per-iteration step would spin faster on a high-refresh monitor. */
+    static uint64_t last;
+    uint64_t now = SDL_GetTicks64();
+    float dt = last ? (now - last) / 1000.0f : 1.0f / 60.0f;
+    last = now;
+    if (dt > 0.1f) dt = 1.0f / 60.0f;  /* first call of a new pause, or a stall: one normal step, no jump */
+    const float ORBIT = 120.0f * dt;   /* degrees at full input */
+    const float DOLLY = 15000.0f * dt; /* view units at full input */
+    float yaw = 0, pitch = 0, dolly = 0;
+    if (keys[ui_binding[ACT_LEFT]])  yaw   -= 1;
+    if (keys[ui_binding[ACT_RIGHT]]) yaw   += 1;
+    if (keys[ui_binding[ACT_UP]])    pitch -= 1;     /* up raises the camera, looking down */
+    if (keys[ui_binding[ACT_DOWN]])  pitch += 1;
+    if (keys[SDL_SCANCODE_EQUALS] || keys[SDL_SCANCODE_KP_PLUS]  || keys[SDL_SCANCODE_PAGEUP])   dolly -= 1;
+    if (keys[SDL_SCANCODE_MINUS]  || keys[SDL_SCANCODE_KP_MINUS] || keys[SDL_SCANCODE_PAGEDOWN]) dolly += 1;
+    yaw   += pad_axis(SDL_CONTROLLER_AXIS_LEFTX)  / 32767.0f;
+    pitch += pad_axis(SDL_CONTROLLER_AXIS_LEFTY)  / 32767.0f;   /* stick up (negative) raises it */
+    dolly += pad_axis(SDL_CONTROLLER_AXIS_RIGHTY) / 32767.0f;
+    for (int i = 0; i < MAX_PADS; i++) {
+        if (!pads[i]) continue;
+        int lt = SDL_GameControllerGetAxis(pads[i], SDL_CONTROLLER_AXIS_TRIGGERLEFT);
+        int rt = SDL_GameControllerGetAxis(pads[i], SDL_CONTROLLER_AXIS_TRIGGERRIGHT);
+        if (lt > 3000) dolly += lt / 32767.0f;     /* LT: back out */
+        if (rt > 3000) dolly -= rt / 32767.0f;     /* RT: move in */
+    }
+    g_pausecam_yaw += yaw * ORBIT;
+    if (g_pausecam_yaw >  180.0f) g_pausecam_yaw -= 360.0f;
+    if (g_pausecam_yaw < -180.0f) g_pausecam_yaw += 360.0f;
+    g_pausecam_pitch += pitch * ORBIT;
+    if (g_pausecam_pitch >  85.0f) g_pausecam_pitch =  85.0f;
+    if (g_pausecam_pitch < -85.0f) g_pausecam_pitch = -85.0f;
+    g_pausecam_dist += dolly * DOLLY;
+    if (g_pausecam_dist < -9000.0f)  g_pausecam_dist = -9000.0f;   /* the renderer also clamps to the rider's depth */
+    if (g_pausecam_dist >  60000.0f) g_pausecam_dist =  60000.0f;
+}
+
 void input_poll(void) {
     const uint8_t *keys = SDL_GetKeyboardState(NULL);
     /* Menu open: swallow game input so menu typing never reaches the game. */
@@ -358,20 +533,22 @@ void input_poll(void) {
      * moves the raw value DOWN. */
     int ax = pad_axis(SDL_CONTROLLER_AXIS_LEFTX);
     int ay = pad_axis(SDL_CONTROLLER_AXIS_LEFTY);
-    if (ax || ay) {
-        /* Stick maps straight onto the ADC range -- absolute, not stepped,
-         * so it behaves like the real potentiometer rather than a key. */
-        int span = (ADC_MAX - ADC_MIN) / 2;
-        if (ax) analog_x = (int16_t)(ADC_CENTER - (ax * span) / 32767);
-        if (ay) analog_y = (int16_t)(ADC_CENTER + (ay * span) / 32767);
-        if (analog_x < ADC_MIN) analog_x = ADC_MIN;
-        if (analog_x > ADC_MAX) analog_x = ADC_MAX;
-        if (analog_y < ADC_MIN) analog_y = ADC_MIN;
-        if (analog_y > ADC_MAX) analog_y = ADC_MAX;
-    } else {
-        axis_update(&analog_x, keys[ui_binding[ACT_RIGHT]], keys[ui_binding[ACT_LEFT]]);
-        axis_update(&analog_y, keys[ui_binding[ACT_UP]],    keys[ui_binding[ACT_DOWN]]);
-    }
+    { int rx = raw_axis(&joy_steer), ry = raw_axis(&joy_lean);
+      if (abs(rx) > abs(ax)) ax = rx;
+      if (abs(ry) > abs(ay)) ay = ry; }
+    /* Each axis on its own: a stick axis outside its deadzone sets that axis
+     * absolutely (like the real potentiometer); otherwise the keys drive it
+     * and it springs back. Both axes used to share one test, so releasing
+     * lean while still steering left lean frozen at its last reading (~24%). */
+    int span = (ADC_MAX - ADC_MIN) / 2;
+    if (ax) analog_x = (int16_t)(ADC_CENTER - (ax * span) / 32767);
+    else    axis_update(&analog_x, keys[ui_binding[ACT_RIGHT]], keys[ui_binding[ACT_LEFT]]);
+    if (ay) analog_y = (int16_t)(ADC_CENTER + (ay * span) / 32767);
+    else    axis_update(&analog_y, keys[ui_binding[ACT_UP]],    keys[ui_binding[ACT_DOWN]]);
+    if (analog_x < ADC_MIN) analog_x = ADC_MIN;
+    if (analog_x > ADC_MAX) analog_x = ADC_MAX;
+    if (analog_y < ADC_MIN) analog_y = ADC_MIN;
+    if (analog_y > ADC_MAX) analog_y = ADC_MAX;
 
     /* PROPCYCL_TEST_COIN=<frame>: inject one coin at that frame, so the
      * path can be verified headlessly (no keyboard in a screenshot run). */
@@ -392,7 +569,7 @@ void input_poll(void) {
 
     /* Coin: one pulse per key press, not per frame held. */
     int coin_key = keys[ui_binding[ACT_COIN]] || test_coin ||
-                   pad_button(SDL_CONTROLLER_BUTTON_BACK);
+                   pad_button(SDL_CONTROLLER_BUTTON_BACK) || raw_button(ACT_COIN);
     if (coin_key && !coin_key_prev) coin_pulse = COIN_PULSE_FRAMES;
     coin_key_prev = coin_key;
     if (coin_pulse > 0) coin_pulse--;
@@ -400,8 +577,9 @@ void input_poll(void) {
     uint16_t inputs = 0;
     if (coin_pulse > 0)                    inputs |= IN_COIN1;
     if (keys[ui_binding[ACT_SERVICE]] ||
-        pad_button(SDL_CONTROLLER_BUTTON_LEFTSHOULDER))  inputs |= IN_SERVICE1;
-    if (keys[ui_binding[ACT_TEST]])        inputs |= IN_TEST;
+        pad_button(SDL_CONTROLLER_BUTTON_LEFTSHOULDER) ||
+        raw_button(ACT_SERVICE))                         inputs |= IN_SERVICE1;
+    if (keys[ui_binding[ACT_TEST]] || raw_button(ACT_TEST)) inputs |= IN_TEST;
     /* NOT key 1 by default: main.c binds 1-4 to "force stage start", so
      * mapping START1 there too fired both actions from one press. */
     /* PROPCYCL_TEST_START=<frame>: press Start for 4 frames from that frame,
@@ -436,9 +614,12 @@ void input_poll(void) {
           if (coin_pulse > 0) inputs |= IN_COIN1;
       } }
 
+    /* In gameplay the pad's Start is PAUSE (main.c), so it must not also be
+     * the cabinet START there; A still is. */
     if (keys[ui_binding[ACT_START]] || test_start ||
-        pad_button(SDL_CONTROLLER_BUTTON_START) ||
-        pad_button(SDL_CONTROLLER_BUTTON_A))             inputs |= IN_START1;
+        (pad_button(SDL_CONTROLLER_BUTTON_START) && !input_in_gameplay()) ||
+        pad_button(SDL_CONTROLLER_BUTTON_A) ||
+        raw_button(ACT_START))                           inputs |= IN_START1;
 
     /* Buttons go through the MCU shared RAM; the game copies them into
      * W[0x2B80]/W[0x2BA4] itself and derives the edges. */
@@ -653,6 +834,7 @@ void input_poll(void) {
           int v = SDL_GameControllerGetAxis(pads[i], SDL_CONTROLLER_AXIS_TRIGGERRIGHT);
           if (v > trig) trig = v;
       }
+      { int rp = raw_pedal(); if (rp > trig) trig = rp; }
       int analog = trig > 3000 ? (trig * PEDAL_LEVEL_MAX) / 32767 : 0;
 
       /* PROPCYCL_TEST_PEDAL=<level 1..127>: hold the pedal at a fixed level

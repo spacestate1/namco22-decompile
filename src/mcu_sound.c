@@ -4,6 +4,13 @@
 #include "propcycl.h"
 #include "c352.h"
 
+/* How the sound program's instructions get executed: the TRANSLATED program
+ * (gen/snd_driver.c) in the game; the fetch/decode oracle in
+ * propcycl_sndoracle (tools/sndoracle/, test only). Same contract as
+ * m37710_run: run until `cycles` have elapsed. */
+int  snd_run(m37710_t *c, int cycles);
+void snd_executor_init(void);
+
 /* The game state, for the gameplay-only shared-RAM dump below. */
 extern intptr_t _W[];
 #define W _W
@@ -15,6 +22,8 @@ extern intptr_t _W[];
 /* audio_hle owns the chip instance and the mixer lock; it hands us these two
  * so the MCU's writes land in the very chip that is being played. */
 extern void audio_hle_c352_write(unsigned word_off, unsigned val);
+extern unsigned audio_hle_c352_read(unsigned word_off);
+extern void audio_hle_c352_sync(uint64_t mcu_cycles);
 
 const char *g_sharedump = 0;
 int g_mculog = 0;
@@ -32,6 +41,29 @@ static uint8_t   g_c352sh[0x1000];            /* shadow, to assemble 16-bit writ
 static bool      g_ready;
 
 static uint64_t  g_int0_last, g_int2_last;
+/* The next cycle at which the board does something to the sound CPU: a pin, or
+ * the end of the frame (the 68K runs, the chip trace is sampled). */
+static uint64_t  g_pin_next = UINT64_MAX;
+uint64_t mcu_sound_next_pin_event(void) { return g_pin_next; }
+/* Assert whichever board pins are due. Called from the frame loop and from
+ * inside snd_call() (a translated routine run from readable C), so a long
+ * readable routine does not hold the pins back. */
+void mcu_sound_raise_due_pins(void)
+{
+    if (g_cpu.cycles >= g_int0_last + CYC_FRAME) {
+        g_int0_last += CYC_FRAME; m37710_irq(&g_cpu, 0x14);
+    }
+    if (g_cpu.cycles >= g_int2_last + CYC_FRAME) {
+        g_int2_last += CYC_FRAME; m37710_irq(&g_cpu, 0x10);
+    }
+}
+static FILE     *g_c352log;
+/* PROPCYCL_CHIPTRACE=<file>: the rewrite's gate against the oracle. Per game
+ * frame, every key-on (voice + the registers it was keyed with) and the whole
+ * register image as the DRIVER wrote it. Timing inside a frame is not in it:
+ * a readable routine runs atomically, so interrupts land at different cycles,
+ * but what the driver tells the chip each frame must not change. */
+static FILE     *g_chiptrace;
 
 static uint8_t bus_r(void *u, uint32_t a)
 {
@@ -39,7 +71,13 @@ static uint8_t bus_r(void *u, uint32_t a)
     if (a >= 0x200000 && a < 0x280000) return g_rom[a - 0x200000];
     if (a >= 0x00C000 && a < 0x010000) return g_rom[a];              /* mirror */
     if (a >= 0x004000 && a < 0x00C000) return g_sys.commsram[(a - 0x004000) ^ 1];
-    if (a >= 0x002000 && a < 0x003000) return g_c352sh[a - 0x002000];
+    if (a >= 0x002000 && a < 0x003000) {
+        /* The chip's live register (see audio_hle_c352_sync), little-endian. */
+        unsigned off = a - 0x002000;
+        audio_hle_c352_sync(g_cpu.cycles);
+        unsigned w = audio_hle_c352_read(off >> 1);
+        return (uint8_t)((off & 1) ? w >> 8 : w);
+    }
     if (a <  0x000400)                 return g_iram[a - 0x000080];
     return 0;
 }
@@ -51,6 +89,13 @@ static void bus_w(void *u, uint32_t a, uint8_t v)
     if (a >= 0x002000 && a < 0x003000) {
         unsigned off = a - 0x002000;
         g_c352sh[off] = v;
+        /* PROPCYCL_C352LOG=<file>: every C352 register byte write in
+         * tools/overnight/dump_c352.lua's format (machine time in seconds,
+         * byte offset, data, mask), so the driver's output can be compared
+         * against MAME's write for write (tools/overnight/c352_stream_gate.py). */
+        if (g_c352log)
+            fprintf(g_c352log, "%.9f %x %x %x\n", (double)g_cpu.cycles / MCU_CLOCK, off & ~1u,
+                    (off & 1) ? (unsigned)v << 8 : v, (off & 1) ? 0xff00u : 0x00ffu);
         /* The C352 is a 16-bit device. The core writes a word as low byte
          * then high byte, so the word is complete on the ODD address -- and
          * the chip's key-on execute register only acts on a full 16-bit
@@ -69,6 +114,15 @@ static void bus_w(void *u, uint32_t a, uint8_t v)
              * the SAME wave_bank/wave_start are literally the same sample --
              * which is what "I hear the selection sound twice" looks like
              * from here, and it is not answerable by ear. */
+            if (g_chiptrace && w == 0x202) {
+                for (unsigned vo = 0; vo < 32; vo++) {
+                    const uint8_t *r = &g_c352sh[vo * 16];
+                    if (r[7] & 0x40)
+                        fprintf(g_chiptrace, "K %u v%u %02X%02X %02X%02X %02X%02X %02X%02X %02X%02X %02X%02X %02X%02X %02X%02X\n",
+                                (unsigned)g_sys.frame_count, vo, r[1], r[0], r[3], r[2], r[5], r[4], r[7], r[6],
+                                r[9], r[8], r[11], r[10], r[13], r[12], r[15], r[14]);
+                }
+            }
             if ((w & 7) == 3 && (((unsigned)g_c352sh[off - 1] | ((unsigned)v << 8)) & 0x4000)) {
                 extern int g_sndlog;
                 unsigned vo = w >> 3;
@@ -89,6 +143,7 @@ static void bus_w(void *u, uint32_t a, uint8_t v)
                           g_mcu_voice, RN[w & 7],
                           (unsigned)g_c352sh[off - 1] | ((unsigned)v << 8), g_cpu.pc);
               } }
+            audio_hle_c352_sync(g_cpu.cycles);
             audio_hle_c352_write(w, (unsigned)g_c352sh[off - 1] | ((unsigned)v << 8));
         }
         return;
@@ -125,8 +180,14 @@ bool mcu_sound_init(const char *rom_dir)
     memset(g_c352sh, 0, sizeof g_c352sh);
     m37710_init(&g_cpu, bus_r, bus_w, NULL);
     m37710_reset(&g_cpu);
+    snd_executor_init();
     g_int0_last = 0;
     g_int2_last = CYC_FRAME / 2;            /* INT2 leads INT0 by half a frame */
+    /* PROPCYCL_SNDJITTER=<cycles>: shift the board's pin schedule. A TEST knob:
+     * it asks whether the driver's OUTPUT (the order of its chip writes)
+     * depends on exactly when interrupts land, or only its timing does. */
+    { const char *e = getenv("PROPCYCL_SNDJITTER");
+      if (e) { long k = atol(e); g_int0_last += (uint64_t)k; g_int2_last += (uint64_t)k; } }
     /* The board's video timer has been running long before the 68K releases
      * the MCU from reset, and both pins are held, so by the time the driver
      * first clears its interrupt mask each has already been asserted. MAME's
@@ -136,6 +197,10 @@ bool mcu_sound_init(const char *rom_dir)
     m37710_irq(&g_cpu, 0x14);
     { extern int g_m377_sfrlog; if (getenv("PROPCYCL_MCUSFR")) g_m377_sfrlog = 1; }
     if (getenv("PROPCYCL_MCUTRAP")) g_cpu.pchist_on = 1;
+    { const char *e = getenv("PROPCYCL_C352LOG");
+      if (e && (g_c352log = fopen(e, "w"))) { setvbuf(g_c352log, NULL, _IOFBF, 1 << 20); fprintf(g_c352log, "# ours: time = MCU cycles / %u\n", MCU_CLOCK); } }
+    { const char *e = getenv("PROPCYCL_CHIPTRACE");
+      if (e && (g_chiptrace = fopen(e, "w"))) setvbuf(g_chiptrace, NULL, _IOFBF, 1 << 20); }
     { const char *e = getenv("PROPCYCL_MCUVOICE"); if (e) g_mcu_voice = atoi(e); }
     { const char *e = getenv("PROPCYCL_MCUPC"); if (e) g_mcu_pc = (int)strtol(e, 0, 16); }
     g_ready = true;
@@ -196,12 +261,13 @@ void mcu_sound_run_frame(void)
      * driver made itself this frame. A song that stops at its loop point is
      * either the game clearing bit 15 or the driver deciding the song is
      * over, and this says which. */
-    static const int SW_SLOT[5] = { 0, 1, 2, 3, 27 };
+    static int SW_SLOT[5] = { 0, 1, 2, 3, 27 };
     static int slotwatch = -1;
     static unsigned sw_last[5];
     if (slotwatch < 0) {
         const char *e = getenv("PROPCYCL_SLOTWATCH");
         slotwatch = (e && *e && *e != '0');
+        if (slotwatch && atoi(e) > 3) SW_SLOT[4] = atoi(e);   /* =<slot>: watch that slot instead of 27 */
         for (int s = 0; s < 5; s++) sw_last[s] = comms_r16(g_sys.commsram, SW_SLOT[s] * 2);
     }
     if (slotwatch)
@@ -214,8 +280,40 @@ void mcu_sound_run_frame(void)
             sw_last[s] = v;
         }
 
-    end = g_cpu.cycles + CYC_FRAME;
-    while (g_cpu.cycles < end && !g_cpu.unimpl_hit) {
+    /* PROPCYCL_MBOXLOG=<file>: every command word (slots 0-31) the GAME changed
+     * since the driver last ran, tagged with the game's frame counter
+     * W[0x0C98] -- the same line tools/overnight/mbox_trace.lua writes from
+     * MAME, so the 68K->driver stream can be diffed apart from the driver. */
+    { static FILE *mb; static int init;
+      if (!init) { const char *e = getenv("PROPCYCL_MBOXLOG"); init = 1; if (e) mb = fopen(e, "w"); }
+      if (mb) {
+          for (int o = 0; o < 0x40; o += 2) {
+              unsigned v = comms_r16(g_sys.commsram, o), was = comms_r16(g_shadow, o);
+              if (v != was) fprintf(mb, "MBOX off=%x val=%04x fc=%ld st=%ld ph=%ld\n", o, v,
+                                    (long)(int32_t)W[0x0C98], (long)W[0x0CBC], (long)W[0x0CC4]);
+          }
+          fflush(mb);
+      } }
+
+    /* Frame ends lie on a FIXED grid. Taking `now + CYC_FRAME` instead let every
+     * extension below push all later frames back, so a build that extends
+     * (the oracle) and one that never needs to (a tick written as C) drifted a
+     * whole tick apart by frame 2670 of a coin run and saw the game's commands
+     * on different ticks. An extension now borrows from the next frame only. */
+    static uint64_t frame_grid;
+    if (!frame_grid) frame_grid = g_cpu.cycles;
+    frame_grid += CYC_FRAME;
+    end = frame_grid;
+    /* A FRAME DOES NOT END INSIDE A TICK. The 68K and the sound CPU run
+     * concurrently on the board; here they take turns a frame at a time, and
+     * the game writes its mailbox commands between turns. Ending a turn in the
+     * middle of the 120 Hz tick body (the driver sets 0xD3 while it runs,
+     * 0xD684..0xD6DE) let the rest of that tick see the NEXT frame's commands
+     * -- 21% of frame ends in a coin run -- a pure artifact of the turn-taking,
+     * and one a tick written as plain C cannot reproduce. So the turn runs on
+     * to the end of the tick (bounded, in case the flag is ever left set). */
+    const uint64_t hard_end = end + CYC_FRAME / 4;
+    while ((g_cpu.cycles < end || (g_iram[0xD3 - 0x80] && g_cpu.cycles < hard_end)) && !g_cpu.unimpl_hit) {
         /* Only the two interrupt PINS the board drives are ours to supply:
          * namcos22.cpp's `mcu_irq` scanline timer asserts IRQ0 at scanline
          * 480 (vector 0xFFF4) and IRQ2 at 240 (0xFFF0), once each per frame.
@@ -224,13 +322,45 @@ void mcu_sound_run_frame(void)
          * peripheral registers, because those rates are not constants: the
          * driver starts and stops Timer B0 at run time by rewriting the
          * count-start register (measured: 0x40 alternating 0x0D and 0x2D). */
-        if (g_cpu.cycles - g_int0_last >= CYC_FRAME) {
-            g_int0_last = g_cpu.cycles; m37710_irq(&g_cpu, 0x14);
-        }
-        if (g_cpu.cycles - g_int2_last >= CYC_FRAME) {
-            g_int2_last = g_cpu.cycles; m37710_irq(&g_cpu, 0x10);
-        }
-        m37710_run(&g_cpu, 64);
+        /* The pins are asserted on an exact grid (MAME: a scanline timer),
+         * not "at the first 64-cycle chunk boundary after they are due" --
+         * that made every later pin depend on how far the last instruction
+         * overran a chunk, so the pin times were a function of the executor. */
+        mcu_sound_raise_due_pins();
+        g_pin_next = g_cpu.cycles < end ? end : hard_end;
+        if (g_int0_last + CYC_FRAME < g_pin_next) g_pin_next = g_int0_last + CYC_FRAME;
+        if (g_int2_last + CYC_FRAME < g_pin_next) g_pin_next = g_int2_last + CYC_FRAME;
+        uint64_t n = g_pin_next - g_cpu.cycles;
+        snd_run(&g_cpu, n < 64 ? (int)n : 64);
+    }
+    /* PROPCYCL_SNDSTATE=<file>[:<frame>]: per frame, a hash of the driver's
+     * memory (its RAM 0x80-0x3FF and the shared RAM it keeps its records in);
+     * at <frame>, the bytes themselves. Two builds' files name the first frame
+     * and the first byte where the driver's STATE parts -- which the chip
+     * stream only shows once it reaches a register. */
+    { static FILE *sf; static long dump_at = -2;
+      if (dump_at == -2) { const char *e = getenv("PROPCYCL_SNDSTATE"); dump_at = -1;
+          if (e) { char path[512]; snprintf(path, sizeof path, "%s", e); char *k = strrchr(path, ':');
+                   if (k) { *k = 0; dump_at = atol(k + 1); } sf = fopen(path, "w"); } }
+      if (sf) {
+          uint64_t h = 1469598103934665603ull;
+          for (unsigned i = 0; i < sizeof g_iram; i++) {
+              if (i + 0x80 >= 0x240 && i + 0x80 < 0x280) continue;   /* the stack: return addresses, saved registers */
+              h ^= g_iram[i]; h *= 1099511628211ull; }
+          for (unsigned i = 0; i < 0x8000; i++) { h ^= g_sys.commsram[i]; h *= 1099511628211ull; }
+          fprintf(sf, "H %u %016llx\n", (unsigned)g_sys.frame_count, (unsigned long long)h);
+          if ((long)g_sys.frame_count == dump_at) {
+              for (unsigned i = 0; i < sizeof g_iram; i++) fprintf(sf, "B %04X %02X\n", 0x80 + i, g_iram[i]);
+              for (unsigned i = 0; i < 0x8000; i++) fprintf(sf, "B %04X %02X\n", 0x4000 + i, g_sys.commsram[i ^ 1]);
+          }
+          fflush(sf);
+      } }
+    audio_hle_c352_sync(g_cpu.cycles);      /* the chip's output up to the end of this frame */
+    if (g_chiptrace) {
+        fprintf(g_chiptrace, "F %u", (unsigned)g_sys.frame_count);
+        for (unsigned i = 0; i < 0x200; i += 2)
+            fprintf(g_chiptrace, " %02X%02X", g_c352sh[i + 1], g_c352sh[i]);
+        fprintf(g_chiptrace, " | %02X%02X\n", g_c352sh[0x401], g_c352sh[0x400]);
     }
     memcpy(g_shadow, g_sys.commsram, sizeof g_shadow);
     if (slotwatch)

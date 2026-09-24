@@ -20,7 +20,9 @@
 #include <zlib.h>
 #include "rom_zip.h"
 
-static const struct { const char *name; uint32_t size; } k_roms[] = {
+/* opt = 1: extracted when the zip has it, never required (the master DSP's
+ * BIOS -- without it the game falls back to its own scene expansion) */
+static const struct { const char *name; uint32_t size; int opt; } k_roms[] = {
     {"pr2ver-a.1", 0x100000}, {"pr2ver-a.2", 0x100000},
     {"pr2ver-a.3", 0x100000}, {"pr2ver-a.4", 0x100000},
     {"pr1ptrl0.18k", 0x80000}, {"pr1ptrl1.16k", 0x80000}, {"pr1ptrl2.15k", 0x80000},
@@ -33,6 +35,7 @@ static const struct { const char *name; uint32_t size; } k_roms[] = {
     {"pr1scg0.12f", 0x200000}, {"pr1scg1.10f", 0x200000},
     {"pr1data.8k", 0x80000},
     {"pr1wavea.2l", 0x400000}, {"pr1waveb.1l", 0x400000},
+    {"c71.bin", 0x2000, 1},
 };
 #define NROMS ((int)(sizeof k_roms / sizeof k_roms[0]))
 
@@ -49,6 +52,7 @@ bool rom_dir_complete(const char *dir)
 {
     char p[1024];
     for (int i = 0; i < NROMS; i++) {
+        if (k_roms[i].opt) continue;
         snprintf(p, sizeof p, "%s/%s", dir, k_roms[i].name);
         if (file_size(p) != (long)k_roms[i].size) return false;
     }
@@ -139,7 +143,7 @@ bool rom_zip_extract(const char *zip_path, const char *dest_dir, char *err, size
     }
 
     for (int i = 0; i < NROMS; i++)
-        if (!got[i]) {
+        if (!got[i] && !k_roms[i].opt) {
             snprintf(err, errlen, "%s is not the Prop Cycle ROM set (missing or bad: %s)",
                      zip_path, k_roms[i].name);
             goto done;

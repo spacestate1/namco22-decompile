@@ -78,6 +78,31 @@ static double rperf(void){
  * cmode (color depth, 4 bits) is decoded inside the baker per the spec in
  * decompiled/annotations.md "Texture cmode". */
 extern int g_tex_opaque;   /* renderer_texture.c: 1 = no pen-0 keying */
+int g_tex_clipbox = 0;      /* PROPCYCL_TEX_CLIPBOX=1: key the bake on the clipped polygon again */
+/* WIDESCREEN (Hor+). The scene is 640x480 in its own coordinates; on a wider
+ * window main.c sets these to (-E, 640 + E) so the 3D world gets extra room
+ * at the sides without moving or rescaling anything in 0..640. The camera's
+ * projection is untouched (centre x stays 320), so it is the same view with
+ * more of the world on each side. The 2D text/sprite layers and the HUD stay
+ * in the 4:3 centre, where the game drew them. 0/640 = original 4:3. */
+float g_scene_x0 = 0.0f, g_scene_x1 = (float)SCREEN_WIDTH;
+/* HUD TO THE CORNERS in widescreen: the gauges slide out by the extra width
+ * (left ones left, right ones right; anything within 60 px of the centre, the
+ * pendulum and its arrow plate, stays). Only during the countdown and
+ * gameplay (state 3, sub 5 / 3) -- every other screen, the results board
+ * included, is drawn exactly as the game laid it out. PROPCYCL_WIDE_HUD_CENTER=1
+ * keeps the HUD in the 4:3 centre. */
+int g_wide_hud_center = 0;
+static int hud_corners_shift(double centre_off)
+{
+    extern intptr_t _W[];
+    if (g_scene_x0 >= 0.0f || g_wide_hud_center) return 0;
+    if ((int)_W[0x0CBC] != 3) return 0;
+    int sub = (int)_W[0x0CC0];
+    if (sub != 3 && sub != 5) return 0;
+    int E = (int)(-g_scene_x0);
+    return centre_off < -60.0 ? -E : centre_off > 60.0 ? E : 0;
+}
 extern int tex_frame_hits, tex_frame_misses, tex_cache_evictions;
 extern int tex_reallocs, tex_subimages;
 GLuint bake_quad_texture(int min_u, int min_v, int range_u, int range_v,
@@ -460,7 +485,47 @@ static void render_level_grid(void);
  * of ending phase 1 vanished for the last 420 frames of it.
  * PROPCYCL_DSP32=1 restores the 32-bit read for A/B. */
 int g_dsp32 = 0;
+/* PAUSE 360 (pause_world.c): a second display list, walked after the
+ * frozen one while paused, and a filter so the second walk draws only
+ * placements the first did not. Keyed on (code, camera-relative position),
+ * which is identical between the two because the camera is the same. */
+int g_p360_new, g_p360_dup;
+static const int32_t *g_pdp_words;   /* non-NULL: walk this instead of DSP RAM */
+static int g_pdp_nwords;
+static int g_seen_mode;              /* 0 off, 1 record, 2 skip what was recorded */
+#define SEEN_SLOTS 16384
+/* Two tables. The FROZEN frame claims a POSITION, whatever model sits there:
+ * scenery comes in near/far detail versions at the same spot, and the extra
+ * walk (other headings put a chunk in another LOD band) must not draw the
+ * second one over the game's own. Inside the extra walk the MODEL is part of
+ * the key too, because several parts of one object share its origin (a
+ * windmill's tower and sails). */
+static uint64_t seen_pos[SEEN_SLOTS], seen_full[SEEN_SLOTS];
+/* 1 = k was already in tab; inserts it when `add` */
+static int seen_probe(uint64_t *tab, uint64_t k, int add) {
+    k |= 1;                                              /* 0 marks an empty slot */
+    const uint64_t hh = k * 0x9E3779B97F4A7C15ull;
+    for (unsigned i = (unsigned)(hh >> 50) % SEEN_SLOTS, n = 0; n < SEEN_SLOTS; n++, i = (i + 1) % SEEN_SLOTS) {
+        if (tab[i] == k) return 1;
+        if (tab[i] == 0) { if (add) tab[i] = k; return 0; }
+    }
+    return 0;
+}
+/* Returns 1 if this placement must be skipped. */
+static int seen_check_add(int code, float px, float py, float pz) {
+    const uint64_t pos = ((uint64_t)(uint32_t)(int32_t)px << 32)
+                       ^ ((uint64_t)(uint32_t)(int32_t)py << 16) ^ (uint64_t)(uint32_t)(int32_t)pz;
+    if (g_seen_mode == 1) { seen_probe(seen_pos, pos, 1); return 0; }
+    if (seen_probe(seen_pos, pos, 0)) return 1;          /* the frozen frame has something here */
+    return seen_probe(seen_full, pos ^ ((uint64_t)(uint32_t)code << 48), 1);
+}
+
 static int32_t cmdram_read32(int word_index) {
+    if (g_pdp_words) {
+        if (word_index < 0 || word_index >= g_pdp_nwords) return 0;
+        int32_t v = g_pdp_words[word_index];
+        return g_dsp32 ? v : (int32_t)((uint32_t)v << 8) >> 8;
+    }
     uint32_t byte_off = cmd_buf_base + (uint32_t)word_index * 4;
     if (byte_off + 3 >= DSPRAM_SIZE) return 0;
     int32_t val;
@@ -495,6 +560,8 @@ static int g_frame_poly_count = 0;
 #include "text_hw.h"
 #include "ui_menu.h"
 void framedump_render(geo_quad_cb cb, void *user);
+void framedump_render_words(const uint32_t *words, geo_quad_cb cb, void *user);
+#include "master_dsp.h"
 const sprite_state *framedump_current_sprites(void);
 const text_state   *framedump_current_text(void);
 
@@ -1034,11 +1101,11 @@ static void geohw_map_backdrop(void)
     glDisable(GL_BLEND);
     glBegin(GL_QUADS);
     glColor4f(0.13f, 0.06f, 0.20f, 1.0f);   /* top: dark purple */
-    glVertex2f(0, 0);
-    glVertex2f(SCREEN_WIDTH, 0);
+    glVertex2f(g_scene_x0, 0);
+    glVertex2f(g_scene_x1, 0);
     glColor4f(0.02f, 0.01f, 0.04f, 1.0f);   /* bottom: near black */
-    glVertex2f(SCREEN_WIDTH, SCREEN_HEIGHT);
-    glVertex2f(0, SCREEN_HEIGHT);
+    glVertex2f(g_scene_x1, SCREEN_HEIGHT);
+    glVertex2f(g_scene_x0, SCREEN_HEIGHT);
     glEnd();
     glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
     glEnable(GL_ALPHA_TEST);
@@ -1269,16 +1336,24 @@ static void geohw_draw_sprite_item(const sprite_state *st, const sprite_item *it
                     GL_RGBA, GL_UNSIGNED_BYTE, spr_item_buf);
 
     float su = (float)it->w / SPR_W, sv = (float)it->h / SPR_H;
+    /* The gauge HOUSINGS are sprites, not polygons (the polygons are only
+     * the rolling reels): TIME's at x 0 w 209 and its knob at 144, POINT's at
+     * 432 w 208 and its knob at 370, the pendulum at 269 -- all layer 5 (key
+     * 0xA00000..0xBFFFFF, the layer plus a small z_depth) and starting in the
+     * top band. They follow their side to the widescreen corner; the
+     * pendulum, centred, stays (hud_corners_shift's 60 px margin). */
+    float dx = ((it->z >> 21) == 5u && it->y0 < 64)
+             ? (float)hud_corners_shift(it->x0 + it->w / 2.0 - SCREEN_WIDTH / 2.0) : 0.0f;
     glEnable(GL_TEXTURE_2D);
     glDisable(GL_ALPHA_TEST);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
     glBegin(GL_QUADS);
-    glTexCoord2f(0,  0);  glVertex2f(it->x0,          it->y0);
-    glTexCoord2f(su, 0);  glVertex2f(it->x0 + it->w,  it->y0);
-    glTexCoord2f(su, sv); glVertex2f(it->x0 + it->w,  it->y0 + it->h);
-    glTexCoord2f(0,  sv); glVertex2f(it->x0,          it->y0 + it->h);
+    glTexCoord2f(0,  0);  glVertex2f(it->x0 + dx,          it->y0);
+    glTexCoord2f(su, 0);  glVertex2f(it->x0 + it->w + dx,  it->y0);
+    glTexCoord2f(su, sv); glVertex2f(it->x0 + it->w + dx,  it->y0 + it->h);
+    glTexCoord2f(0,  sv); glVertex2f(it->x0 + dx,          it->y0 + it->h);
     glEnd();
     glDisable(GL_BLEND);
     glEnable(GL_ALPHA_TEST);
@@ -1513,6 +1588,104 @@ static void rigview_orbit(geo_view *gv, int code)
         int64_t a = 0;
         for (int k = 0; k < 3; k++) a += v[k] * R[k][j];
         gv->t[j] = g_rig_pivot[j] + (int32_t)(a >> 15);
+    }
+}
+
+/* ---- PAUSE CAMERA ---------------------------------------------------------
+ * While the game is paused (P, or Start on a pad in gameplay) the player can
+ * orbit and zoom around the rider; unpausing snaps back to the game's own view
+ * (main.c resets these). The same rigid view-space rotation as rigview_orbit,
+ * but applied to the WHOLE WORLD viewport so the scene turns with the rider:
+ *   t' = (t - pivot) . R + pivot + (0, 0, dist),  m' = m . R
+ * The pivot is the rider's root, i.e. the first rig object of the previous
+ * render pass -- identical while paused, since the display list is frozen.
+ * The SKY is attached to the eye, not the scene, so it is rotated about the
+ * eye (t' = t . R) and not dollied. HUD / screen-space viewports are left
+ * alone. Nothing here runs unless g_pausecam_on, so unpaused output is
+ * unchanged bit for bit. The game only emits what its own camera can see, so
+ * turning far enough shows the edge of the loaded terrain -- that is the
+ * game's culling, not a bug in this view. */
+int   g_pausecam_on = 0;
+float g_pausecam_yaw = 0.0f, g_pausecam_pitch = 0.0f;   /* degrees */
+float g_pausecam_dist = 0.0f;                           /* view units, + = further away */
+static int32_t pc_pivot[3] = { 0, 1024, 9400 };         /* the game's camera->bike offset */
+static int32_t pc_pivot_next[3];
+static int     pc_have_next;
+
+/* The orbit, as a Q15 row-vector matrix (v' = v . R) in VIEW space.
+ *
+ * YAW turns about the WORLD'S VERTICAL through the rider, and PITCH tilts
+ * about the LEVEL axis across the screen -- not about the game camera's own
+ * axes. The game camera banks with the bike (W[0x0CF0], register row 5) and
+ * looks down a little, so its up axis is tilted: yawing about it (as this
+ * did first) swung the world around a slanted axis, and a bank at the moment
+ * of pausing turned into a nose-up/nose-down tilt a quarter-turn later. The
+ * game's own bank and pitch are kept at yaw = pitch = 0, i.e. pausing still
+ * shows exactly the game's frame.
+ *
+ * World up in view space is row 1 of the view matrix (view = world . viewq).
+ * Built in column form (x' = A x) and transposed at the end. */
+static void pausecam_matrix(const geo_view *gv, int32_t R[3][3])
+{
+    double u[3] = { gv->viewq[1][0], gv->viewq[1][1], gv->viewq[1][2] };
+    double n = sqrt(u[0]*u[0] + u[1]*u[1] + u[2]*u[2]);
+    if (n < 1.0) { u[0] = 0; u[1] = 1; u[2] = 0; n = 1; }
+    for (int i = 0; i < 3; i++) u[i] /= n;
+    /* h = up x forward(0,0,1): horizontal, across the screen; +X when level */
+    double h[3] = { u[1], -u[0], 0.0 };
+    n = sqrt(h[0]*h[0] + h[1]*h[1]);
+    if (n < 1e-3) { h[0] = 1; h[1] = 0; } else { h[0] /= n; h[1] /= n; }
+    const double ya = g_pausecam_yaw * M_PI / 180.0, pa = g_pausecam_pitch * M_PI / 180.0;
+    double Y[3][3], P[3][3], A[3][3];
+    /* Rodrigues: rotation by angle a about unit axis k */
+    #define ROT(M, k, a) do { const double c_ = cos(a), s_ = sin(a), t_ = 1 - c_;            \
+        M[0][0] = t_*k[0]*k[0] + c_;      M[0][1] = t_*k[0]*k[1] - s_*k[2]; M[0][2] = t_*k[0]*k[2] + s_*k[1]; \
+        M[1][0] = t_*k[0]*k[1] + s_*k[2]; M[1][1] = t_*k[1]*k[1] + c_;      M[1][2] = t_*k[1]*k[2] - s_*k[0]; \
+        M[2][0] = t_*k[0]*k[2] - s_*k[1]; M[2][1] = t_*k[1]*k[2] + s_*k[0]; M[2][2] = t_*k[2]*k[2] + c_; } while (0)
+    ROT(Y, u, ya);
+    ROT(P, h, pa);
+    #undef ROT
+    for (int i = 0; i < 3; i++)             /* A = P . Y: yaw first, then pitch */
+        for (int j = 0; j < 3; j++)
+            A[i][j] = P[i][0]*Y[0][j] + P[i][1]*Y[1][j] + P[i][2]*Y[2][j];
+    for (int i = 0; i < 3; i++)             /* row-vector form is the transpose */
+        for (int j = 0; j < 3; j++)
+            R[i][j] = (int32_t)lround(A[j][i] * 32767.0);
+}
+
+static int hud_screen_space(int code);
+static void pausecam_apply(geo_view *gv, int code)
+{
+    if (cur_viewport != 0 || hud_screen_space(code - 0x45)) return;
+    /* Pivot on the BIKE ROOT (138 in gameplay, 113 in the flyover set) when it
+     * is drawn; otherwise on the first rig part. Not simply "the first rig
+     * part": the range also holds the hidden wing pair 144/145, collapsed to a
+     * point ~1000 px off screen (register row 95). */
+    if (rigview_is_rig(code)) {
+        const int root = (code == 138 || code == 113);
+        if (pc_have_next < 2 && (root || !pc_have_next)) {
+            pc_have_next = root ? 2 : 1;
+            memcpy(pc_pivot_next, gv->t, sizeof pc_pivot_next);
+        }
+    }
+    if (!g_pausecam_on) return;
+    int32_t R[3][3], nm[3][3];
+    pausecam_matrix(gv, R);
+    q15_mul3(gv->m, R, nm);     memcpy(gv->m, nm, sizeof nm);
+    q15_mul3(gv->viewq, R, nm); memcpy(gv->viewq, nm, sizeof nm);
+    const int sky = (code == 108);
+    int64_t v[3];
+    for (int j = 0; j < 3; j++) v[j] = gv->t[j] - (sky ? 0 : pc_pivot[j]);
+    for (int j = 0; j < 3; j++) {
+        int64_t a = 0;
+        for (int k = 0; k < 3; k++) a += v[k] * R[k][j];
+        gv->t[j] = (int32_t)(a >> 15) + (sky ? 0 : pc_pivot[j]);
+    }
+    /* Zooming in stops short of the rider whatever the camera distance is. */
+    if (!sky) {
+        float d = g_pausecam_dist, lim = -(float)(pc_pivot[2] - 2000);
+        if (pc_pivot[2] > 2000 && d < lim) d = lim;
+        gv->t[2] += (int32_t)d;
     }
 }
 
@@ -1756,6 +1929,7 @@ static void zfight_report(void)
 static void geohw_flush(void)
 {
     { extern int g_rig_view; if (g_rig_view) rigview_transform(); }
+    if (pc_have_next) { memcpy(pc_pivot, pc_pivot_next, sizeof pc_pivot); pc_have_next = 0; }
     qsort(geohw_buf, geohw_nbuf, sizeof geohw_buf[0], geohw_zcmp);
     zord_report();
     zfight_report();
@@ -1979,8 +2153,8 @@ static void geohw_flush(void)
         glColor4f(g_fog.screen_fade[0] / 255.0f, g_fog.screen_fade[1] / 255.0f,
                   g_fog.screen_fade[2] / 255.0f, a);
         glBegin(GL_QUADS);
-        glVertex2f(0, 0); glVertex2f(SCREEN_WIDTH, 0);
-        glVertex2f(SCREEN_WIDTH, SCREEN_HEIGHT); glVertex2f(0, SCREEN_HEIGHT);
+        glVertex2f(g_scene_x0, 0); glVertex2f(g_scene_x1, 0);
+        glVertex2f(g_scene_x1, SCREEN_HEIGHT); glVertex2f(g_scene_x0, SCREEN_HEIGHT);
         glEnd();
         glDisable(GL_BLEND);
         glEnable(GL_ALPHA_TEST);
@@ -2035,8 +2209,8 @@ static int clip_to_screen(const geo_sv *in, int n, geo_sv *out)
     geo_sv a[32], b[32];
     if (n > 16) n = 16;
     for (int i = 0; i < n; i++) a[i] = in[i];
-    n = clip_edge(a, n, b, 0, 0.0f, 1);                 if (n < 3) return 0;
-    n = clip_edge(b, n, a, 0, (float)SCREEN_WIDTH,  0); if (n < 3) return 0;
+    n = clip_edge(a, n, b, 0, g_scene_x0, 1);           if (n < 3) return 0;
+    n = clip_edge(b, n, a, 0, g_scene_x1, 0);           if (n < 3) return 0;
     n = clip_edge(a, n, b, 1, 0.0f, 1);                 if (n < 3) return 0;
     n = clip_edge(b, n, a, 1, (float)SCREEN_HEIGHT, 0); if (n < 3) return 0;
     for (int i = 0; i < n && i < 32; i++) out[i] = a[i];
@@ -2128,7 +2302,19 @@ static void geohw_draw_one(const geo_quad *q)
      * bake_quad_texture() already does the validated two-stage tilemap
      * lookup over a UV bounding box and hands back a GL texture. */
     int pal_group = (q->color >> 8) & 0x7F;
+    /* The texture is keyed on the WHOLE QUAD's UV box, not the clipped
+     * polygon's. A quad cut by the near plane gets interpolated UVs that move
+     * every frame as the camera moves, so keying on them baked a brand-new
+     * texture for it EVERY FRAME: 127,705 distinct textures over one 6000-frame
+     * level, against a 65,536-slot cache. The bake is one texel per source
+     * texel, so a wider box leaves every sampled texel where it was; the
+     * clipped vertices always lie inside it. PROPCYCL_TEX_CLIPBOX=1 restores
+     * the clipped box for A/B. */
     int min_u = 0xFFFF, min_v = 0xFFFF, max_u = 0, max_v = 0;
+    if (!g_tex_clipbox) {
+        min_u = q->uvbox[0]; max_u = q->uvbox[1];
+        min_v = q->uvbox[2]; max_v = q->uvbox[3];
+    } else
     for (int i = 0; i < q->nrv; i++) {
         int uu = (int)q->rv[i].u, vv = (int)q->rv[i].v;
         if (uu < min_u) min_u = uu;  if (uu > max_u) max_u = uu;
@@ -2139,13 +2325,18 @@ static void geohw_draw_one(const geo_quad *q)
     if (range_v < 1) range_v = 1;
     /* Scene clip window. GL scissor is bottom-left origin; our ortho is
      * top-down (glOrtho(0,W,H,0,...)), hence the y flip. */
-    int cminx = q->clip[0] < 0 ? 0 : q->clip[0];
-    int cmaxx = q->clip[1] > SCREEN_WIDTH  - 1 ? SCREEN_WIDTH  - 1 : q->clip[1];
+    /* Widescreen: a viewport whose clip spans the whole 640 width is a
+     * FULL-FRAME one and widens to the scene's edges; a real sub-window (the
+     * results map, the name-entry lens, the credits window) keeps its own. */
+    const int sx0 = (int)g_scene_x0, sx1 = (int)g_scene_x1 - 1;
+    const int fullw = q->clip[0] <= 0 && q->clip[1] >= SCREEN_WIDTH - 1;
+    int cminx = fullw ? sx0 : (q->clip[0] < 0 ? 0 : q->clip[0]);
+    int cmaxx = fullw ? sx1 : (q->clip[1] > SCREEN_WIDTH - 1 ? SCREEN_WIDTH - 1 : q->clip[1]);
     int cminy = q->clip[2] < 0 ? 0 : q->clip[2];
     int cmaxy = q->clip[3] > SCREEN_HEIGHT - 1 ? SCREEN_HEIGHT - 1 : q->clip[3];
     if (cminx > cmaxx || cminy > cmaxy) return;      /* fully clipped away */
-    int scissored = !(cminx == 0 && cminy == 0 &&
-                      cmaxx == SCREEN_WIDTH - 1 && cmaxy == SCREEN_HEIGHT - 1);
+    int scissored = !(cminx == sx0 && cminy == 0 &&
+                      cmaxx == sx1 && cmaxy == SCREEN_HEIGHT - 1);
     if (scissored) {
         /* glScissor takes WINDOW pixels, but the scene is a 640x480 ortho
          * drawn into whatever viewport main.c set for the window (scaled,
@@ -2155,9 +2346,9 @@ static void geohw_draw_one(const geo_quad *q)
          * Headless (viewport 0,0,640,480) is unchanged. */
         GLint vp[4];
         glGetIntegerv(GL_VIEWPORT, vp);
-        double kx = (double)vp[2] / SCREEN_WIDTH, ky = (double)vp[3] / SCREEN_HEIGHT;
-        int x0 = vp[0] + (int)(cminx * kx + 0.5);
-        int x1 = vp[0] + (int)((cmaxx + 1) * kx + 0.5);
+        double kx = (double)vp[2] / (g_scene_x1 - g_scene_x0), ky = (double)vp[3] / SCREEN_HEIGHT;
+        int x0 = vp[0] + (int)((cminx - g_scene_x0) * kx + 0.5);
+        int x1 = vp[0] + (int)((cmaxx + 1 - g_scene_x0) * kx + 0.5);
         int y0 = vp[1] + (int)((SCREEN_HEIGHT - 1 - cmaxy) * ky + 0.5);
         int y1 = vp[1] + (int)((SCREEN_HEIGHT - cminy) * ky + 0.5);
         glEnable(GL_SCISSOR_TEST);
@@ -2189,7 +2380,7 @@ static void geohw_draw_one(const geo_quad *q)
         if (y0 < cminy) y0 = cminy;  if (y1 > cmaxy) y1 = cmaxy;
         GLint vp[4];
         glGetIntegerv(GL_VIEWPORT, vp);
-        double kx = (double)vp[2] / SCREEN_WIDTH, ky = (double)vp[3] / SCREEN_HEIGHT;
+        double kx = (double)vp[2] / (g_scene_x1 - g_scene_x0), ky = (double)vp[3] / SCREEN_HEIGHT;
         int w = (int)((x1 - x0 + 1) * kx), h = (int)((y1 - y0 + 1) * ky);
         g_tex_bake_cap_req = w > h ? w : h;
     }
@@ -2821,6 +3012,11 @@ static void render_object_hw_rot(int code, float px, float py, float pz,
                                  const int32_t *rot)
 {
     if (code <= 0 || code >= (int)g_pointrom_count) return;
+    if (g_seen_mode) {
+        extern int g_p360_new, g_p360_dup;
+        if (seen_check_add(code, px, py, pz)) { g_p360_dup++; return; }
+        if (g_seen_mode == 2) g_p360_new++;
+    }
     /* Reject placements outside any sane world bound.
      *
      * The 8x16 terrain grid is 8*0x18000 x 16*0x18000 units, so nothing
@@ -3340,6 +3536,7 @@ static void render_object_hw_rot(int code, float px, float py, float pz,
               fprintf(g_dist_fp, "P %d %d %d %d\n", code, gv.t[0], gv.t[1], gv.t[2]);
       } }
     rigview_orbit(&gv, code + 0x45);       /* rig viewer only; no-op otherwise */
+    pausecam_apply(&gv, code + 0x45);      /* pause camera; no-op unless paused */
     geo_hw_set_view(&gv);
     /* The point-ROM object code is the CPU list's model id PLUS 0x45.
      * pc_master_model.py documents the emitted record as
@@ -3355,7 +3552,48 @@ static void render_object_hw_rot(int code, float px, float py, float pz,
     { int e0 = g_geo_stats.emitted, c0 = g_geo_stats.rej_cull;
       int b0 = g_geo_stats.rej_behind, k0 = g_geo_stats.part_clip;
       g_bbox_cur = code + 0x45;
+      const int hud_nb0 = geohw_nbuf;
       geo_hw_object(code + 0x45, geohw_quad_cb, NULL);
+      /* Widescreen HUD to the corners (hud_corners_shift): decided per OBJECT
+       * from where its polygons actually landed -- not from its origin, which
+       * for several housing parts is the screen centre with the geometry off
+       * to one side (that tore the gauges apart). An object straddling the
+       * centre line (the pendulum pole) and the arrow plate hanging from it
+       * (code 871) stay; everything else moves with its side as one piece. */
+      if (g_scene_x0 < 0.0f && code + 0x45 != 871 && geohw_nbuf > hud_nb0 &&
+          hud_screen_space(code)) {
+          int32_t x0 = INT32_MAX, x1 = INT32_MIN;
+          for (int qi = hud_nb0; qi < geohw_nbuf; qi++)
+              for (int k = 0; k < geohw_buf[qi].nrv; k++) {
+                  int32_t x = geohw_buf[qi].rv[k].sx16;
+                  if (x < x0) x0 = x;  if (x > x1) x1 = x;
+              }
+          const int32_t mid = (SCREEN_WIDTH / 2) * 16;
+          const int straddle = (x0 < mid && x1 > mid);
+          /* An object that does not cross the centre moves as one piece. One
+           * that does -- the crossbar carrying BOTH gauges' inner knobs and
+           * red buttons plus the pendulum mount -- is split per polygon:
+           * left of centre goes left, right goes right, and only what is
+           * within 40 px of the centre line (the pole and its bob) stays. */
+          int whole = straddle ? 0
+                    : hud_corners_shift((x0 + x1) / 32.0 - SCREEN_WIDTH / 2.0) * 16;
+          const int E16 = hud_corners_shift(1.0e9) * 16;   /* 0 unless active */
+          if (whole || (straddle && E16))
+              for (int qi = hud_nb0; qi < geohw_nbuf; qi++) {
+                  geo_quad *hq = &geohw_buf[qi];
+                  int dx = whole;
+                  if (straddle) {
+                      int64_t cxs = 0;
+                      for (int k = 0; k < hq->nrv; k++) cxs += hq->rv[k].sx16;
+                      double off = (hq->nrv ? (double)cxs / hq->nrv : mid) / 16.0 - SCREEN_WIDTH / 2.0;
+                      dx = off < -40.0 ? -E16 : off > 40.0 ? E16 : 0;
+                  }
+                  if (!dx) continue;
+                  for (int k = 0; k < 4; k++)       hq->v[k].sx16  += dx;
+                  for (int k = 0; k < hq->nrv; k++) hq->rv[k].sx16 += dx;
+                  for (int k = 0; k < hq->ndv; k++) hq->dv[k].sx16 += dx;
+              }
+      }
       /* WHY did it lose geometry? The blinklog can say an object drew
        * nothing, or lost most of its quads, but "emitted 0 quads" has three
        * completely different causes with three completely different fixes:
@@ -3644,7 +3882,8 @@ static void process_pdp_commands(void) {
     { extern int g_no_cursor_bound, g_no_emptylist;
       int lo = g_no_emptylist ? 1 : 0;          /* 0 is a real length */
       if (!g_no_cursor_bound && cmd_buf_words >= lo && cmd_buf_words < max_words)
-          max_words = cmd_buf_words; }
+          max_words = cmd_buf_words;
+      if (g_pdp_words) max_words = g_pdp_nwords; }
     int cmds_found = 0;
     int models_rendered = 0;
     int data_entries = 0;
@@ -4635,7 +4874,7 @@ void renderer3d_render_frame(void) {
          * does it. So this pass is a plain 2D blit, and the modelview must
          * be identity: any camera transform here would apply the rotation
          * a second time. */
-        glOrtho(0, SCREEN_WIDTH, SCREEN_HEIGHT, 0, -1, 1);
+        glOrtho(g_scene_x0, g_scene_x1, SCREEN_HEIGHT, 0, -1, 1);
         /* NO DEPTH TEST on this path. geo_hw sorts by zsort and draws far
          * to near (painter's algorithm, exactly as the hardware and the
          * reference rasteriser do), and every quad is emitted at z=0 in
@@ -4662,7 +4901,27 @@ void renderer3d_render_frame(void) {
           if (_fd < 0) { const char *e = getenv("PROPCYCL_FRAMEDUMP"); _fd = (e != NULL); }
           if (ui_map_active())  geohw_draw_map();
           else if (_fd)         framedump_render(geohw_quad_cb, NULL);
-          else                  process_pdp_commands();
+          else if (master_dsp_output())
+              /* the real master DSP built this frame's scene: walk its
+               * record list exactly as a MAME capture is walked */
+              framedump_render_words(master_dsp_output(), geohw_quad_cb, NULL);
+          else {
+              extern const int32_t *pause_world_words(int *);
+              extern void pause_world_reset(void);
+              int n = 0; const int32_t *pw = NULL;
+              if (g_pausecam_on) pw = pause_world_words(&n); else pause_world_reset();
+              if (pw) { memset(seen_pos, 0, sizeof seen_pos); memset(seen_full, 0, sizeof seen_full); g_seen_mode = 1; }
+              process_pdp_commands();
+              if (pw) {                          /* the rest of the world, paused only */
+                  g_pdp_words = pw; g_pdp_nwords = n; g_seen_mode = 2;
+                  process_pdp_commands();
+                  g_pdp_words = NULL; g_seen_mode = 0;
+                  { static int said; if (!said) { said = 1;
+                    fprintf(stderr, "[PAUSE360] extra walk: %d new placements, %d already drawn\n",
+                            g_p360_new, g_p360_dup); } }
+                  g_p360_new = g_p360_dup = 0;
+              }
+          }
           g_perf_pdp += rperf() - _t; }
         { double _t = rperf(); geohw_flush(); g_perf_flush += rperf() - _t; }
         { double _t = rperf(); geohw_draw_text(); g_perf_txt += rperf() - _t; }

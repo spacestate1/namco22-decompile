@@ -316,6 +316,17 @@ static void quad_fixed(int32_t color, uint32_t addr, int32_t polyshift,
         q.v[i].valid = 1;
     }
 
+    {   /* whole-quad UV box, for the live texture cache (see geo_hw.h) */
+        int u0 = 0xfff, u1 = 0, v0 = 0xfff, v1 = 0;
+        for (int i = 0; i < 4; i++) {
+            int uu = uv_raw[2 * i] & 0xfff, vv = uv_raw[2 * i + 1] & 0xfff;
+            if (uu < u0) u0 = uu;  if (uu > u1) u1 = uu;
+            if (vv < v0) v0 = vv;  if (vv > v1) v1 = vv;
+        }
+        q.uvbox[0] = (uint16_t)u0; q.uvbox[1] = (uint16_t)u1;
+        q.uvbox[2] = (uint16_t)v0; q.uvbox[3] = (uint16_t)v1;
+    }
+
     double pre_x[6], pre_y[6];   /* the near-clipped polygon, before projection */
     int n_pre = 0;
     /* ---- near-plane clip, then project ---------------------------------

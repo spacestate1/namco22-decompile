@@ -58,6 +58,13 @@ typedef struct {
      * record. The rasteriser rejects everything outside it; without it,
      * geometry the hardware never shows gets drawn. */
     int32_t  clip[4];
+    /* The quad's WHOLE UV box (min_u, max_u, min_v, max_v) from its four ROM
+     * UVs, whether or not a vertex is behind the eye. Not part of the hardware
+     * model and not compared by any gate (like pick_code). The live
+     * rasteriser keys its baked texture on this rather than on the clipped
+     * polygon, whose interpolated UVs move every frame and made every
+     * near-clipped quad a new texture every frame. */
+    uint16_t uvbox[4];
 } geo_quad;
 
 typedef struct {

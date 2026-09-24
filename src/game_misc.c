@@ -4107,7 +4107,11 @@ void process_mcu_outputs(void)
   /* COMPLETE, not a stub. ROM 0x02221C is exactly three instructions:
    * `movea.l $e00ca4.l,a0 ; moveq #$ff,d0 ; move.l d0,(a0)` -- the line
    * below is all of it. */
-  *(int32_t*)W[0x0CA4] = (int32_t)0xffffffff;
+  /* It is the DISPLAY-LIST TERMINATOR, not an MCU routine: the master DSP
+   * stops walking the list at a lone -1 command word. */
+  { uint8_t *c = (uint8_t *)W[0x0CA4];
+    if (c >= g_sys.dspram && c + 4 <= g_sys.dspram + DSPRAM_SIZE)
+      *(int32_t*)c = (int32_t)0xffffffff; }
   return;
 }
 

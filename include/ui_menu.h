@@ -40,6 +40,9 @@ void ui_map_camera(float m[3][3], float t[3], float *zoom);
 /* Target aspect ratio, or 0 to stretch to the window. The renderer
  * letterboxes/pillarboxes its 640x480 output to match. */
 float ui_aspect(void);
+/* The chosen internal render resolution, or 0 x 0 for native (the window's
+ * own pixel size). The window is NOT resized to it; render_target.c scales. */
+void ui_render_res(int *w, int *h);
 void ui_init(SDL_Window *win);
 void ui_shutdown(void);
 bool ui_is_open(void);

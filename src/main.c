@@ -6,6 +6,10 @@
  *        ./propcycl [rom_dir] --screenshot [file.ppm] [frames]
  */
 #include "propcycl.h"
+#include "vaddr.h"
+#ifndef W
+#define W _W
+#endif
 #include "fog_hw.h"
 #include <time.h>
 static double perf_now(void){struct timespec t;clock_gettime(CLOCK_MONOTONIC,&t);return t.tv_sec+t.tv_nsec*1e-9;}
@@ -13,6 +17,7 @@ double g_perf_game, g_perf_render;
 #include "sprite_hw.h"
 #include "text_hw.h"
 #include "ui_menu.h"
+#include "render_target.h"
 #include "rom_zip.h"
 #include <signal.h>
 #ifdef _WIN32
@@ -180,10 +185,18 @@ int propcycl_verbose(void)
 }
 
 static void save_screenshot(const char* path) {
-    uint8_t* pixels = malloc(SCREEN_WIDTH * SCREEN_HEIGHT * 3);
+    /* Headless widescreen (PROPCYCL_WIDE) renders wider than 640: read back
+     * the whole scene, not its left 640 columns. 640 otherwise. */
+    extern float g_scene_x0, g_scene_x1;
+    const int SW = headless ? (int)(g_scene_x1 - g_scene_x0 + 0.5f) : SCREEN_WIDTH;
+    uint8_t* pixels = malloc((size_t)SW * SCREEN_HEIGHT * 3);
     if (!pixels) { fprintf(stderr, "malloc failed for screenshot\n"); return; }
 
-    glReadPixels(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, GL_RGB, GL_UNSIGNED_BYTE, pixels);
+    /* Rows TIGHTLY packed: GL pads each row to 4 bytes by default, and a
+     * widescreen width whose SW*3 is not a multiple of 4 (1138 for 21:9)
+     * overran this buffer by 2 bytes a row and aborted in free(). */
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadPixels(0, 0, SW, SCREEN_HEIGHT, GL_RGB, GL_UNSIGNED_BYTE, pixels);
 
     /* Final-stage gamma, applied to the whole frame including background --
      * the last step of the reference pixel chain (pc_raster_model.py). It
@@ -191,17 +204,17 @@ static void save_screenshot(const char* path) {
      * is exact rather than an approximation. No-op when the capture carries
      * no mixer data. */
     if (g_fog_valid && g_fog.have_gamma) {
-        for (int i = 0; i < SCREEN_WIDTH * SCREEN_HEIGHT; i++)
+        for (int i = 0; i < SW * SCREEN_HEIGHT; i++)
             fog_apply_gamma(&pixels[i*3], &pixels[i*3+1], &pixels[i*3+2]);
     }
 
     FILE* f = fopen(path, "wb");
     if (!f) { fprintf(stderr, "Can't open %s\n", path); free(pixels); return; }
 
-    fprintf(f, "P6\n%d %d\n255\n", SCREEN_WIDTH, SCREEN_HEIGHT);
+    fprintf(f, "P6\n%d %d\n255\n", SW, SCREEN_HEIGHT);
     /* OpenGL gives bottom-up, flip to top-down */
     for (int y = SCREEN_HEIGHT - 1; y >= 0; y--)
-        fwrite(pixels + y * SCREEN_WIDTH * 3, 3, SCREEN_WIDTH, f);
+        fwrite(pixels + (size_t)y * SW * 3, 3, SW, f);
 
     fclose(f);
     free(pixels);
@@ -255,6 +268,23 @@ static void report_player_position(void)
     if (g_paused) { extern void blinklog_dump_codes(void); blinklog_dump_codes(); }
 }
 
+/* Pause / resume. While paused the PAUSE CAMERA is live (renderer_3d.c
+ * pausecam_apply, controls in input.c input_pausecam_update); resuming zeroes
+ * it, which snaps the view back to the game's own camera. */
+static void toggle_pause(const char *why)
+{
+    extern int g_pausecam_on;
+    extern float g_pausecam_yaw, g_pausecam_pitch, g_pausecam_dist;
+    g_paused = !g_paused;
+    g_pausecam_on = g_paused;
+    g_pausecam_yaw = g_pausecam_pitch = g_pausecam_dist = 0.0f;
+    { extern void blinklog_mark(const char *, unsigned);
+      char msg[64];
+      snprintf(msg, sizeof msg, "%s pressed (%s)", why, g_paused ? "paused" : "resumed");
+      blinklog_mark(msg, g_sys.frame_count); }
+    report_player_position();
+}
+
 static bool init_sdl(void) {
     /* For headless: use offscreen video driver */
     if (headless) {
@@ -279,6 +309,19 @@ static bool init_sdl(void) {
      * for a 1280×960 display window. Game logic and screenshots still use
      * the logical SCREEN_WIDTH×SCREEN_HEIGHT; the GL viewport scales it. */
     int win_w = SCREEN_WIDTH, win_h = SCREEN_HEIGHT;
+    /* PROPCYCL_WIDE=<aspect> (e.g. 1.7778): the headless form of the
+     * Widescreen display mode -- a wider offscreen frame with the 3D scene
+     * widened to fill it, for PROPCYCL_SHOT_EVERY captures. */
+    if (headless) {
+        const char *e = getenv("PROPCYCL_WIDE");
+        float a = e ? (float)atof(e) : 0.0f;
+        if (a > (float)SCREEN_WIDTH / SCREEN_HEIGHT) {
+            extern float g_scene_x0, g_scene_x1;
+            win_w = ((int)(SCREEN_HEIGHT * a + 0.5f)) & ~1;
+            g_scene_x0 = -(win_w - SCREEN_WIDTH) / 2.0f;
+            g_scene_x1 = SCREEN_WIDTH + (win_w - SCREEN_WIDTH) / 2.0f;
+        }
+    }
     if (!headless) {
         /* 2x, but never bigger than the screen: a 1280x960 window on a
          * 1366x768 laptop, or on a 1080p one at 150% scaling, covered the
@@ -293,6 +336,10 @@ static bool init_sdl(void) {
             if (k < 1.0) k = 1.0;
             win_w = (int)(SCREEN_WIDTH * k); win_h = (int)(SCREEN_HEIGHT * k);
         }
+        /* PROPCYCL_WINDOW=<w>x<h>: the starting window size, e.g. to check
+         * the resolution scaler against a 16:9 window without a desktop */
+        { const char *e = getenv("PROPCYCL_WINDOW"); int w, h;
+          if (e && sscanf(e, "%dx%d", &w, &h) == 2 && w >= 160 && h >= 120) { win_w = w; win_h = h; } }
         flags |= SDL_WINDOW_RESIZABLE;
     }
     window = SDL_CreateWindow("Prop Cycle",
@@ -429,7 +476,10 @@ int main(int argc, char* argv[]) {
 
     /* Parse arguments */
     for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "--noaudio") == 0) {
+        if (strcmp(argv[i], "--joytest") == 0) {
+            extern int input_joytest(void);
+            return input_joytest();
+        } else if (strcmp(argv[i], "--noaudio") == 0) {
             no_audio = true;
         } else if (strcmp(argv[i], "--screenshot") == 0) {
             headless = true;
@@ -588,6 +638,14 @@ int main(int argc, char* argv[]) {
       if (e && *e) g_tex_fixedcap = atoi(e); }
     { extern int g_tex_pow2sample; const char *e = getenv("PROPCYCL_TEX_POW2SAMPLE");
       if (e && *e) g_tex_pow2sample = atoi(e); }
+    { extern int g_tex_pow2alloc; const char *e = getenv("PROPCYCL_TEX_POW2ALLOC");
+      if (e && *e) g_tex_pow2alloc = atoi(e); }
+    { extern int g_tex_fifo; const char *e = getenv("PROPCYCL_TEX_FIFO");
+      if (e && *e) g_tex_fifo = atoi(e); }
+    { extern int g_tex_clipbox; const char *e = getenv("PROPCYCL_TEX_CLIPBOX");
+      if (e && *e) g_tex_clipbox = atoi(e); }
+    { extern int g_wide_hud_center; const char *e = getenv("PROPCYCL_WIDE_HUD_CENTER");
+      if (e && *e) g_wide_hud_center = atoi(e); }
     { extern int g_rot8002; const char *e = getenv("PROPCYCL_ROT8002");
       if (e && *e) g_rot8002 = atoi(e); }
     { extern int g_8002_flagord; if (getenv("PROPCYCL_NO_8002_FLAGORD")) g_8002_flagord = 0; }
@@ -871,6 +929,13 @@ int main(int argc, char* argv[]) {
     /* Run game init (entry_reset chain) */
     printf("Running game init...\n");
     game_init();
+    /* the saved free-play choice (Escape -> Controls), interactive runs only */
+    { extern int g_freeplay_cfg;
+      if (!headless && g_freeplay_cfg >= 0 && !getenv("PROPCYCL_COINPLAY")) {
+          W16_SET(0x3FF4, g_freeplay_cfg);
+          printf("  %s (propcycl_controls.cfg)\n", g_freeplay_cfg ? "free play" : "coins required");
+      } }
+    { extern bool master_dsp_init(const char *); master_dsp_init(rom_dir); }
     printf("Game init complete, entering main loop\n");
 
     /* Model viewer mode */
@@ -927,6 +992,26 @@ int main(int argc, char* argv[]) {
                                      SDL_GetMouseState(NULL, NULL), 0);
                     else if (ev.type == SDL_MOUSEWHEEL)
                         ui_map_mouse(0, 0, 0, ev.wheel.y);
+                }
+
+                /* A pad has no Escape key -- a Steam Deck has no keyboard at
+                 * all -- so the RIGHT-STICK CLICK opens and closes the menu
+                 * (unused by the game). The Deck's touchscreen is the mouse
+                 * for the menu once it is up. Checked before the menu takes
+                 * the event, so the same button also closes it. */
+                if (ev.type == SDL_CONTROLLERBUTTONDOWN &&
+                    ev.cbutton.button == SDL_CONTROLLER_BUTTON_RIGHTSTICK) {
+                    ui_toggle();
+                    continue;
+                }
+
+                /* Start on a pad PAUSES during gameplay (and resumes from any
+                 * pause) -- the pause camera below then lets the player orbit
+                 * the rider. Everywhere else it stays the cabinet START. */
+                if (ev.type == SDL_CONTROLLERBUTTONDOWN &&
+                    ev.cbutton.button == SDL_CONTROLLER_BUTTON_START && !ui_is_open()) {
+                    extern int input_in_gameplay(void);
+                    if (g_paused || input_in_gameplay()) { toggle_pause("Start"); continue; }
                 }
 
                 /* Escape always reaches us; everything else goes to the menu
@@ -1004,13 +1089,7 @@ int main(int argc, char* argv[]) {
                         { extern void flight_rec_toggle(void); flight_rec_toggle(); }
                         break;
                     case SDLK_p:
-                        g_paused = !g_paused;
-                        { extern void blinklog_mark(const char *, unsigned);
-                          extern void watchlog_report_now(void);
-                          blinklog_mark(g_paused ? "P pressed (paused)"
-                                                 : "P pressed (resumed)",
-                                        g_sys.frame_count); }
-                        report_player_position();
+                        toggle_pause("P");
                         break;
                     case SDLK_F12:
                         /* Only ARM it. The event pump runs after the swap,
@@ -1253,7 +1332,7 @@ int main(int argc, char* argv[]) {
           if (pf == -2) { const char *e = getenv("PROPCYCL_TEST_PAUSE");
                           pf = e ? atol(e) : -1; }
           if (pf >= 0 && (long)g_sys.frame_count == pf) {
-              g_paused = true; report_player_position(); } }
+              g_paused = true; { extern int g_pausecam_on; g_pausecam_on = 1; } report_player_position(); } }
         /* PROPCYCL_WARP=x,y,z[,frame[,heading]]: force the player to a world position
          * at a given frame (default: any frame >= 0, i.e. as soon as
          * gameplay is running), for testing collision/zone features whose
@@ -1336,7 +1415,15 @@ int main(int argc, char* argv[]) {
         if (g_paused) {
             /* Hold the game where it is. The renderer still runs below, so the
              * paused frame keeps being drawn and the window stays live; only
-             * the simulation is frozen. */
+             * the simulation is frozen. The pause camera moves meanwhile. */
+            if (!ui_is_open()) { extern void input_pausecam_update(void); input_pausecam_update(); }
+            /* PROPCYCL_TEST_PAUSECAM=<yaw>,<pitch>,<dist>: the headless form,
+             * for a --screenshot taken while paused (with PROPCYCL_TEST_PAUSE). */
+            { static int done; static float ty, tp, td; static int have;
+              if (!done) { done = 1; const char *e = getenv("PROPCYCL_TEST_PAUSECAM");
+                           if (e) have = sscanf(e, "%f,%f,%f", &ty, &tp, &td) >= 2; }
+              if (have) { extern float g_pausecam_yaw, g_pausecam_pitch, g_pausecam_dist;
+                          g_pausecam_yaw = ty; g_pausecam_pitch = tp; g_pausecam_dist = td; } }
         } else if (!framedump_path || getenv("PROPCYCL_FRAMEDUMP_RUNGAME")) {
             /* Reset the billboard/banner picker lists before this frame's
              * game logic (which is what populates them) runs, so they stay
@@ -1414,13 +1501,34 @@ int main(int argc, char* argv[]) {
          * so a non-4:3 window either stretches it or gets bars. Clear the
          * whole window black first so the bars are bars, not stale pixels. */
         if (!headless) {
+            /* DRAWABLE pixels, not window units: on a scaled (HiDPI /
+             * Wayland fractional) desktop they differ, and a viewport in
+             * window units covered only part of the picture. */
+            /* The chosen RESOLUTION is the size drawn here; rt_end() scales
+             * it to the window, which keeps its own size (render_target.c). */
             int ww, wh;
-            SDL_GetWindowSize(window, &ww, &wh);
+            { int rw, rh; ui_render_res(&rw, &rh); rt_begin(window, rw, rh, &ww, &wh); }
             float want = ui_aspect();
             glDisable(GL_SCISSOR_TEST);
             glViewport(0, 0, ww, wh);
             glClearColor(0, 0, 0, 1);
             glClear(GL_COLOR_BUFFER_BIT);
+            /* WIDESCREEN: the 3D scene widens to the window's own shape
+             * (renderer_3d.c g_scene_x0/x1); a window narrower than 4:3
+             * just falls back to 4:3 with bars. */
+            { extern float g_scene_x0, g_scene_x1;
+              g_scene_x0 = 0.0f; g_scene_x1 = (float)SCREEN_WIDTH;
+              if (want < 0.0f) {
+                  /* A WHOLE number of scene pixels per side: the clip and
+                   * scissor code works in integers, and a fractional edge
+                   * left a sub-pixel sliver there. The <1/640 aspect error
+                   * this rounds away is invisible. */
+                  int E = (int)(((float)SCREEN_HEIGHT * ww / (wh > 0 ? wh : 1) - SCREEN_WIDTH) / 2.0f + 0.5f);
+                  if (E > 0) {
+                      g_scene_x0 = (float)-E;
+                      g_scene_x1 = (float)(SCREEN_WIDTH + E);
+                  } else want = 4.0f / 3.0f;
+              } }
             if (want > 0.0f) {
                 int vw = ww, vh = (int)(ww / want + 0.5f);
                 if (vh > wh) { vh = wh; vw = (int)(wh * want + 0.5f); }
@@ -1554,6 +1662,9 @@ int main(int argc, char* argv[]) {
             renderer2d_composite();
         }
 
+        /* the frame is finished: scale it from the render target into the window */
+        if (!headless) rt_end(window, ui_aspect() == 0.0f);
+
         {
             /* LAST: the Nuklear backend saves/restores GL state around its
              * own draw, so anything after it would be fighting that. */
@@ -1588,7 +1699,7 @@ int main(int argc, char* argv[]) {
          *   PROPCYCL_VOIDPCT=<n>  threshold, default 8
          *   PROPCYCL_VOIDEVERY=<n> frame interval, default 4 */
         { static int vinit, vevery = 4, vpct = 8; static FILE *vfp;
-          static unsigned char *vbuf; extern intptr_t _W[];
+          static unsigned char *vbuf; static size_t vcap; extern intptr_t _W[];
           if (!vinit) {
               const char *e = getenv("PROPCYCL_VOIDLOG");
               vinit = 1;
@@ -1600,7 +1711,8 @@ int main(int argc, char* argv[]) {
                   if (vevery < 1) vevery = 1;
                   { int dw, dh; SDL_GL_GetDrawableSize(window, &dw, &dh);
                     if (dw < 1) dw = SCREEN_WIDTH; if (dh < 1) dh = SCREEN_HEIGHT;
-                    vbuf = malloc((size_t)dw * dh * 3); }
+                    vcap = (size_t)dw * dh * 3;
+                    vbuf = malloc(vcap); if (!vbuf) vcap = 0; }
                   fprintf(vfp, "# void log: report frames >= %d%% near-black, "
                                "sampled every %d frames\n", vpct, vevery);
               }
@@ -1619,6 +1731,10 @@ int main(int argc, char* argv[]) {
                * silently measures a quarter of the picture is worse than none. */
               int vw, vh; SDL_GL_GetDrawableSize(window, &vw, &vh);
               if (vw < 1) vw = SCREEN_WIDTH; if (vh < 1) vh = SCREEN_HEIGHT;
+              /* the window can be resized (or switched resolution) since vbuf was sized */
+              { size_t need = (size_t)vw * vh * 3;   /* vcap is the size actually allocated */
+                if (need > vcap) { unsigned char *nb = realloc(vbuf, need); if (nb) { vbuf = nb; vcap = need; } else { vw = 0; vh = 0; }   /* no room: skip this sample */ } }
+              glPixelStorei(GL_PACK_ALIGNMENT, 1);   /* any window width (see save_screenshot) */
               glReadPixels(0, 0, vw, vh, GL_RGB, GL_UNSIGNED_BYTE, vbuf);
               /* Threshold where a SCREENSHOT would, not where the raw buffer
                * does. screenshot_capture() applies the final-stage gamma on

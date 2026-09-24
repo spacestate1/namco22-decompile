@@ -265,6 +265,8 @@ int g_tex_fixedcap = 0;
 
 /* Set from PROPCYCL_TEX_POW2SAMPLE in main.c. */
 int g_tex_pow2sample = 0;
+int g_tex_pow2alloc = 0;   /* PROPCYCL_TEX_POW2ALLOC=1: pad storage to a power of two again */
+int g_tex_fifo = 0;        /* PROPCYCL_TEX_FIFO=1: evict with the old reference-less clock */
 /* PROPCYCL_TEXORPHAN=0 disables orphaning, for A/B. Default ON. */
 int g_tex_orphan = 1;
 #endif
@@ -356,6 +358,7 @@ typedef struct {
     uint8_t  texbank, pal_group;
     uint8_t  cmode;
     uint8_t  occupied;
+    uint8_t  ref;              /* used since the eviction hand last passed (second chance) */
     uint16_t cap;              /* the bake cap this entry was made at */
     GLuint   gl_texture;
 } TexCacheEntry;
@@ -528,6 +531,7 @@ GLuint bake_quad_texture(int min_u, int min_v, int range_u, int range_v,
             e->texbank == texbank && e->pal_group == pal_group &&
             e->cmode == cmode && e->cap == cap) {
             tex_frame_hits++;
+            e->ref = 1;
             if (out_su) *out_su = e->su;
             if (out_sv) *out_sv = e->sv;
             return e->gl_texture;
@@ -641,6 +645,21 @@ GLuint bake_quad_texture(int min_u, int min_v, int range_u, int range_v,
     tw = pow2_up(sw, 8, cap);               /* allocation size, for reuse */
     th = pow2_up(sh, 8, cap);
     if (g_tex_pow2sample) { sw = tw; sh = th; }   /* old: sample AT the pow2 */
+    /* EXACT STORAGE, not a power of two. The pow2 bucket existed so a
+     * recycled texture object would already have storage of the right size
+     * and could take a glTexSubImage2D -- but the orphaning fix (below) now
+     * calls glTexImage2D on EVERY bake ("realloc N / reuse 0" in [PERF]), so
+     * the padding bought nothing and cost VRAM: a 260-texel quad held 512^2,
+     * ~4x what it uses. The byte budget counts the allocation, so the cache
+     * was being filled with empty padding and evicting live textures to make
+     * room -- 185k evictions over a 6000-frame level. The guard texel stays
+     * exactly where the pow2 layout had it (present when the bucket had room,
+     * absent when sw was already a power of two), so the baked texels are
+     * the same; only the storage around them shrinks. */
+    else if (!g_tex_pow2alloc) {
+        tw = (sw < tw) ? sw + 1 : sw;
+        th = (sh < th) ? sh + 1 : sh;
+    }
     /* Source offset d lands on baked texel d/step, i.e. texcoord
      * d/(step*tw) -- so the caller's range_u maps to range_u/(step*tw).
      * With step 1 this is the plain sw/tw. */
@@ -834,16 +853,25 @@ GLuint bake_quad_texture(int min_u, int min_v, int range_u, int range_v,
      * the table filled the leak ran at roughly a thousand textures per
      * frame and the renderer slowed to a crawl as VRAM filled. Bounded
      * now: the table owns at most TEX_CACHE_SIZE textures. */
-    /* Enforce the byte budget with a clock hand, skipping the slot we are
-     * about to fill. Bounded work per bake: at most one sweep. */
+    /* Enforce the byte budget with a SECOND-CHANCE clock hand, skipping the
+     * slot we are about to fill. A plain clock with no reference bit is FIFO:
+     * it evicted textures drawn on EVERY frame as readily as dead ones, and
+     * each came straight back as a re-bake -- over a 6000-frame level ~170k
+     * bakes against ~1.8k that were a different size tier of a cached entry
+     * and 0 from a full probe window, i.e. almost all of them were this. A
+     * hit (or a fresh bake) sets `ref`; the hand clears it and moves on, so
+     * only textures unused for a whole sweep are evicted. Which texture is
+     * evicted is the only thing this changes -- every bake is the same.
+     * PROPCYCL_TEX_FIFO=1 restores the old hand. Bounded: two sweeps. */
     {
         size_t incoming = (size_t)tw * th * 4;
         int guard = 0;
         while (tex_cache_bytes + incoming > TEX_CACHE_BYTE_BUDGET &&
-               guard++ < TEX_CACHE_SIZE) {
+               guard++ < 2 * TEX_CACHE_SIZE) {
             TexCacheEntry *e = &tex_cache[tex_evict_hand];
             tex_evict_hand = (tex_evict_hand + 1) & TEX_CACHE_MASK;
             if (!e->occupied || e == slotp) continue;
+            if (e->ref && !g_tex_fifo) { e->ref = 0; continue; }
             tex_free_push(e->gl_texture, e->alloc_w, e->alloc_h);
             tex_cache_bytes -= e->bytes;
             tex_cache_total--;
@@ -865,5 +893,6 @@ GLuint bake_quad_texture(int min_u, int min_v, int range_u, int range_v,
     tex_cache_bytes += slotp->bytes;
     if (!slotp->occupied) tex_cache_total++;
     slotp->occupied = 1;
+    slotp->ref = 1;
     return tex;
 }

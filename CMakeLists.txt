@@ -3,6 +3,13 @@ project(propcycl C)
 
 set(CMAKE_C_STANDARD 11)
 
+# PORTABLE (default ON): pin glibc symbol versions so a binary built here runs on
+# older systems -- the Steam Deck included. See include/glibc_compat.h.
+option(PORTABLE "Bind glibc symbols to baseline versions (runs on glibc >= 2.34)" ON)
+if(PORTABLE AND CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
+  add_compile_options(-include ${CMAKE_CURRENT_SOURCE_DIR}/include/glibc_compat.h)
+endif()
+
 # OPTIMISE BY DEFAULT.
 #
 # This file set no optimisation flags and nothing set CMAKE_BUILD_TYPE, so an
@@ -72,6 +79,8 @@ find_package(ZLIB REQUIRED)
 
 # Engine sources shared by the game binary and the standalone rig viewer.
 set(PROPCYCL_ENGINE_SRC
+    src/c71_master.c
+    src/master_dsp.c
     src/memory.c
     src/trace.c
     src/hw_regs.c
@@ -83,6 +92,8 @@ set(PROPCYCL_ENGINE_SRC
     src/sprite_hw.c
     src/text_hw.c
     src/ui_menu.c
+    src/render_target.c
+    src/pause_world.c
     src/flight_rec.c
     src/level_select.c
     src/framedump.c
@@ -115,8 +126,22 @@ set(PROPCYCL_ENGINE_SRC
     src/c352.c
     src/audio_hle.c
     src/mcu_sound.c
-    src/m37710.c
+    src/snd/m377_periph.c
+    src/snd/snd_engine.c
+    gen/snd_driver.c
 )
+
+# The sound program (pr1data.8k), TRANSLATED to C at build time from the ROM and
+# tools/gen/snd.cov (addresses only; see tools/gen/snd_translate.py). The game
+# contains no fetch/decode loop; propcycl_sndoracle (below) is the test oracle.
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+add_custom_command(OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/gen/snd_driver.c
+  COMMAND ${Python3_EXECUTABLE} tools/gen/snd_translate.py tools/gen/snd.cov
+  DEPENDS tools/gen/snd_translate.py tools/gen/m7700_decode.py tools/gen/snd_rom.py tools/gen/snd.cov src/snd/snd_engine.c
+  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+  COMMENT "Translating the sound program to C")
+set_source_files_properties(gen/snd_driver.c PROPERTIES COMPILE_OPTIONS "-O1;-w")
+include_directories(src/snd)
 
 add_executable(propcycl
     src/main.c
@@ -135,7 +160,6 @@ set_source_files_properties(
     src/c352.c
     src/audio_hle.c
     src/mcu_sound.c
-    src/m37710.c
     PROPERTIES COMPILE_FLAGS "-Wall -Wno-unused-variable -Wno-unused-function"
 )
 # v2 regenerated tree: -Werror per GUARDRAILS L0
@@ -167,6 +191,19 @@ set_source_files_properties(
     src/game_stubs.c
     PROPERTIES COMPILE_FLAGS "-w -Wno-int-conversion -Wno-incompatible-pointer-types -Wno-implicit-function-declaration"
 )
+
+# ---------------------------------------------------------------------------
+# Development tools: gates, viewers and test oracles. Not needed to play; the
+# public source tree (tools/export_public.sh) leaves their sources out, so they
+# are built only when those sources are present.
+# ---------------------------------------------------------------------------
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tools/master_gate.c)
+  set(PROPCYCL_DEV_TOOLS_DEFAULT ON)
+else()
+  set(PROPCYCL_DEV_TOOLS_DEFAULT OFF)
+endif()
+option(PROPCYCL_DEV_TOOLS "Build the gates, viewers and test oracles" ${PROPCYCL_DEV_TOOLS_DEFAULT})
+if(PROPCYCL_DEV_TOOLS)
 
 # L2 differential replay verifier (GUARDRAILS §5 L2) — replays MAME
 # per-function traces into the v2 translations. v2 tree builds -Werror (L0).
@@ -212,3 +249,22 @@ add_executable(c352_replay
 target_include_directories(c352_replay PRIVATE include)
 target_compile_options(c352_replay PRIVATE -Wall -Wno-unused-variable)
 target_link_libraries(c352_replay PRIVATE m)
+
+# Master DSP (TMS320C25 "C71") port and its gate against MAME polygon-RAM
+# dumps / the MiSTer project's Python interpreter.
+add_executable(master_gate tools/master_gate.c src/c71_master.c)
+target_include_directories(master_gate PRIVATE include)
+target_compile_options(master_gate PRIVATE -Wall)
+add_executable(master_seq_gate tools/master_seq_gate.c src/c71_master.c)
+target_include_directories(master_seq_gate PRIVATE include)
+target_compile_options(master_seq_gate PRIVATE -Wall)
+
+# TEST ORACLE: the game with the ORIGINAL sound program fetched and decoded from
+# memory in place of gen/snd_driver.c. Never shipped. See tools/sndoracle/.
+set(PROPCYCL_ORACLE_SRC ${PROPCYCL_ENGINE_SRC})
+list(REMOVE_ITEM PROPCYCL_ORACLE_SRC gen/snd_driver.c src/snd/snd_engine.c)
+add_executable(propcycl_sndoracle src/main.c ${PROPCYCL_ORACLE_SRC} tools/sndoracle/m37710.c tools/sndoracle/sound_oracle.c)
+target_include_directories(propcycl_sndoracle PRIVATE include ${SDL2_INCLUDE_DIRS})
+target_link_libraries(propcycl_sndoracle PRIVATE ${SDL2_LINK_LIBRARIES} OpenGL::GL m ZLIB::ZLIB)
+
+endif()  # PROPCYCL_DEV_TOOLS
