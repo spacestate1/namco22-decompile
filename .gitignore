@@ -18,5 +18,11 @@ propcycl_scores.nv.tmp
 palette_dump.bin
 dspram_dump.bin
 __pycache__/
+/raverace/build/
+/raverace/extracted/
+/raverace/gen/snd_driver.c
+/raverace/rr_controls.cfg
+/raverace/screenshots/
+/raverace/recordings/
 *.log
 *.ppm

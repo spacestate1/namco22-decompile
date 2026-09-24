@@ -54,8 +54,18 @@ instead:
 ./build/propcycl /absolute/path/to/propcycl-roms --autostart 0
 ```
 
-For the regression suite, use the same location with:
+## Rave Racer
+
+Rave Racer needs two MAME sets: `raverace.zip` (the game, World RV2 Ver.B)
+and `namcoc74.zip` (`c74.bin`, the sound chip's BIOS). Give both to the
+build script:
 
 ```bash
-PROPCYCL_ROM_DIR=/absolute/path/to/propcycl-roms ./tests/run_tests.sh
+raverace/build.sh /path/to/raverace.zip /path/to/namcoc74.zip
 ```
+
+It checks every file's name and size and copies them into
+`raverace/extracted/`. A folder holding the chip files, or holding the two
+zips, works too. The Japanese sets inside `raverace.zip` (`raveracej/`,
+`raveraceja/`) are different programs and are not used.
+

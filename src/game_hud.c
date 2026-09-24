@@ -1686,7 +1686,10 @@ void sprite_ram_header_init(void)
   } while (iVar2 < 4);
   W_SET_HI16(0xAAF0, (uint16_t)W[0x0C98] & 3);   /* byte 0xAAF0: buf sel; LO half is fog R */
   puVar5 = &g_sys.rom[0xB5EC0];
-  for (iVar2 = 0; iVar2 < g_sys.rom[0xB85B4]; iVar2 = iVar2 + 1) {
+  /* ROM 0x0231D6 `cmpa.w $b85b4.l`: the group count is a BIG-ENDIAN WORD (9).
+   * Read as one byte it was 0, so palette groups 116..124 (the HUD gauges'
+   * gold among them) were never loaded, and only a MAME palette dump hid it. */
+  for (iVar2 = 0; iVar2 < (int)vrd16(0xB85B4); iVar2 = iVar2 + 1) {
     iVar3 = 0;
     do {
       iVar1 = iVar3 + iVar2 * 0x100;
@@ -1695,6 +1698,7 @@ void sprite_ram_header_init(void)
       (&g_sys.palette_ram[0xF400])[iVar1] = puVar5[1];
       puVar5 = puVar5 + 3;
       (&g_sys.palette_ram[0x17400])[iVar1] = *puVar6;
+      palette_mark_written(0x7400 + iVar1);
       iVar3 = iVar3 + 1;
     } while (iVar3 < 0x100);
   }

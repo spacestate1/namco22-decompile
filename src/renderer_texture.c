@@ -60,15 +60,10 @@ void renderer3d_load_palette(const char *rom_dir) {
     }
 
     if (!loaded_mame) {
-        /* Group 0: packed RGB at ROM 0xB5EC0 */
-        for (int p = 0; p < 256; p++) {
-            int s = 0xB5EC0 + p * 3;
-            if (s + 2 < ROM_SIZE) {
-                direct_palette[0][p][0] = g_sys.rom[s];
-                direct_palette[0][p][1] = g_sys.rom[s + 1];
-                direct_palette[0][p][2] = g_sys.rom[s + 2];
-            }
-        }
+        /* Group 0 is black on the machine (MAME's runtime palette). The
+         * packed table at 0xB5EC0 is NOT group 0: sprite_ram_header_init
+         * (ROM 0x023198) loads it into groups 116..124 -- see below. */
+        memset(direct_palette[0], 0, sizeof direct_palette[0]);
         /* Groups 1-127: planar R/G/B at ROM 0x21B204, 768 bytes per group */
         for (int g = 0; g < 127; g++) {
             int b = 0x21B204 + g * 768;
@@ -80,7 +75,19 @@ void renderer3d_load_palette(const char *rom_dir) {
                 }
             }
         }
-        printf("  [3D] Palette: ROM static (groups 0,116-127 may be wrong without MAME dump)\n");
+        /* Groups 116..124: packed RGB at 0xB5EC0, 0x300 bytes a group, count
+         * the BE16 at 0xB85B4 -- what the game itself loads at boot. */
+        int npk = (g_sys.rom[0xB85B4] << 8) | g_sys.rom[0xB85B5];
+        for (int k = 0; k < npk && 116 + k < PAL_GROUPS; k++)
+            for (int p = 0; p < PAL_ENTRIES; p++) {
+                int s = 0xB5EC0 + k * 0x300 + p * 3;
+                if (s + 2 < ROM_SIZE) {
+                    direct_palette[116 + k][p][0] = g_sys.rom[s];
+                    direct_palette[116 + k][p][1] = g_sys.rom[s + 1];
+                    direct_palette[116 + k][p][2] = g_sys.rom[s + 2];
+                }
+            }
+        printf("  [3D] Palette: ROM static (group 127, the runtime colour ramps, is filled by the game)\n");
     }
     direct_palette_loaded = 1;
 }

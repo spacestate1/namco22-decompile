@@ -62,5 +62,5 @@ fi
 cmake -S . -B build -DCMAKE_C_COMPILER=gcc -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build -j"$(nproc)"
 
-printf '\nDone! Start the game with:   ./launch.sh\n'
+printf '\nDone! Start the game with:   ./launch.sh prop\n'
 printf '  5 = insert coin   Enter = start   arrow keys = steer   Esc = menu\n\n'
