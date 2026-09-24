@@ -7,11 +7,6 @@ normal computer. You fly a pedal-powered glider and pop balloons.
 ![The title screen](docs/images/attract-title.png)
 ![The demo, popping balloons](docs/images/attract-demo.png)
 
-Press `Esc` any time for the menu:
-
-![Title screen with the File menu open](docs/images/title-file-menu.png)
-![The demo with the Levels menu open](docs/images/demo-levels-menu.png)
-
 ## What you need
 
 Your own copy of the game file **`propcycl.zip`** (the MAME version).
