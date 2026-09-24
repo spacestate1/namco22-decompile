@@ -9,6 +9,24 @@ they are not included here.
 | **Prop Cycle** | 1996 | Playable from start to finish, with sound | `propcycl.zip` | yes | yes |
 | **Rave Racer** | 1995 | Playable: races, with sound | `raverace.zip` + `namcoc74.zip` | yes | not yet |
 
+## How it was made
+
+Each game's original program was taken apart with
+[Ghidra](https://ghidra-sre.org/) (the NSA's free reverse-engineering tool)
+and checked, piece by piece, against the arcade machine running in
+[MAME](https://www.mamedev.org/).
+
+- **Prop Cycle**: Ghidra's output was turned into C and fixed by hand.
+- **Rave Racer**: the program is translated to C by a tool of this project
+  (`raverace/gen/rr_lifted.c` is its output), and parts are being rewritten
+  by hand.
+- The sound programs of both games are turned into C when you build, from
+  your own copy of the game files.
+
+This repository has **only the code**. It has no game files and no Ghidra
+project or tools. Everything the games show or play is read from your own
+zips.
+
 ## Linux
 
 Open a terminal in this folder. First, once:
@@ -113,21 +131,3 @@ Press `Esc` and open **Display**. Your choices are saved by themselves.
 - **Black or white screen**: update your graphics driver.
 
 More about the game files: [docs/ROM_SETUP.md](docs/ROM_SETUP.md)
-
-## How it was made
-
-Each game's original program was taken apart with
-[Ghidra](https://ghidra-sre.org/) (the NSA's free reverse-engineering tool)
-and checked, piece by piece, against the arcade machine running in
-[MAME](https://www.mamedev.org/).
-
-- **Prop Cycle**: Ghidra's output was turned into C and fixed by hand.
-- **Rave Racer**: the program is translated to C by a tool of this project
-  (`raverace/gen/rr_lifted.c` is its output), and parts are being rewritten
-  by hand.
-- The sound programs of both games are turned into C when you build, from
-  your own copy of the game files.
-
-This repository has **only the code**. It has no game files and no Ghidra
-project or tools. Everything the games show or play is read from your own
-zips.
