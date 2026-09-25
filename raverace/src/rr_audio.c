@@ -35,6 +35,22 @@ static SDL_AudioDeviceID dev;
 static double rs_pos;                         /* resampler: position in input samples */
 static int16_t rs_prev[2];
 static float g_volume = 1.0f;
+/* OUTPUT GAIN. The C352's own output is quiet: measured against MAME's
+ * -wavwrite over the same attract, ours is -40.1 dBFS RMS and MAME's -40.3,
+ * race peaks -20.5 dBFS -- the cabinet's amplifier supplied the rest. So
+ * the window/speaker output gets x6 (+15.6 dB: race peaks -3.5 dBFS, the limiter
+ * touching 0.008% of samples), with a soft limiter above -6 dBFS so
+ * a loud moment rounds off instead of clipping. The capture (RR_AUDIODUMP) is
+ * the chip's own signal, before this. RR_OUTPUT_GAIN=<x> overrides (1 = raw). */
+static double g_out_gain = 6.0;
+static inline double soft_limit(double v)
+{
+    const double knee = 16384.0, room = 32767.0 - knee;
+    double a = v < 0 ? -v : v;
+    if (a <= knee) return v;
+    a = knee + room * (1.0 - 1.0 / (1.0 + (a - knee) / room));   /* approaches 32767, never passes */
+    return v < 0 ? -a : a;
+}
 static uint32_t underruns;
 static atomic_int primed;
 static uint32_t per_sec_ur, cb_samples, latency_resets;           /* RR_AUDIOLOG: underruns per second of output */                     /* 0 until the ring first reaches TARGET: start-up silence is not an underrun */
@@ -74,8 +90,9 @@ bool rr_audio_output_open(void)
     if (getenv("RR_AUDIO_SAMPLES")) want.samples = (Uint16)atoi(getenv("RR_AUDIO_SAMPLES"));
     dev = SDL_OpenAudioDevice(NULL, 0, &want, &have, 0);
     if (!dev) { fprintf(stderr, "[AUDIO] no audio device: %s\n", SDL_GetError()); return false; }
+    if (getenv("RR_OUTPUT_GAIN")) { g_out_gain = atof(getenv("RR_OUTPUT_GAIN")); if (g_out_gain < 0) g_out_gain = 0; }
     SDL_PauseAudioDevice(dev, 0);
-    fprintf(stderr, "[AUDIO] output %d Hz stereo, %d-sample buffer\n", have.freq, have.samples);
+    fprintf(stderr, "[AUDIO] output %d Hz stereo, %d-sample buffer, gain x%.2f\n", have.freq, have.samples, g_out_gain);
     return true;
 }
 void rr_audio_set_volume(int percent) { g_volume = (percent < 0 ? 0 : percent > 100 ? 100 : percent) / 100.0f; }
@@ -98,9 +115,7 @@ static void push_out(const int16_t *in4, int n)        /* in: n frames of the ch
         int i = (int)rs_pos; double f = rs_pos - i;
         for (int ch = 0; ch < 2; ch++) {
             double a = i == 0 ? rs_prev[ch] : in4[(i - 1) * 4 + ch], b = in4[i * 4 + ch];
-            double v = (a + (b - a) * f) * g_volume;
-            if (v > 32767) v = 32767;
-            if (v < -32768) v = -32768;
+            double v = soft_limit((a + (b - a) * f) * g_volume * g_out_gain);
             if (h - t < RING) ring[(h & (RING - 1)) * 2 + ch] = (int16_t)lrint(v);
         }
         if (h - t < RING) h++;

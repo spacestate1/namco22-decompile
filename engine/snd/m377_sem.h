@@ -1,21 +1,20 @@
 /*
  * m377_sem.h -- the 7700-family instruction SEMANTICS, shared by
  *   tools/sndoracle/m37710.c   the test oracle (fetches and decodes from memory), and
- *   gen/snd_driver.c           the TRANSLATED sound program (opcode and operand
- *                              bytes are build-time constants; gcc folds each
- *                              m377_exec() call down to that one instruction).
- * One source for both is what lets the translation be gated as EXACTLY equal to
- * the oracle, which is itself gated against MAME. Split out of pc-reverse's
- * validated m37710.c without changing a line of semantics.
+ *   gen/snd_driver.c           the TRANSLATED sound program (opcode and operand bytes
+ *                              are build-time constants; it calls m377_exec(),
+ *                              which it marks noinline -- see tools/gen/snd_translate.py).
+ * Split out of this tree's validated src/m37710.c without changing a line of
+ * semantics -- which is what lets the translation be gated as EQUAL to it.
  */
-#ifndef RR_M377_SEM_H
-#define RR_M377_SEM_H
+#ifndef ENG_M377_SEM_H
+#define ENG_M377_SEM_H
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include "m37710.h"
 
-void m377_sfr_w(m37710_t *c, uint32_t a, uint8_t v);   /* on-chip peripherals (m37710.c / snd_periph) */
+void m377_sfr_w(m37710_t *c, uint32_t a, uint8_t v);
 #define sfr_w m377_sfr_w
 
 /* Every bus access costs a cycle. The flat "2 per instruction" this started
@@ -221,15 +220,13 @@ static inline void branch(m37710_t *c, bool take)
 
 /* ---- init / reset ------------------------------------------------------ */
 
-/* Execute ONE instruction whose opcode byte (after any 0x42 prefix, which the
- * caller signals with c->use_b) has been consumed. Operand bytes come from the
- * bus, or from c->ops when the caller supplies them (translated code). Returns
- * false for an opcode this core does not implement. */
 #ifndef M377_EXEC_ATTR
 #define M377_EXEC_ATTR
 #endif
-/* gen/snd_driver.c defines M377_EXEC_ATTR as noinline: forcing this into its one
- * huge function made the file need 8+ GB of RAM to compile, for no speed gain. */
+/* Execute ONE instruction whose opcode byte (after any 0x42 prefix, which the
+ * caller signals with c->use_b) has been consumed. Operand bytes come from the
+ * bus, or from c->ops when the caller supplies them (translated code). Returns
+ * false for an opcode not implemented. */
 static inline M377_EXEC_ATTR bool m377_exec(m37710_t *c, uint16_t op)
 {
     switch (op) {

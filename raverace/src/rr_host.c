@@ -2,9 +2,12 @@
  * rr_host.c -- the SDL2 window, keyboard input and screenshots.
  *
  * The lifted 68K program owns the main loop (L_4000 never returns), so the host
- * is driven from rr_tick() once per video frame: rr_host_frame() presents
- * g_frame_rgb, polls input into g_hw the way MAME's ports hold it, and paces to
- * 60 Hz. Headless runs never call rr_host_open() and are unaffected.
+ * is driven from rr_tick() once per video frame: rr_host_frame() draws the
+ * frame (the shared engine's OpenGL pipeline, src/rr_gl.c -- or, with
+ * RR_RENDER=sw, the software oracle's pixels as a texture), polls input into
+ * g_hw the way MAME's ports hold it, and paces to 60 Hz. The window is an
+ * OpenGL context, like Prop Cycle's; the menu is Nuklear's GL2 backend.
+ * Headless runs never call rr_host_open() and are unaffected.
  *
  * Keys (MAME's raverace ports, namcos22.cpp INPUT_PORTS ridgera/raverace):
  *   5 coin 1   6 coin 2   9 service   F2 test
@@ -26,6 +29,10 @@
 #include "rr_font.h"
 #include "rr_sound.h"
 #include "rr_ui.h"
+#include "rr_gl.h"
+#include "render_target.h"
+#include "eng_gl.h"
+extern int g_rr_gl;     /* rr_main.c: 1 = the engine's GL renderer, 0 = the software oracle */
 
 /* ---- controllers ----------------------------------------------------------
  * Every connected device is opened (up to MAX_DEV): as a GameController when
@@ -77,9 +84,15 @@ static void load_pad_db(void)
 }
 
 static SDL_Window *win;
-static SDL_Renderer *ren;
-static SDL_Texture *tex;               /* the game picture, at the render size */
-static int tex_w, tex_h;
+static SDL_GLContext glc;
+static GLuint sw_tex;                  /* RR_RENDER=sw: the oracle's picture, uploaded */
+static int tex_w, tex_h;               /* the picture's size in render pixels */
+static bool shot_pending;              /* F12: saved from the render target, next draw */
+static void out_size(int *w, int *h)   /* the window's drawable, in pixels */
+{
+    *w = 640; *h = 480;
+    if (win) SDL_GL_GetDrawableSize(win, w, h);
+}
 static uint64_t next_ns;
 static bool vsync;                    /* presenting paces us (display ~60 Hz) */
 /* the board: PIXEL_CLOCK 25.6 MHz / (HTOTAL 814 x VTOTAL 525) = 59.906 Hz */
@@ -116,7 +129,7 @@ static const char *aspect_name[4] = { "stretch", "4:3", "8:7", "16:9" };
 static void render_size(int *w, int *h)
 {
     int dw = 640, dh = 480;
-    if (ren) SDL_GetRendererOutputSize(ren, &dw, &dh);
+    if (win) out_size(&dw, &dh);
     if (dw < 1 || dh < 1) { dw = 640; dh = 480; }
     double ar = 4.0 / 3.0;
     if (g_cfg_wide && (double)dw / dh > ar) ar = (double)dw / dh;
@@ -154,7 +167,29 @@ void rr_host_set_res(int w, int h)
     if (g_cfg_winmode == 2) apply_fullscreen();          /* exclusive: it is the display mode too */
     apply_render_size();
 }
-void rr_host_set_wide(int on) { g_cfg_wide = on != 0; save_opt("widescreen", g_cfg_wide ? "1" : "0"); apply_render_size(); }
+/* DRAW DISTANCE: extra track pieces the course list draws AHEAD of the five
+ * the original does (src/rd/rd_b2.c rd_course_display_list), with their
+ * trackside objects. Beyond the original, far pieces fade into the course's
+ * own depth fog. Needs the readable replacements running (RR_RD=1, default). */
+static const int   draw_extra[4] = { 0, 6, 12, 24 };
+static const char *draw_cfg[4]   = { "original", "far", "farther", "maximum" };
+static const char *draw_label[4] = { "Original (5 track pieces)", "Far (+6)", "Farther (+12)", "Maximum (+24)" };
+const char *rr_host_draw_name(int level) { return draw_label[level < 0 ? 0 : level > 3 ? 3 : level]; }
+void rr_host_set_draw(int level)
+{
+    extern int g_rr_draw_extra;
+    g_cfg_draw = level < 0 ? 0 : level > 3 ? 3 : level;
+    g_rr_draw_extra = draw_extra[g_cfg_draw];
+    save_opt("draw_distance", draw_cfg[g_cfg_draw]);
+    fprintf(stderr, "[HOST] draw distance: %s\n", draw_label[g_cfg_draw]);
+}
+
+void rr_host_set_wide(int on)
+{
+    g_cfg_wide = on != 0; save_opt("widescreen", g_cfg_wide ? "1" : "0");
+    if (!g_cfg_fullscreen) apply_fullscreen();     /* a window takes the new shape */
+    apply_render_size();
+}
 void rr_host_set_aspect(int a) { g_cfg_aspect = a < 0 ? 0 : a > 3 ? 3 : a; save_opt("aspect", aspect_name[g_cfg_aspect]); }
 void rr_host_set_scaling(int sc) { g_cfg_scaling = sc < 0 ? 0 : sc > 2 ? 2 : sc; apply_scaling(); save_opt("scaling", scaling_name[g_cfg_scaling]); }
 void rr_host_set_volume(int pct)
@@ -181,7 +216,7 @@ static const char *scaling_name[3] = { "smooth", "sharp", "integer" };
 /* apply g_cfg_scaling: the filter (integer placement is picture_rect's) */
 static void apply_scaling(void)
 {
-    SDL_SetTextureScaleMode(tex, g_cfg_scaling == 0 ? SDL_ScaleModeLinear : SDL_ScaleModeNearest);
+    /* the filter is chosen where the picture is drawn (smooth = linear) */
 }
 /* The picture's rectangle in drawable pixels, for a picture of bw x bh render
  * pixels: centred, ONE scale for both axes (not SDL's logical size, which
@@ -192,7 +227,7 @@ static void apply_scaling(void)
 static SDL_Rect picture_rect_for(int bw, int bh, bool menu)
 {
     int ow, oh;
-    SDL_GetRendererOutputSize(ren, &ow, &oh);
+    out_size(&ow, &oh);
     double ar = (double)bw / bh;
     if (!menu && !g_cfg_wide) {
         if (g_cfg_aspect == 0) { SDL_Rect r = { 0, 0, ow, oh }; return r; }
@@ -213,14 +248,23 @@ static SDL_Rect picture_rect(void) { return picture_rect_for(tex_w ? tex_w : 640
 static void apply_render_size(void)
 {
     int w, h; render_size(&w, &h);
-    rr_video_set_size(w, h);
+#ifdef RR_ORACLE
+    if (!g_rr_gl) { rr_video_set_size(w, h); return; }   /* the oracle rasterises at it */
+#endif
+    tex_w = w; tex_h = h;                           /* the engine draws at it */
 }
+/* THE WINDOW's width for scale k: 4:3 (640 x 480 per step), or 16:9 with
+ * widescreen on -- widescreen only shows more track when the picture is wider
+ * than 4:3, so its window has to be. */
+int rr_host_win_w(int k) { return g_cfg_wide ? ((480 * k * 16 / 9) + 1) & ~1 : 640 * k; }
+int rr_host_win_h(int k) { return 480 * k; }
 /* the largest window scale that fits the display's usable area */
 static int max_scale(void)
 {
     SDL_Rect b;
     if (SDL_GetDisplayUsableBounds(SDL_GetWindowDisplayIndex(win), &b) != 0) return 4;
-    int k = b.w / 640 < (b.h - 40) / 480 ? b.w / 640 : (b.h - 40) / 480;   /* leave room for a title bar */
+    const int kw = b.w / rr_host_win_w(1), kh = (b.h - 40) / 480;           /* leave room for a title bar */
+    int k = kw < kh ? kw : kh;
     return k < 1 ? 1 : k > 4 ? 4 : k;
 }
 static void apply_fullscreen(void)
@@ -246,7 +290,7 @@ static void apply_fullscreen(void)
     if (!g_cfg_fullscreen) {                           /* back to the chosen window size, centred */
         int k = g_cfg_scale < max_scale() ? g_cfg_scale : max_scale();
         if (k != g_cfg_scale) fprintf(stderr, "[HOST] %dx does not fit this display; using %dx\n", g_cfg_scale, k);
-        SDL_SetWindowSize(win, 640 * k, 480 * k);
+        SDL_SetWindowSize(win, rr_host_win_w(k), rr_host_win_h(k));
         SDL_SetWindowPosition(win, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
     }
 }
@@ -261,8 +305,9 @@ bool rr_host_open(int scale)
     g_cfg_fullscreen = g_cfg_winmode != 0;
     SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_GAMECONTROLLER) != 0) { fprintf(stderr, "[HOST] SDL: %s\n", SDL_GetError()); return false; }
-    win = SDL_CreateWindow("Rave Racer", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 640 * g_cfg_scale, 480 * g_cfg_scale,
-                           SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI |
+    rr_gl_context_attributes();
+    win = SDL_CreateWindow("Rave Racer", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, rr_host_win_w(g_cfg_scale), rr_host_win_h(g_cfg_scale),
+                           SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI |
                            (g_cfg_fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0));
     if (!win) { fprintf(stderr, "[HOST] window: %s\n", SDL_GetError()); return false; }
     /* vsync only on a ~60 Hz display: elsewhere it would run the game at the
@@ -272,13 +317,32 @@ bool rr_host_open(int scale)
     vsync = hz >= 59 && hz <= 61;
     const char *ev = getenv("RR_VSYNC");
     if (ev) vsync = atoi(ev) != 0;
-    ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED | (vsync ? SDL_RENDERER_PRESENTVSYNC : 0));
-    if (!ren) { vsync = false; ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_SOFTWARE); }
+#ifdef _WIN32
+    /* Windows: OpenGL through pointers (engine/gl_dyn.c), the bundled Mesa if
+     * the system has no usable driver */
+    { extern SDL_GLContext eng_gl_create_win(SDL_Window **, const char **); const char *miss = NULL;
+      glc = eng_gl_create_win(&win, &miss);
+      if (!glc) {
+          char msg[512];
+          snprintf(msg, sizeof msg, "Rave Racer could not start OpenGL (%s%s%s).\n\nInstall or update the "
+                   "graphics driver. In a virtual machine, keep the \"mesa\" folder beside RaveRacer.exe.",
+                   SDL_GetError(), miss ? ", missing " : "", miss ? miss : "");
+          SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Rave Racer", msg, win);
+      } }
+#else
+    glc = SDL_GL_CreateContext(win);
+#endif
+    if (!glc) { fprintf(stderr, "[HOST] OpenGL context: %s\n", SDL_GetError()); return false; }
+    SDL_GL_MakeCurrent(win, glc);
+    if (vsync && SDL_GL_SetSwapInterval(1) != 0) vsync = false;
+    if (!vsync) SDL_GL_SetSwapInterval(0);
+    fprintf(stderr, "[HOST] OpenGL: %s (%s renderer)\n", (const char *)glGetString(GL_RENDERER),
+            g_rr_gl ? "engine" : "software oracle");
     fprintf(stderr, "[HOST] display %d Hz, %s\n", hz, vsync ? "vsync" : "timer-paced at 59.906 Hz");
 
-    tex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_XRGB8888, SDL_TEXTUREACCESS_STREAMING, 640, 480);
     tex_w = 640; tex_h = 480;
-    if (!rr_ui_init(win, ren)) fprintf(stderr, "[HOST] menu: Nuklear init failed\n");
+    { extern int g_rr_draw_extra; g_rr_draw_extra = draw_extra[g_cfg_draw < 0 ? 0 : g_cfg_draw > 3 ? 3 : g_cfg_draw]; }
+    if (!rr_ui_init(win)) fprintf(stderr, "[HOST] menu: Nuklear init failed\n");
     SDL_SetWindowMinimumSize(win, 320, 240);
     if (g_cfg_winmode == 2) apply_fullscreen();                                /* exclusive: set the mode */
     else if (!g_cfg_fullscreen && g_cfg_scale > max_scale()) apply_fullscreen();   /* too big for this display: shrink */
@@ -289,7 +353,7 @@ bool rr_host_open(int scale)
     load_pad_db();
     dev_scan();
     if (rr_audio_output_open()) rr_audio_set_volume(g_cfg_volume);
-    return tex != NULL;
+    return true;
 }
 
 static void screenshot(void)
@@ -301,7 +365,10 @@ static void screenshot(void)
     static int n;
     snprintf(p, sizeof p, "%s/rr_%04d%02d%02d_%02d%02d%02d_%d.ppm", shot_dir,
              tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec, n++);
+    if (g_rr_gl) { shot_pending = true; return; }   /* read back from the render target */
+#ifdef RR_ORACLE
     if (rr_video_write_ppm(p)) fprintf(stderr, "[HOST] saved %s\n", p);
+#endif
 }
 
 static void set_bit(uint16_t bit, int down)       /* active low */
@@ -392,6 +459,72 @@ static void toggle_record(void)
 }
 
 /* returns false when the user closed the window */
+/* What the window shows, read back (tests): top-down XRGB8888. */
+static SDL_Surface *window_surface(int w, int h)
+{
+    SDL_Surface *sf = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_XRGB8888);
+    if (!sf) return NULL;
+    uint8_t *tmp = malloc((size_t)w * h * 4);
+    if (!tmp) { SDL_FreeSurface(sf); return NULL; }
+    glPixelStorei(GL_PACK_ALIGNMENT, 4);
+    glReadPixels(0, 0, w, h, GL_BGRA, GL_UNSIGNED_BYTE, tmp);
+    for (int y = 0; y < h; y++)
+        memcpy((uint8_t *)sf->pixels + (size_t)y * sf->pitch, tmp + (size_t)(h - 1 - y) * w * 4, (size_t)w * 4);
+    free(tmp);
+    return sf;
+}
+
+/* The game picture into picture_rect(): the engine draws the frame at the
+ * render size into the shared render target (engine/render_target.c), which
+ * is then scaled into the rectangle; the software oracle's pixels go in as a
+ * texture. */
+static void present_picture(void)
+{
+    int ow, oh; out_size(&ow, &oh); (void)ow; (void)oh;
+    if (g_rr_gl) {
+        int rw = tex_w, rh = tex_h, vw, vh;
+        rt_begin(win, rw, rh, &vw, &vh);
+        rr_gl_draw(vw, vh);
+        if (shot_pending) {
+            shot_pending = false;
+            mkdir(shot_dir, 0755);
+            char p[256]; time_t t = time(NULL); struct tm tm; localtime_r(&t, &tm); static int n;
+            snprintf(p, sizeof p, "%s/rr_%04d%02d%02d_%02d%02d%02d_%d.ppm", shot_dir,
+                     tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec, n++);
+            if (rr_gl_write_ppm(p, vw, vh)) fprintf(stderr, "[HOST] saved %s\n", p);
+        }
+        SDL_Rect dst = picture_rect_for(rw, rh, false);
+        rt_end_rect(win, dst.x, dst.y, dst.w, dst.h, g_cfg_scaling != 0);
+        return;
+    }
+#ifdef RR_ORACLE
+    int fw, fh; const uint32_t *fr = rr_video_output(&fw, &fh);
+    if (!sw_tex) glGenTextures(1, &sw_tex);
+    glBindTexture(GL_TEXTURE_2D, sw_tex);
+    if (fw != tex_w || fh != tex_h || !sw_tex) { tex_w = fw; tex_h = fh; }
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, g_cfg_scaling ? GL_NEAREST : GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, g_cfg_scaling ? GL_NEAREST : GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, fw, fh, 0, GL_BGRA, GL_UNSIGNED_BYTE, fr);
+    glViewport(0, 0, ow, oh);
+    glDisable(GL_SCISSOR_TEST);
+    glClearColor(0, 0, 0, 1); glClear(GL_COLOR_BUFFER_BIT);
+    SDL_Rect d = picture_rect();
+    glMatrixMode(GL_PROJECTION); glLoadIdentity(); glOrtho(0, ow, oh, 0, -1, 1);
+    glMatrixMode(GL_MODELVIEW); glLoadIdentity();
+    glDisable(GL_BLEND); glDisable(GL_ALPHA_TEST);
+    glEnable(GL_TEXTURE_2D); glColor4f(1, 1, 1, 1);
+    glBegin(GL_QUADS);
+    glTexCoord2f(0, 0); glVertex2f((float)d.x, (float)d.y);
+    glTexCoord2f(1, 0); glVertex2f((float)(d.x + d.w), (float)d.y);
+    glTexCoord2f(1, 1); glVertex2f((float)(d.x + d.w), (float)(d.y + d.h));
+    glTexCoord2f(0, 1); glVertex2f((float)d.x, (float)(d.y + d.h));
+    glEnd();
+    glDisable(GL_TEXTURE_2D);
+#endif
+}
+
 bool rr_host_frame(void)
 {
     if (!win) return true;
@@ -489,32 +622,23 @@ bool rr_host_frame(void)
     /* the window may have been resized: keep the render size in step (a
      * native or widescreen size follows the window; it lands next frame) */
     apply_render_size();
-    void *px; int pitch;
-    SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
-    SDL_RenderClear(ren);
-    {
-        int fw, fh; const uint32_t *fr = rr_video_output(&fw, &fh);
-        if (fw != tex_w || fh != tex_h) {                   /* the render size changed */
-            SDL_Texture *nt = SDL_CreateTexture(ren, SDL_PIXELFORMAT_XRGB8888, SDL_TEXTUREACCESS_STREAMING, fw, fh);
-            if (nt) { SDL_DestroyTexture(tex); tex = nt; tex_w = fw; tex_h = fh; apply_scaling(); }
-        }
-        if (fw == tex_w && fh == tex_h && SDL_LockTexture(tex, NULL, &px, &pitch) == 0) {
-            for (int y = 0; y < fh; y++) memcpy((uint8_t *)px + (size_t)y * pitch, fr + (size_t)y * fw, (size_t)fw * 4);
-            SDL_UnlockTexture(tex);
-        }
-        SDL_Rect dst = picture_rect(); SDL_RenderCopy(ren, tex, NULL, &dst);
-    }
+    present_picture();
     if (rr_ui_is_open()) {                                   /* the menu, over the dimmed game */
-        SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
-        SDL_SetRenderDrawColor(ren, 0, 0, 0, 150);
-        SDL_RenderFillRect(ren, NULL);
-        SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_NONE);
+        int ow, oh; out_size(&ow, &oh);
+        glViewport(0, 0, ow, oh);
+        glMatrixMode(GL_PROJECTION); glLoadIdentity(); glOrtho(0, 1, 0, 1, -1, 1);
+        glMatrixMode(GL_MODELVIEW); glLoadIdentity();
+        glDisable(GL_TEXTURE_2D); glDisable(GL_SCISSOR_TEST); glDisable(GL_ALPHA_TEST);
+        glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glColor4f(0, 0, 0, 150 / 255.0f);
+        glBegin(GL_QUADS); glVertex2f(0, 0); glVertex2f(1, 0); glVertex2f(1, 1); glVertex2f(0, 1); glEnd();
+        glDisable(GL_BLEND);
         bool q = false; rr_ui_draw(&q);
     }
     if (menu_test_step >= 0) {
-        int ow, oh; SDL_GetRendererOutputSize(ren, &ow, &oh);
-        SDL_Surface *sf = SDL_CreateRGBSurfaceWithFormat(0, ow, oh, 32, SDL_PIXELFORMAT_XRGB8888);
-        if (sf && SDL_RenderReadPixels(ren, NULL, SDL_PIXELFORMAT_XRGB8888, sf->pixels, sf->pitch) == 0) {
+        int ow, oh; out_size(&ow, &oh);
+        SDL_Surface *sf = window_surface(ow, oh);
+        if (sf) {
             char pth[64]; snprintf(pth, sizeof pth, "menu_test_%d.bmp", menu_test_step); SDL_SaveBMP(sf, pth);
             fprintf(stderr, "[HOST] menu test step %d -> %s\n", menu_test_step, pth);
         }
@@ -531,12 +655,12 @@ bool rr_host_frame(void)
                                         "odd 1000x500 smooth", "fullscreen", "back to window 2x", NULL };
           if (step > 0) {                             /* capture the state set on the previous step */
               int ow, oh, ww, wh; SDL_Rect vp = picture_rect();
-              SDL_GetRendererOutputSize(ren, &ow, &oh); SDL_GetWindowSize(win, &ww, &wh);
+              out_size(&ow, &oh); SDL_GetWindowSize(win, &ww, &wh);
               fprintf(stderr, "[DISPLAY] %-22s window %4dx%-4d drawable %4dx%-4d picture %d,%d %dx%d scale %.4f x %.4f fs=%d\n",
                       what[step - 1], ww, wh, ow, oh, vp.x, vp.y, vp.w, vp.h, vp.w / 640.0, vp.h / 480.0,
                       (SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN_DESKTOP) == SDL_WINDOW_FULLSCREEN_DESKTOP);
-              SDL_Surface *sf = SDL_CreateRGBSurfaceWithFormat(0, ow, oh, 32, SDL_PIXELFORMAT_XRGB8888);
-              if (sf && SDL_RenderReadPixels(ren, NULL, SDL_PIXELFORMAT_XRGB8888, sf->pixels, sf->pitch) == 0) {
+              SDL_Surface *sf = window_surface(ow, oh);
+              if (sf) {
                   char pth[64]; snprintf(pth, sizeof pth, "display_%d.bmp", step - 1); SDL_SaveBMP(sf, pth);
               }
               if (sf) SDL_FreeSurface(sf);
@@ -557,7 +681,7 @@ bool rr_host_frame(void)
               else if (step != 5) apply_fullscreen();
           } else at = -1;
       } }
-    SDL_RenderPresent(ren);
+    SDL_GL_SwapWindow(win);
 
     /* pacing: vsync blocks in RenderPresent; otherwise sleep to the board's
      * 59.906 Hz, the last millisecond spun for precision */
@@ -579,7 +703,7 @@ void rr_host_close(void)
 {
     rr_input_record_stop();
     for (int d = 0; d < MAX_DEV; d++) if (dev[d].gc || dev[d].js) dev_remove(dev[d].id);
-    if (win) { rr_ui_shutdown(); SDL_DestroyTexture(tex); SDL_DestroyRenderer(ren); SDL_DestroyWindow(win); SDL_Quit(); win = NULL; }
+    if (win) { rr_ui_shutdown(); if (glc) SDL_GL_DeleteContext(glc); SDL_DestroyWindow(win); SDL_Quit(); win = NULL; glc = NULL; }
 }
 
 /* rr --joytest: list every device and print axis/button/hat changes live, so a

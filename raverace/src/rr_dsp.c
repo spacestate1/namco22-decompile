@@ -15,9 +15,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include "rr_mem.h"
-#include "rr_c71.h"
+#include "c25.h"               /* the shared engine's master DSP (../engine/c25) */
+#ifdef RR_ORACLE
+#include "c25_oracle.h"
+#endif
 #include "rr_dsp.h"
 #include "rr_video.h"
+#include "rr_scene.h"
 
 int32_t  *g_pointrom;
 uint32_t  g_pointrom_words;
@@ -30,12 +34,12 @@ static int rbuf_n, upload_state;            /* MAME m_RenderBufSize, m_dsp_uploa
 
 static void render_w(uint16_t v)
 {
-    if (rbuf_n < 0x1C) { rbuf[rbuf_n++] = v; if (rbuf_n == 0x1C) rr_video_direct_poly(rbuf); }
+    if (rbuf_n < 0x1C) { rbuf[rbuf_n++] = v; if (rbuf_n == 0x1C) rr_scene_direct_poly(rbuf); }
 }
-static void render_reset(void) { rbuf_n = 0; rr_video_render_refresh(); }
+static void render_reset(void) { rbuf_n = 0; rr_scene_render_refresh(); }
 static void port3_r(void) { upload_state = 0; }
 extern bool g_rr_in_vblank;
-static void pdp_begin(void) { rr_video_pdp_begin(g_rr_in_vblank); }
+static void pdp_begin(void) { rr_scene_pdp_begin(g_rr_in_vblank); }
 static void slave_w(uint16_t v)          /* upload_code_to_slave_dsp_w: only the enables matter */
 {
     if (upload_state == 0) {
@@ -88,6 +92,14 @@ bool rr_dsp_init(const char *dir)
     m->ptrom_words = g_pointrom_words;
     m->ptram_base = C71_PTRAM_S22;
     m->ss22 = 0;
+    m->idle_halts = 1;                    /* TI IDLE: INTM 0, halt until an interrupt */
+    m->port3_bioz = 1;
+    /* THE PROGRAM: translated to C at build time (gen/rr_c25.c). The oracle
+     * builds can run the interpreter instead (RR_C25=oracle) -- the gate. */
+    { extern bool rr_c25_exec(c71_t *, int); m->xlat = rr_c25_exec; }
+#ifdef RR_ORACLE
+    { const char *e = getenv("RR_C25"); if (e && !strcmp(e, "oracle")) { c25_oracle_use(m); fprintf(stderr, "[DSP] master program: the interpreter ORACLE\n"); } }
+#endif
     m->render_w = render_w; m->render_reset = render_reset; m->pdp_begin = pdp_begin; m->slave_w = slave_w; m->port3_r = port3_r;
     return true;
 }

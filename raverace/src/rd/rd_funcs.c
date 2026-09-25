@@ -800,9 +800,15 @@ static uint32_t rd_b2e2(void)
 /* FUN_00005742: fill 0x800 longs at 0x90012000 (depth-cue RAM) with 0x30303030 */
 static uint32_t rd_fill_czram(void)
 {
+    /* registers live at every poll (the vblank handler saves them) */
     uint32_t a = 0x90012000u;
+    set_a(0, a); set_d16(0, 0x7FF); set_d(1, 0x30303030u);
     charge(3);
-    for (int k = 0x7FF; k >= 0; k--) { vwr32(a, 0x30303030u); a += 4; charge(2); if (k) poll(); }
+    for (int k = 0x7FF; k >= 0; k--) {
+        vwr32(a, 0x30303030u); a += 4;
+        set_a(0, a); set_d16(0, (uint16_t)(k - 1));
+        charge(2); if (k) poll();
+    }
     charge(1);
     set_a(0, a); set_d16(0, 0xFFFF); set_d(1, 0x30303030u);
     return RD_RTS;
@@ -1478,13 +1484,20 @@ static uint32_t rd_lerp(void)
  * the header -1 / +0x2C = 5 / +0x2E = 1; clear 0x7EC */
 static uint32_t rd_init_slots_780(void)
 {
+    /* registers live at every poll (the vblank handler saves them) */
     uint32_t a1 = A6W(0x780);
     charge(2);
-    for (int k = 0x7F; k >= 0; k--) { vwr32(a1, 0); a1 += 4; charge(2); if (k) poll(); }
+    for (int k = 0x7F; k >= 0; k--) {
+        vwr32(a1, 0); a1 += 4;
+        set_a(1, a1); set_d16(0, (uint16_t)(k - 1));
+        charge(2); if (k) poll();
+    }
     a1 = A6W(0x780);
+    set_a(1, a1); set_d(0, 7);
     charge(2);
     for (int k = 7; k >= 0; k--) {
         vwr16(a1, 0xFFFF); vwr16(a1 + 0x2C, 5); vwr16(a1 + 0x2E, 1); a1 += 0x40;
+        set_a(1, a1); set_d16(0, (uint16_t)(k - 1));
         charge(5); if (k) poll();
     }
     vwr16(A6W(0x7EC), 0);
@@ -1498,16 +1511,30 @@ static uint32_t rd_init_slots_780(void)
  * after it (at +0x14 each) */
 static uint32_t rd_init_records_8000(void)
 {
+    /* registers live at every poll (the vblank handler saves them) */
     uint32_t a0 = 0x10008000u, a1 = 0x5204u;
+    set_a(0, a0); set_a(1, a1); set_d16(1, 0x35);
     charge(3);
-    for (int k = 0x35; k >= 0; k--) { vwr16(a0, vrd16(a1)); a0 += 2; a1 += 2; charge(2); if (k) poll(); }
+    for (int k = 0x35; k >= 0; k--) {
+        vwr16(a0, vrd16(a1)); a0 += 2; a1 += 2;
+        set_a(0, a0); set_a(1, a1); set_d16(1, (uint16_t)(k - 1));
+        charge(2); if (k) poll();
+    }
+    set_d16(0, 6);
     charge(1);
     a1 = 0x5270u;                                                 /* once: the seven records take consecutive blocks */
+    set_a(1, a1);
     charge(1);
     for (int j = 6; j >= 0; j--) {
         a0 += 0x14;
+        set_a(0, a0); set_d16(1, 0x35);
         charge(2);
-        for (int k = 0x35; k >= 0; k--) { vwr16(a0, vrd16(a1)); a0 += 2; a1 += 2; charge(2); if (k) poll(); }
+        for (int k = 0x35; k >= 0; k--) {
+            vwr16(a0, vrd16(a1)); a0 += 2; a1 += 2;
+            set_a(0, a0); set_a(1, a1); set_d16(1, (uint16_t)(k - 1));
+            charge(2); if (k) poll();
+        }
+        set_d16(0, (uint16_t)(j - 1));
         charge(1);
         if (j) poll();
     }

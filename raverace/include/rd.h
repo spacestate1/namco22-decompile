@@ -143,4 +143,8 @@ static inline uint32_t rd_call_ind(uint32_t target, uint32_t ret, uint32_t at)
     rr_call_ind(target, at);
     return rd_call_common(ret, j);
 }
+/* the draw-distance option: extra track pieces ahead (rd_b2.c) */
+extern int g_rr_draw_extra;
+#define RR_DRAW_EXTRA_MAX 24
+
 #endif

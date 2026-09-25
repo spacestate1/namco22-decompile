@@ -21,6 +21,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <SDL.h>
+#include "eng_gl.h"
 
 #define NK_INCLUDE_FIXED_TYPES
 #define NK_INCLUDE_STANDARD_IO
@@ -30,9 +31,9 @@
 #define NK_INCLUDE_FONT_BAKING
 #define NK_INCLUDE_DEFAULT_FONT
 #define NK_IMPLEMENTATION
-#define NK_SDL_RENDERER_IMPLEMENTATION
-#include "../third_party/nuklear.h"
-#include "../third_party/nuklear_sdl_renderer.h"
+#define NK_SDL_GL2_IMPLEMENTATION
+#include "../../third_party/nuklear.h"          /* the tree's one copy, shared with Prop Cycle */
+#include "../../third_party/nuklear_sdl_gl2.h"  /* Prop Cycle's backend: the window is OpenGL */
 
 #include "rr_ui.h"
 #include "rr_input.h"
@@ -41,7 +42,6 @@
 
 static struct nk_context *ctx;
 static SDL_Window *uwin;
-static SDL_Renderer *uren;
 static bool open_, quit_req;
 static int rebinding = -1;             /* the action waiting for a key, or -1 */
 static float ui_scale = 1.0f;          /* drawable pixels per window unit (HiDPI) */
@@ -53,7 +53,7 @@ static int row = 0;                    /* -1 = the tab strip */
 static bool kb_moved;                  /* keep the selected row in view after a key */
 
 /* ---- the rows ------------------------------------------------------------- */
-enum { D_WIDE, D_MODE, D_SIZE, D_RES, D_ASPECT, D_SCALING, D_N };
+enum { D_WIDE, D_DRAW, D_MODE, D_SIZE, D_RES, D_ASPECT, D_SCALING, D_N };
 static int nrows(int t)
 {
     switch (t) {
@@ -89,9 +89,11 @@ static void row_text(int t, int r, char *label, size_t ln, char *value, size_t v
     case T_FILE: snprintf(label, ln, "%s", r == 0 ? "Resume" : "Exit"); break;
     case T_DISPLAY:
         switch (r) {
+        case D_DRAW:    snprintf(label, ln, "Draw distance"); snprintf(value, vn, "%s", rr_host_draw_name(g_cfg_draw)); break;
         case D_WIDE:    snprintf(label, ln, "Widescreen"); snprintf(value, vn, "%s", g_cfg_wide ? "ON (fill the window)" : "OFF (4:3)"); break;
         case D_MODE:    snprintf(label, ln, "Window mode"); snprintf(value, vn, "%s", wm[g_cfg_winmode]); break;
-        case D_SIZE:    snprintf(label, ln, "Window size"); snprintf(value, vn, "%dx  (%d x %d)", g_cfg_scale, 640 * g_cfg_scale, 480 * g_cfg_scale); break;
+        case D_SIZE:    snprintf(label, ln, "Window size"); { extern int rr_host_win_w(int), rr_host_win_h(int);
+                          snprintf(value, vn, "%dx  (%d x %d)", g_cfg_scale, rr_host_win_w(g_cfg_scale), rr_host_win_h(g_cfg_scale)); } break;
         case D_RES:     snprintf(label, ln, "Resolution");
                         if (g_cfg_res_h <= 0) snprintf(value, vn, "Native (window size)");
                         else if (g_cfg_res_w == 640 && g_cfg_res_h == 480) snprintf(value, vn, "640 x 480  (arcade)");
@@ -127,6 +129,7 @@ static void row_change(int t, int r, int dir)
     case T_DISPLAY:
         switch (r) {
         case D_WIDE:    rr_host_set_wide(!g_cfg_wide); break;
+        case D_DRAW:    rr_host_set_draw(cyc(g_cfg_draw, d, 4)); break;
         case D_MODE:    rr_host_set_winmode(cyc(g_cfg_winmode, d, 3)); break;
         case D_SIZE:    rr_host_set_scale(cyc(g_cfg_scale - 1, d, 4) + 1); break;
         case D_RES: {
@@ -154,16 +157,16 @@ static void row_change(int t, int r, int dir)
 }
 
 /* ---- lifecycle -------------------------------------------------------------- */
-bool rr_ui_init(SDL_Window *win, SDL_Renderer *ren)
+bool rr_ui_init(SDL_Window *win)
 {
-    uwin = win; uren = ren;
-    ctx = nk_sdl_init(win, ren);
+    uwin = win;
+    ctx = nk_sdl_init(win);
     if (!ctx) return false;
     /* HiDPI: draw at the drawable's density, lay out in window units (the
      * backend's mouse coordinates are window units) */
     int ww, wh, ow, oh;
     SDL_GetWindowSize(win, &ww, &wh);
-    SDL_GetRendererOutputSize(ren, &ow, &oh);
+    SDL_GL_GetDrawableSize(win, &ow, &oh);
     ui_scale = ww > 0 ? (float)ow / ww : 1.0f;
     if (ui_scale < 1.0f) ui_scale = 1.0f;
     struct nk_font_atlas *atlas;
@@ -334,7 +337,7 @@ void rr_ui_draw(bool *quit)
         /* notes under the rows */
         nk_layout_row_dynamic(ctx, 18, 1);
         if (tab == T_DISPLAY) {
-            int rw, rh2, ow, oh; rr_host_render_size(&rw, &rh2); SDL_GetRendererOutputSize(uren, &ow, &oh);
+            int rw, rh2, ow, oh; rr_host_render_size(&rw, &rh2); SDL_GL_GetDrawableSize(uwin, &ow, &oh);
             nk_spacing(ctx, 1);
             labelf(NK_TEXT_LEFT, "Rendering %d x %d  ->  window %d x %d", rw, rh2, ow, oh);
             labelf(NK_TEXT_LEFT, "Resolution = render size; the window keeps its size.");
@@ -355,8 +358,5 @@ void rr_ui_draw(bool *quit)
     }
     nk_end(ctx);
 
-    SDL_RenderSetScale(uren, ui_scale, ui_scale);
-    nk_sdl_render(NK_ANTI_ALIASING_ON);
-    SDL_RenderSetScale(uren, 1.0f, 1.0f);
-    SDL_RenderSetClipRect(uren, NULL);
+    nk_sdl_render(NK_ANTI_ALIASING_ON);        /* scales window units to the drawable itself */
 }

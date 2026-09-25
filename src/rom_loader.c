@@ -13,8 +13,6 @@
 /* Asset storage */
 int32_t   g_pointrom[POINTROM_SIZE];
 uint32_t  g_pointrom_count;
-uint8_t*  g_texture_data = NULL;
-uint8_t*  g_texture_tilemap = NULL;
 uint8_t*  g_sprite_tiles = NULL;
 
 static bool load_file(const char* path, uint8_t* buf, size_t size) {
@@ -113,6 +111,8 @@ static bool load_point_rom(const char* dir) {
         }
         printf("  Point ROM: %u entries (%.1f MB)\n",
                g_pointrom_count, g_pointrom_count * 4.0 / (1024*1024));
+        g_eng_pointrom = g_pointrom;            /* the shared geometry stage reads it */
+        g_eng_pointrom_n = g_pointrom_count;
     }
     free(low); free(mid); free(high);
     return ok;
@@ -126,42 +126,17 @@ static bool load_point_rom(const char* dir) {
  * Total tiles = 16MB / 256 = 65536
  */
 static bool load_texture_rom(const char* dir) {
-    g_texture_data = calloc(TEXTURE_TOTAL_SIZE, 1);
-    if (!g_texture_data) return false;
-
-    const size_t CHIP = 0x200000;
-    const char* names[] = {
+    static const char *const cg[8] = {
         "pr1cg0.12b", "pr1cg1.10d", "pr1cg2.12d", "pr1cg3.13d",
         "pr1cg4.14d", "pr1cg5.16d", "pr1cg6.18a", "pr1cg7.15a"
     };
-
-    bool ok = true;
-    for (int i = 0; i < 8; i++) {
-        ok = ok && load_file_at(dir, names[i], g_texture_data, CHIP * i, CHIP);
-    }
-    if (ok) {
-        printf("  Texture ROM: %d tiles (16 MB)\n", TEXTURE_TOTAL_SIZE / TEXTURE_TILE_SIZE);
-    }
-    return ok;
+    if (!eng_load_texture_roms(dir, cg, "pr1ccrl.3d", "pr1ccrh.1d")) return false;
+    printf("  Texture ROM: %d tiles (16 MB)\n", TEXTURE_TOTAL_SIZE / TEXTURE_TILE_SIZE);
+    printf("  Texture tilemap: 2.5 MB\n");
+    return true;
 }
 
-/* ========== Texture Tilemap (UV → tile index) ========== */
-/*
- * pr1ccrl.3d (2MB) at offset 0, pr1ccrh.1d (512KB) at offset 0x200000
- * 16-bit little-endian entries
- */
-static bool load_texture_tilemap(const char* dir) {
-    g_texture_tilemap = calloc(TEXTUREMAP_SIZE, 1);
-    if (!g_texture_tilemap) return false;
-
-    bool ok = true;
-    ok = ok && load_file_at(dir, "pr1ccrl.3d", g_texture_tilemap, 0, 0x200000);
-    ok = ok && load_file_at(dir, "pr1ccrh.1d", g_texture_tilemap, 0x200000, 0x80000);
-    if (ok) {
-        printf("  Texture tilemap: 2.5 MB\n");
-    }
-    return ok;
-}
+static bool load_texture_tilemap(const char* dir) { (void)dir; return true; }  /* loaded with the tiles */
 
 /* ========== Sprite ROM (32x32x8bpp tiles) ========== */
 /*

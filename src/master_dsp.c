@@ -19,7 +19,10 @@
 #include <string.h>
 #include <stddef.h>
 #include "propcycl.h"
-#include "c71_master.h"
+#include "c25.h"              /* the shared engine's master DSP (engine/c25) */
+#ifdef PROPCYCL_ORACLE
+#include "c25_oracle.h"
+#endif
 #include "master_dsp.h"
 
 _Static_assert(offsetof(SystemState, dspram) % 4 == 0, "dspram must be word aligned");
@@ -39,7 +42,11 @@ static bool     g_have_out;
 static bool     g_parked;       /* stopped at the doorbell wait, not at IDLE */
 static uint32_t g_out[C71_POLY_WORDS];
 static long     g_frames, g_fail;
-static int      g_log;          /* PROPCYCL_MASTERLOG, read once (register row 40) */
+static int      g_log;
+#ifdef PROPCYCL_ORACLE
+static void lockstep_start(void);
+static void lockstep_report(void);
+#endif          /* PROPCYCL_MASTERLOG, read once (register row 40) */
 
 bool master_dsp_active(void) { return g_active; }
 const uint32_t *master_dsp_output(void) { return g_have_out ? g_out : NULL; }
@@ -107,6 +114,17 @@ bool master_dsp_init(const char *rom_dir)
     static uint32_t save[C71_POLY_WORDS];
     memcpy(save, poly(), sizeof save);
     memset(poly(), 0, sizeof save);     /* power-on: the BIOS reads the upload-protocol words */
+    /* Super System 22: a port-2 read runs the PDP command block; point RAM at
+     * 0xF80000; this host parks the master at IDLE itself (run_to_idle), so
+     * IDLE retires as a no-op; port 3 leaves the BIO pin alone. */
+    g_m->ss22 = 1; g_m->ptram_base = C71_PTRAM_SS22; g_m->idle_halts = 0; g_m->port3_bioz = 0;
+    /* THE PROGRAM: translated to C at build time (gen/pc_c25.c, from the ROM
+     * files by tools/gen/c25_translate.py). The oracle build can run the
+     * interpreter instead (PROPCYCL_C25=oracle) -- the gate. */
+    { extern bool pc_c25_exec(c71_t *, int); g_m->xlat = pc_c25_exec; }
+#ifdef PROPCYCL_ORACLE
+    { const char *o = getenv("PROPCYCL_C25"); if (o && !strcmp(o, "oracle")) { c25_oracle_use(g_m); fprintf(stderr, "[MASTER] program: the interpreter ORACLE\n"); } }
+#endif
     g_m->poly = poly();
     g_m->ptrom = (const uint32_t *)(const void *)g_pointrom;   /* signed24; the port sign-extends anyway */
     g_m->ptrom_words = g_pointrom_count;
@@ -135,17 +153,22 @@ bool master_dsp_init(const char *rom_dir)
     printf("[MASTER] booted: %u-word program, init %ld steps, %s at %04X\n", cnt, st,
            g_parked ? "waiting for the doorbell" : "IDLE", g_m->pc);
     g_active = true;
+#ifdef PROPCYCL_ORACLE
+    { const char *o = getenv("PROPCYCL_C25");
+      if (o && !strcmp(o, "lockstep")) { lockstep_start(); atexit(lockstep_report); } }
+#endif
     return true;
 }
 
-void master_dsp_vblank(void)
+/* One master frame on g_m (INT0 at the idle loop, run to IDLE). `primary`:
+ * the machine whose output the renderer uses (the lockstep's shadow is not). */
+static void frame_on(bool primary)
 {
-    if (!g_active) return;
-    uint32_t *pw = poly();
+    uint32_t *pw = g_m->poly;
 
     memset(g_m->written, 0, sizeof g_m->written); g_m->n_written = 0;
     if (!g_parked && (pw[1] & 0xFFFFFF) == 0) return;   /* idle and not rung */
-    if (g_log > 1 && g_frames < 3) {
+    if (primary && g_log > 1 && g_frames < 3) {
         printf("[MASTER] in: parked=%d word0=%X word1=%X word4=%X\n", g_parked, pw[0], pw[1], pw[4]);
         for (int b = 0; b < 2; b++) {
             int base = b ? 0x6100 : 0x4100, i;
@@ -167,11 +190,96 @@ void master_dsp_vblank(void)
 
     long st = 0;
     if (!run_to_idle(&st)) {
-        if (++g_fail > 3) { fprintf(stderr, "[MASTER] disabled after repeated faults\n"); g_active = false; }
+        if (primary && ++g_fail > 3) { fprintf(stderr, "[MASTER] disabled after repeated faults\n"); g_active = false; }
         return;
     }
+    if (!primary) return;
     for (int i = 0; i < C71_POLY_WORDS; i++) g_out[i] = pw[i] & 0xFFFFFF;
     g_have_out = true;
     if (++g_frames <= 3 || g_log)
         printf("[MASTER] frame %ld: %ld steps, %u polygon-RAM writes\n", g_frames, st, g_m->n_written);
+}
+
+#ifdef PROPCYCL_ORACLE
+/* ---- PROPCYCL_C25=lockstep: THE TRANSLATION GATE, in one process --------------
+ * A SHADOW master runs the interpreter oracle beside the translated one. Each
+ * frame it gets the same polygon RAM (the CPU's writes included), runs the same
+ * host logic, and afterwards every register, data RAM, program RAM, point RAM,
+ * the stack and polygon RAM must be equal. Independent of whether the game run
+ * itself is deterministic (Prop Cycle's gameplay is not: register row 147). */
+static c71_t   *g_sh;
+static bool     g_sh_parked;
+static uint32_t g_sh_poly[C71_POLY_WORDS];
+static long     g_ls_frames, g_ls_bad;
+
+static const char *ls_compare(const c71_t *a, const c71_t *b)
+{
+#define F(x) if (a->x != b->x) return #x
+    F(pc); F(pfc); F(t); F(acc); F(p); F(arp); F(arb); F(dp); F(pm); F(sxm); F(ovm); F(intm);
+    F(c); F(tc); F(cnf); F(imr); F(prd); F(tim); F(tint_pend); F(sp); F(rpt); F(bank); F(latch);
+    F(pt_addr); F(pt_data); F(bioz); F(idle); F(ifr); F(steps); F(n_written);
+#undef F
+    if (memcmp(a->ar, b->ar, sizeof a->ar)) return "ar";
+    if (memcmp(a->stack, b->stack, sizeof a->stack)) return "stack";
+    if (memcmp(a->ram, b->ram, sizeof a->ram)) return "data RAM";
+    if (memcmp(a->prog, b->prog, sizeof a->prog)) return "program RAM";
+    if (memcmp(a->ptram, b->ptram, sizeof a->ptram)) return "point RAM";
+    if (memcmp(a->poly, b->poly, sizeof g_sh_poly)) return "polygon RAM";
+    return NULL;
+}
+
+static void lockstep_frame(void)
+{
+    memcpy(g_sh_poly, g_m->poly, sizeof g_sh_poly);      /* the CPU's writes since last frame */
+    frame_on(true);
+    c71_t *m = g_m; bool pk = g_parked;
+    g_m = g_sh; g_parked = g_sh_parked;
+    frame_on(false);
+    g_sh_parked = g_parked;
+    g_m = m; g_parked = pk;
+    g_ls_frames++;
+    /* C25_LS_INJECT=<frame>: NEGATIVE CONTROL -- flip one data-RAM bit of the
+     * translated machine on that frame; the gate must report it */
+    { static long inj = -2; if (inj == -2) { const char *e = getenv("C25_LS_INJECT"); inj = e ? atol(e) : -1; }
+      if (inj == g_ls_frames) g_m->ram[0x300] ^= 1; }
+    const char *diff = ls_compare(g_m, g_sh);
+    if (!diff && g_parked != g_sh_parked) diff = "parked";
+    if (diff) {
+        if (++g_ls_bad <= 5)
+            fprintf(stderr, "[C25-LOCKSTEP] frame %ld: translation != oracle (%s); pc %04X vs %04X\n",
+                    g_ls_frames, diff, g_m->pc, g_sh->pc);
+        /* resync so one fault is reported once */
+        uint32_t *keep = g_sh->poly; bool (*x)(c71_t *, int) = g_sh->xlat;
+        *g_sh = *g_m; g_sh->poly = keep; g_sh->xlat = x;
+        memcpy(g_sh_poly, g_m->poly, sizeof g_sh_poly); g_sh_parked = g_parked;
+    }
+    if (g_ls_frames % 600 == 0)
+        fprintf(stderr, "[C25-LOCKSTEP] %ld frames, %ld differing\n", g_ls_frames, g_ls_bad);
+}
+
+static void lockstep_start(void)
+{
+    g_sh = malloc(sizeof *g_sh);
+    if (!g_sh) return;
+    *g_sh = *g_m;
+    memcpy(g_sh_poly, g_m->poly, sizeof g_sh_poly);
+    g_sh->poly = g_sh_poly;
+    g_sh_parked = g_parked;
+    c25_oracle_use(g_sh);
+    fprintf(stderr, "[C25-LOCKSTEP] shadow master: the interpreter oracle\n");
+}
+static void lockstep_report(void)
+{
+    if (g_sh) fprintf(stderr, "[C25-LOCKSTEP] END: %ld frames, %ld differing -> %s\n",
+                      g_ls_frames, g_ls_bad, g_ls_bad ? "FAIL" : "PASS");
+}
+#endif
+
+void master_dsp_vblank(void)
+{
+    if (!g_active) return;
+#ifdef PROPCYCL_ORACLE
+    if (g_sh) { lockstep_frame(); return; }
+#endif
+    frame_on(true);
 }

@@ -1513,6 +1513,13 @@ static uint32_t rd_track_geometry(void)
  * 0x434A, then five track pieces around the player's segment 0x20C8 (runs of
  * FUN_0001502c / FUN_00015038 / FUN_0001506c, direction bit 0 of 0x2218 from
  * the heading against the track), then FUN_000150e6; ends the list. */
+/* DRAW DISTANCE (a deliberate change, OFF by default): the original draws five
+ * track pieces around the player; g_rr_draw_extra adds that many more AHEAD,
+ * with their trackside objects. 0 = the original, which the checker proves
+ * equal to the lifted code (RR_RD=check forces 0). Menu: Display -> Draw
+ * distance; rr_controls.cfg `draw_distance`; headless RR_DRAW_EXTRA=<n>. */
+int g_rr_draw_extra;
+
 static uint32_t rd_course_display_list(void)
 {
     uint32_t r;
@@ -1524,7 +1531,7 @@ static uint32_t rd_course_display_list(void)
     a[0] = COURSE_RECS;
     LOW16(d[6], w16(0xC40));
     LOW16(d[7], w16(0x20E8 + sx16(d[6]) * 2u)); LOW16(d[7], d[7] << 6);
-    LOW16(d[6], 4);
+    LOW16(d[6], 4 + (uint32_t)g_rr_draw_extra);          /* dbf count: 5 pieces (+ extra) */
     LOW16(d[0], w16(0xC40));
     uint32_t pl = sx16(d[0]);
     LOW16(d[5], w16(0x20C8 + pl * 2u));

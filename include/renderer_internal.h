@@ -64,7 +64,7 @@
 #define RENDERER_INTERNAL_H
 
 #include "propcycl.h"
-#include <GL/gl.h>
+#include "eng_gl.h"
 
 /* -------------------------------------------------------------------
  * Texture Cache
@@ -73,23 +73,9 @@
  * Textures are immutable (ROM data) so the cache persists across frames.
  * ------------------------------------------------------------------- */
 
-void renderer_texture_init(void);
-
-/* Two-stage tilemap texel fetch: returns the 8-bit pen at (u,v). */
-uint8_t texture_pen_lookup(int u, int v, int texbank);
-
-/* Bake or fetch a cached GL texture for one quad's UV bounding box.
- * Returns a valid GL texture ID. texbank: 0-4 (from V word bits [15:12]).
- * pal_group: 0-127 (from packet word[2] bits [14:8]).
- * cmode: 0-15 (from U word bits [15:12]) — color depth, decoded inside
- *   the baker. See decompiled/annotations.md "Texture cmode". */
-extern int g_tex_opaque;   /* 1 = no pen-0 keying (hardware polygon path) */
-GLuint bake_quad_texture(int min_u, int min_v, int range_u, int range_v,
-                         int texbank, int pal_group, int cmode,
-                         float *out_su, float *out_sv);
+#include "tex_bake.h"   /* the engine's bake: renderer_texture_init, bake_quad_texture */
 
 /* Per-frame texture hit/miss counters (printed every 300 frames). */
-extern int tex_frame_hits, tex_frame_misses;
 
 /* -------------------------------------------------------------------
  * Model Rendering

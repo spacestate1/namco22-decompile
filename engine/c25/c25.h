@@ -1,16 +1,24 @@
 /*
- * c71_master.h -- the System 22 / Super System 22 MASTER DSP: a TMS320C25
+ * c25.h -- the System 22 / Super System 22 MASTER DSP: a TMS320C25
  * ("C71") running the game-uploaded master program, with the Namco bus it
  * sees (the 16-bit banked window onto polygon RAM, the point-ROM ports and
  * the PDP block-copy coprocessor).
  *
- * A C port of the MiSTer project's tools/pc_tms_interp.py, instruction for
- * instruction. That interpreter is gated against MAME's own polygon-RAM dumps
- * (tools/pc_master_gate.py); tools/master_gate.c gates this port against the
- * Python write-for-write and against the same dumps.
+ * THE SHARED ENGINE'S C25 (engine/c25): the chip's BUS (the Namco memory map,
+ * ports and PDP -- board hardware), the instruction SEMANTICS (c25_sem.h) and
+ * the STEP loop (interrupts, IDLE, the timer, RPT). What it does NOT contain
+ * is a fetch/decode loop: the program each game runs is TRANSLATED to C at
+ * build time (tools/gen/c25_translate.py -> gen/<game>_c25.c), and the step
+ * calls that translation through `xlat`. The interpreter that decodes the
+ * program at run time survives only as the test oracle the translation is
+ * gated against (tools/c25oracle/, dev builds).
+ *
+ * Semantics are the project's validated interpreter's (itself a port of the
+ * MiSTer project's tools/pc_tms_interp.py, gated against MAME's own
+ * polygon-RAM dumps), moved here unchanged.
  */
-#ifndef RR_C71_H
-#define RR_C71_H
+#ifndef ENG_C25_H
+#define ENG_C25_H
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -68,16 +76,41 @@ typedef struct c71 {
     uint8_t  written[C71_POLY_WORDS]; /* polygon-RAM words the master wrote */
     uint32_t n_written;
     char     error[96];               /* set when execution stops on a fault */
+
+    /* ---- board settings (the two boards' cores differed here) -------------- */
+    int idle_halts;                   /* 1: IDLE = INTM 0 + halt until an interrupt (TI; Rave Racer).
+                                         0: IDLE does nothing (Prop Cycle's host parks the master itself) */
+    int port3_bioz;                   /* 1: a port-3 read sets the BIO pin busy again (Rave Racer) */
+
+    /* ---- the translated program --------------------------------------------- */
+    /* Executes the instruction at pc with its RPT repeats (pc already known to
+     * be at an instruction boundary). Returns false on a fault (d->error). */
+    bool (*xlat)(struct c71 *d, int pc);
+    const uint16_t *ops;              /* the translation's constant words while one executes */
 } c71_t;
+
+/* Development hooks (tools/c25oracle): NULL in the game. */
+extern void (*c25_hook_acc)(int kind, int space, uint32_t a, uint32_t v);
+extern void (*c25_hook_pre)(c71_t *d, int pc);
+extern void (*c25_hook_iter)(void);
+extern void (*c25_hook_post)(c71_t *d);
 
 /* Load the BIOS (c71.bin, 8 KB at program 0) and the game's master program
  * (at program 0x4000). Either path may be NULL. Returns false on a read error. */
 bool c71_load(c71_t *d, const char *bios_path, const char *prog_path);
 /* Reset CPU state (memories kept). */
 void c71_reset(c71_t *d);
-/* Execute one instruction (with its RPT repeats). Returns false if it hit an
- * unimplemented opcode or a stack fault; d->error says which. */
+/* One step: take a pending interrupt, idle, tick the timer, then run the
+ * instruction at PC through d->xlat. Returns false on a fault (d->error). */
 bool c71_step(c71_t *d);
+
+/* ---- the bus (engine/c25/c25_bus.c), used by the semantics ---------------- */
+uint16_t c25_dr(c71_t *d, uint32_t a);            /* data space read */
+void     c25_dw(c71_t *d, uint32_t a, uint32_t v);/* data space write */
+uint16_t c25_pr(c71_t *d, uint16_t a);            /* program space read (TBLR, MAC, BLKP) */
+void     c25_pw(c71_t *d, uint16_t a, uint16_t v);/* program space write (TBLW) */
+uint16_t c25_port_in(c71_t *d, int pa);
+void     c25_port_out(c71_t *d, int pa, uint16_t v);
 
 /* raise an interrupt (HOLD_LINE: stays pending until taken) */
 static inline void c71_irq(c71_t *d, uint16_t bit) { d->ifr |= bit; }

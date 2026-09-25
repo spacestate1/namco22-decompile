@@ -38,17 +38,14 @@
 #include <string.h>
 #include <stdlib.h>
 #include <string.h>
-#include "propcycl.h"
+#include <stdio.h>
+#include "eng.h"
 #include "geo_hw.h"
 
-/* ---- point ROM ---------------------------------------------------------
- * g_pointrom is already sign-extended 24-bit at load time (rom_loader.c
- * signed24()), which matches the oracle's pt.read(). */
-static inline int32_t pt_read(uint32_t addr)
-{
-    if (addr < g_pointrom_count) return g_pointrom[addr];
-    return 0;
-}
+/* ---- point data ----------------------------------------------------------
+ * The board's point ROM (sign-extended 24-bit at load time, which matches the
+ * oracle's pt.read()) and, on System 22, point RAM past it (eng.h). */
+static inline int32_t pt_read(uint32_t addr) { return eng_point_read(addr); }
 
 /* Truncating signed division. C already truncates toward zero, which is
  * what the oracle's sdiv() reimplements because Python's // floors. */
@@ -158,6 +155,8 @@ static void register_normals(uint32_t addr)
 /* Reject census. A frame that draws nothing has many possible causes and
  * the screen cannot tell them apart; these can. */
 geo_stats g_geo_stats;
+unsigned  g_eng_frame;
+int       g_bbox_cur = -1;  /* the object code being walked (pickers, probes) */   /* the game's frame count, for diagnostics only */
 
 int g_zord_ap = 0, g_zord_os = 0;   /* last view's priority fields, for PROPCYCL_ZORD */
 
@@ -223,7 +222,7 @@ static void quad_fixed(int32_t color, uint32_t addr, int32_t polyshift,
           { static int cd = -2; extern int g_bbox_cur;
             if (cd == -2) { const char *e = getenv("PROPCYCL_CULLDUMP"); cd = e ? atoi(e) : -1; }
             if (cd >= 0 && g_bbox_cur == cd) {
-                fprintf(stderr, "[CULL] f%u code %d c1=%lld c2=%lld", g_sys.frame_count, cd,
+                fprintf(stderr, "[CULL] f%u code %d c1=%lld c2=%lld", g_eng_frame, cd,
                         (long long)c1, (long long)c2);
                 for (int i = 0; i < 4; i++)
                     if (vz[i] > 0)
@@ -288,6 +287,7 @@ static void quad_fixed(int32_t color, uint32_t addr, int32_t polyshift,
     q.cz_type = (flags >> 10) & 3;         /* pc_geo_fixed.py line 290 */
     q.flags_raw = flags & 0xffffff;
     q.cz_adjust = g_view.cz_adjust;
+    q.objectflags = g_view.objectflags;
     if (g_view.have_clip) {
         /* pc_raster_model.py: clip = (cx+vl, cx-vr-1, cy+vu, cy-vd-1),
          * then int() truncation. C casts truncate the same way. */
@@ -514,12 +514,19 @@ static void blit_quads(uint32_t addr, uint32_t length,
 /* ---- object walk (GeoFixed.blit_polyobject_fixed) ---------------------- */
 void geo_hw_object(int32_t code, geo_quad_cb cb, void *user)
 {
-    if (code == 0x5) return;                  /* point-RAM object: not ported */
+    /* Code 0x5 is a POINT-RAM object (System 22: the list starts at point RAM
+     * 0xF00000, and a negative entry other than -1 is an address with its top
+     * bits set). Only boards that supply point RAM have them. */
+    const int pointram = (code == 0x5);
+    if (pointram && !g_eng_pointram) return;
     g_lit_n = 0; g_lit_idx = 0;               /* lit_fx is per object */
-    uint32_t list_addr = (uint32_t)pt_read(code);
+    uint32_t list_addr = pointram ? 0xf00000u : (uint32_t)pt_read(code);
     for (int guard = 0; guard < 4096; guard++) {
         int32_t object_addr = pt_read(list_addr); list_addr += 1;
-        if (object_addr < 0) break;           /* -1 terminator (non-pointram) */
+        if (object_addr < 0) {                /* -1 terminator (non-pointram) */
+            if (object_addr == -1 || !pointram) break;
+            object_addr &= 0x00ffffff;
+        }
         uint32_t chunklength = (uint32_t)pt_read(object_addr);
         object_addr += 1;
         if (chunklength > 0x100) { g_geo_stats.rej_chunk++; break; }

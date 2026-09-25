@@ -31,6 +31,7 @@ int g_cfg_fullscreen = 0, g_cfg_scale = 2, g_cfg_scaling = 0;
  * (0x0 = native, the window's own pixels; 640x480 = the board, the default);
  * widescreen; and the picture aspect when widescreen is off (0 stretch, 1 4:3,
  * 2 8:7, 3 16:9) */
+int g_cfg_draw = 0;          /* draw distance level 0..3 (rr_host_set_draw) */
 int g_cfg_winmode = -1, g_cfg_res_w = 640, g_cfg_res_h = 480, g_cfg_wide = 0, g_cfg_aspect = 1;   /* scaling: 0 smooth, 1 sharp, 2 integer */            /* free_play = 0|1 in rr_controls.cfg; -1 = not set */
 int g_pad_deadzone = 8000;          /* of 32767; a real Xbox One pad here rests at 3019 */
 
@@ -114,6 +115,9 @@ void rr_input_load(const char *path)
             else if (sscanf(v, "%dx%d", &w, &h) == 2 && w >= 320 && h >= 240) { g_cfg_res_w = w; g_cfg_res_h = h; }
             continue; }
         if (!strcmp(k, "widescreen")) { g_cfg_wide = atoi(v) ? 1 : 0; continue; }
+        if (!strcmp(k, "draw_distance")) {
+            g_cfg_draw = !strcmp(v, "far") ? 1 : !strcmp(v, "farther") ? 2 : !strcmp(v, "maximum") ? 3 : 0;
+            continue; }
         if (!strcmp(k, "aspect")) {
             g_cfg_aspect = !strcmp(v, "stretch") ? 0 : !strcmp(v, "8:7") ? 2 : !strcmp(v, "16:9") ? 3 : 1;
             continue; }
@@ -167,6 +171,7 @@ bool rr_input_write(const char *path)
                "window_mode = 0     # 0 windowed | 1 fullscreen (desktop) | 2 fullscreen (exclusive)\n"
                "resolution = 640x480  # render size: 640x480 (the board) | native (window) | WxH\n"
                "widescreen = 0      # 1: fill a wide window with more track at the sides\n"
+               "draw_distance = original  # original | far | farther | maximum: track pieces drawn ahead\n"
                "aspect = 4:3        # widescreen off: stretch | 4:3 | 8:7 | 16:9\n"
                "scaling = smooth    # smooth | sharp | integer\nvolume = 100        # master volume, percent\n\n");
     fprintf(f, "# Raw joysticks (wheels, pedals, arcade sticks -- anything SDL does not list\n"

@@ -13,7 +13,7 @@ typedef struct { SDL_Scancode keys[RR_MAXKEYS]; int nkeys; SDL_GameControllerBut
 extern rr_bind_t g_bind[RR_ACT_N];
 extern int g_steer_speed, g_steer_return, g_pad_deadzone, g_cfg_freeplay;
 extern int g_cfg_fullscreen, g_cfg_scale, g_cfg_scaling, g_cfg_volume;
-extern int g_cfg_winmode, g_cfg_res_w, g_cfg_res_h, g_cfg_wide, g_cfg_aspect;
+extern int g_cfg_winmode, g_cfg_res_w, g_cfg_res_h, g_cfg_wide, g_cfg_aspect, g_cfg_draw;
 bool rr_input_set_option(const char *path, const char *key, const char *val);
 const char *rr_input_action_name(int a);
 void rr_input_bind_key(int a, SDL_Scancode sc);

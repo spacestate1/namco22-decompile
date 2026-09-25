@@ -12,7 +12,7 @@ Version: $VER
 Section: games
 Priority: optional
 Architecture: amd64
-Depends: libc6 (>= 2.34), libsdl2-2.0-0 (>= 2.0.20), zlib1g, libgl1
+Depends: libc6 (>= 2.34), libsdl2-2.0-0 (>= 2.0.20), zlib1g, libgl1, libopengl0
 Recommends: zenity | kdialog, xdg-utils
 Installed-Size: $SIZE
 Maintainer: cmcrann <cmcrann@protonmail.com>

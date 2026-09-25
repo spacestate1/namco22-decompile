@@ -696,6 +696,13 @@ void rd_init(void)
 #else
     if (mode == 2 && getenv("RR_RD_COV")) fprintf(stderr, "[RD] RR_RD_COV needs the trace build (build/rr_trace)\n");
 #endif
+    { extern int g_rr_draw_extra;                      /* the draw-distance option (rd_b2.c) */
+      const char *x = getenv("RR_DRAW_EXTRA");
+      if (x) g_rr_draw_extra = atoi(x);
+      if (g_rr_draw_extra < 0) g_rr_draw_extra = 0;
+      if (g_rr_draw_extra > RR_DRAW_EXTRA_MAX) g_rr_draw_extra = RR_DRAW_EXTRA_MAX;
+      if (mode == 2 && g_rr_draw_extra) { fprintf(stderr, "[RD] check mode: draw distance back to the original\n"); g_rr_draw_extra = 0; }
+      if (mode == 1 && g_rr_draw_extra) fprintf(stderr, "[RD] draw distance: %d extra track pieces\n", g_rr_draw_extra); }
     if (mode) fprintf(stderr, "[RD] %s, %d readable replacements\n",
                       mode == 1 ? "running" : mode == 2 ? "CHECKING against the lifted code" : "census", rd_count);
     atexit(report);

@@ -8,7 +8,7 @@ boundaries and their M/X-dependent lengths, extended by a static walk along
 control flow with known M/X; the instruction BYTES come from the ROM file
 (tools/gen/snd_rom.py), never from a running program. Each instruction becomes
 its operand bytes as a const array plus m377_exec() with a constant opcode --
-folded by gcc to that instruction's semantics (src/snd/m377_sem.h, the same
+folded by gcc to that instruction's semantics (engine/snd/m377_sem.h, the same
 source the oracle executes). The loop mirrors m37710_run() exactly, so the
 translation can be gated as EQUAL to the oracle. A PC with no translation TRAPS
 LOUDLY (the sound stops and says where) -- never silently skipped.

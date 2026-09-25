@@ -26,6 +26,7 @@
 #include "rr_mem.h"
 #include "rr_dsp.h"
 #include "rr_video.h"
+#include "rr_scene.h"
 
 #define NW 640                         /* the board's own picture */
 #define NH 480
@@ -479,7 +480,7 @@ static void simulate_slavedsp(void)
 }
 
 /* master port 0xC: one 0x1C-word record per direct quad */
-void rr_video_direct_poly(const uint16_t *src)
+static void direct_poly(const uint16_t *src)
 {
     const uint32_t zsort = ((uint32_t)(src[1] & 0xfff) << 12) | (src[0] & 0xfff);
     quadnode *q = new_quad(zsort);
@@ -780,11 +781,6 @@ static void draw_text_layer(int text_palbase, int ya, int yb)
 }
 
 /* ------------------------------------------------------ frame output ---- */
-static bool pdp_render_done, render_refresh;
-static uint64_t pdp_frame, cur_frame;
-
-void rr_video_pdp_begin(bool in_vblank) { pdp_frame = cur_frame + (in_vblank ? 1 : 0); pdp_render_done = true; }
-void rr_video_render_refresh(void) { render_refresh = true; }
 
 /* ---------------------------------------------------- worker threads ----
  * A fixed pool runs one job at a time: items are claimed from an atomic counter
@@ -962,10 +958,11 @@ void rr_video_frame(bool slave_active)
     pool_init();
     apply_size();
     dest = fb; primap = pri;
-    cur_frame++;
-    /* render_frame_active */
-    if (cur_frame > pdp_frame && render_refresh) pdp_render_done = false;
-    render_refresh = false;
+    /* render_frame_active (rr_scene.c) */
+    const bool walk = rr_scene_frame(slave_active);
+    /* the master's direct polys arrived during the frame, before the list */
+    for (int i = 0; i < rr_scene_direct_count(); i++) direct_poly(rr_scene_direct(i));
+    rr_scene_consume();
 
     /* update_mixer (System 22) */
     f_mixer_flags = mixer_b(0x00) << 8 | mixer_b(0x01);
@@ -976,7 +973,7 @@ void rr_video_frame(bool slave_active)
     f_fade_b = mixer_b(0x15) << 8 | mixer_b(0x16);
     frame_bg = pen_rgb(bg_palbase | 0xff);
 
-    if (pdp_render_done && slave_active) simulate_slavedsp();
+    if (walk) simulate_slavedsp();
     qsort(nodes, n_nodes, sizeof *nodes, cmp_node);
     if (n_nodes > q_cap) {
         q_cap = cap_nodes;
@@ -1003,32 +1000,10 @@ bool rr_video_write_ppm(const char *path)
 }
 
 /* ---- renderer gate: draw a MAME-captured video state (tools/mame/dump_video.lua) ---- */
-static bool load(const char *dir, const char *what, int f, uint8_t *dst, size_t n)
-{
-    char p[1024];
-    snprintf(p, sizeof p, "%s/%s_f%d.bin", dir, what, f);
-    FILE *fp = fopen(p, "rb");
-    if (!fp) { fprintf(stderr, "[VID] no %s\n", p); return false; }
-    size_t got = fread(dst, 1, n, fp);
-    fclose(fp);
-    return got == n;
-}
-
 bool rr_video_render_dump(const char *dir, int f, const char *out_ppm)
 {
-    static uint8_t poly[0x20000], cg[0x20000], tattr[0x10];
-    if (!load(dir, "poly", f, poly, sizeof poly) || !load(dir, "pal", f, g_rr.pal, RR_PAL_SIZE) ||
-        !load(dir, "mixer", f, g_rr.mixer, RR_MIXER_SIZE) || !load(dir, "czram", f, g_rr.czram, RR_CZRAM_SIZE) ||
-        !load(dir, "cg", f, cg, sizeof cg) || !load(dir, "tattr", f, tattr, sizeof tattr))
-        return false;
-    for (int i = 0; i < 0x8000; i++) {
-        uint32_t w = (uint32_t)poly[4*i] << 24 | (uint32_t)poly[4*i+1] << 16 | (uint32_t)poly[4*i+2] << 8 | poly[4*i+3];
-        g_rr.poly[i] = (uint32_t)signed24((int32_t)w);
-    }
-    memcpy(g_rr.cgram, cg, RR_CGRAM_SIZE);
-    memcpy(g_rr.text, cg + RR_CGRAM_SIZE, RR_TEXT_SIZE);
-    memcpy(g_rr.tilemapattr, tattr, sizeof tattr);
-    pdp_render_done = true; render_refresh = false; pdp_frame = cur_frame + 1;
+    if (!rr_scene_load_capture(dir, f)) return false;
+    rr_scene_force_walk();
     rr_video_frame(true);
     return rr_video_write_ppm(out_ppm);
 }

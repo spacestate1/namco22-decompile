@@ -1,6 +1,6 @@
 /*
  * master_dsp.h -- the live game's MASTER DSP: the C71 (TMS320C25) port in
- * c71_master.c, booted from the game's own ROM and run once per frame on the
+ * engine/c25 running the TRANSLATED program (gen/pc_c25.c), booted from the game's own ROM and run once per frame on the
  * real CPU->master doorbell, over g_sys.dspram itself.
  *
  * This is the stage the hardware uses to turn the CPU's short display list

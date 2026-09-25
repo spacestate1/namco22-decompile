@@ -181,14 +181,8 @@ void*    mem_ptr(uint32_t addr);
 extern int32_t  g_pointrom[POINTROM_SIZE];
 extern uint32_t g_pointrom_count;
 
-/* Texture tiles: 8 x 2MB = 16MB, 16x16x8bpp = 256 bytes per tile */
-#define TEXTURE_TILE_SIZE   256
-#define TEXTURE_TOTAL_SIZE  (0x200000 * 8)  /* 16 MB */
-extern uint8_t* g_texture_data;             /* malloc'd 16MB */
-
-/* Texture tilemap: UV → tile index (2.5MB, 16-bit LE entries) */
-#define TEXTUREMAP_SIZE (0x280000)
-extern uint8_t* g_texture_tilemap;          /* malloc'd 2.5MB */
+/* Texture tiles + tilemap: the shared engine owns them (engine/eng.h). */
+#include "eng.h"
 
 /* Sprite tiles: 32x32x8bpp = 1024 bytes per tile, 4MB total */
 #define SPRITE_TILE_SIZE    1024

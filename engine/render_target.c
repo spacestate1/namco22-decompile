@@ -14,7 +14,7 @@
  * whole thing falls back to drawing straight into the window, as before.
  */
 #include <SDL2/SDL.h>
-#include <GL/gl.h>
+#include "eng_gl.h"
 #include <stdio.h>
 #include "render_target.h"
 
@@ -140,4 +140,26 @@ void rt_end(SDL_Window *win, int stretch) {
     const GLenum filt = (w % fb_w == 0 && h % fb_h == 0) ? GL_NEAREST : GL_LINEAR;
     blit_fb(0, 0, fb_w, fb_h, x, y, x + w, y + h, GL_COLOR_BUFFER_BIT, filt);
     bind_fb(GL_FRAMEBUFFER, 0);        /* readbacks and the menu go to the window */
+}
+
+/* Present into a caller-chosen rectangle of the window (x, y from the TOP-LEFT,
+ * drawable pixels), with a chosen filter: the host that owns the picture's
+ * placement (integer scaling, aspect modes, sharp/smooth) says where. A no-op
+ * when rt_begin drew directly. The rest of the window is cleared to black. */
+void rt_end_rect(SDL_Window *win, int x, int y, int w, int h, int sharp) {
+    if (!active) return;
+    active = 0;
+    int dw, dh;
+    SDL_GL_GetDrawableSize(win, &dw, &dh);
+    if (dw < 1 || dh < 1) SDL_GetWindowSize(win, &dw, &dh);
+    bind_fb(GL_FRAMEBUFFER, 0);
+    glDisable(GL_SCISSOR_TEST);
+    glViewport(0, 0, dw, dh);
+    glClearColor(0, 0, 0, 1);
+    glClear(GL_COLOR_BUFFER_BIT);
+    bind_fb(GL_READ_FRAMEBUFFER, fbo);
+    bind_fb(GL_DRAW_FRAMEBUFFER, 0);
+    const int gy = dh - (y + h);                 /* GL's origin is bottom-left */
+    blit_fb(0, 0, fb_w, fb_h, x, gy, x + w, gy + h, GL_COLOR_BUFFER_BIT, sharp ? GL_NEAREST : GL_LINEAR);
+    bind_fb(GL_FRAMEBUFFER, 0);
 }

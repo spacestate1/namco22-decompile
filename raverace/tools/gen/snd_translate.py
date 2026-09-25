@@ -11,7 +11,7 @@ instruction BYTES come from the ROM files (never from a running program):
     0x004200-...       68K ROM 0x419E..  uploaded to shared RAM by the 68K  (guarded)
 Every instruction becomes: operand bytes as a const array, and a call to
 m377_exec() with the opcode as a constant -- folded by gcc to that instruction's
-semantics (src/snd/m377_sem.h, the same source the oracle executes). The loop
+semantics (engine/snd/m377_sem.h, the same source the oracle executes). The loop
 mirrors the oracle's m37710_run() exactly (64-cycle chunks, service, then
 execute) so the translation can be gated as equal to the oracle, cycle for
 cycle. A PC with no translation, or RAM code whose bytes are not the ROM's,

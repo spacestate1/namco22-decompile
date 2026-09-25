@@ -6,6 +6,7 @@
  *        ./propcycl [rom_dir] --screenshot [file.ppm] [frames]
  */
 #include "propcycl.h"
+#include "quad_gl.h"
 #include "vaddr.h"
 #ifndef W
 #define W _W
@@ -765,6 +766,8 @@ int main(int argc, char* argv[]) {
       else if (!headless) snprintf(g_score_path, sizeof g_score_path, "propcycl_scores.nv"); }
     { extern int g_slot_legacy; if (getenv("PROPCYCL_SLOT_LEGACY")) g_slot_legacy = 1; }
     { extern int g_tie_emit; if (getenv("PROPCYCL_TIE_EMIT")) g_tie_emit = 1; }
+    { const char *e = getenv("PROPCYCL_DEGEN_UV_LEGACY");     /* engine/quad_gl.c */
+      g_eng_degen_uv_legacy = (e && *e && *e != '0'); }
     { extern int g_lampdbg; if (getenv("PROPCYCL_LAMPLOG")) g_lampdbg = 1; }
     { extern int g_vp_ap_legacy; if (getenv("PROPCYCL_VP_AP_LEGACY")) g_vp_ap_legacy = 1; }
     { extern int g_vp_view_legacy; if (getenv("PROPCYCL_VP_VIEW_LEGACY")) g_vp_view_legacy = 1; }

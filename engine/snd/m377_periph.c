@@ -1,5 +1,6 @@
 /* m377_periph.c -- the 7700-family ON-CHIP PERIPHERALS (reset, timers, A-D,
- * interrupt arbitration/entry), shared by the game's translated sound program
+ * interrupt arbitration/entry). ONE copy for every System 22 / Super 22 game
+ * (engine/), shared by each game's translated sound program
  * (gen/snd_driver.c) and the test oracle. Instruction semantics: m377_sem.h. The
  * fetch/decode loop that runs the ORIGINAL program exists only in the oracle,
  * tools/sndoracle/m37710.c. Split from src/m37710.c; notes follow. */
@@ -40,6 +41,12 @@ void m37710_reset(m37710_t *c)
     c->ad_due = 0;
     memset(c->ad_result, 0, sizeof c->ad_result);
     memset(c->sfr, 0, sizeof c->sfr);
+    /* UARTs as MAME resets them (m37710.cpp device_reset): control 0 = 8,
+     * control 1 = 2 -- "transmit buffer empty", which MAME never clears (its
+     * transmit-buffer write is a no-op). The Rave Racer C74 BIOS writes UART0
+     * (0x32) and then spins on BBC #2,$35 at 0xC340 until that bit is set. */
+    c->sfr[0x34] = c->sfr[0x3C] = 8;
+    c->sfr[0x35] = c->sfr[0x3D] = 2;
     memset(c->t_next, 0, sizeof c->t_next);
     c->a = c->b = c->x = c->y = 0;
     c->stopped = false; c->unimpl_hit = false; c->cycles = 0;
@@ -222,6 +229,8 @@ void m377_sfr_w(m37710_t *c, uint32_t a, uint8_t v)
                         "DPR=%04X DT=%02X ps=%04X cyc=%llu\n",
                 a, v, prev, c->pg, c->pc, c->a, c->b, c->x, c->y, c->dpr, c->dt, c->ps,
                 (unsigned long long)c->cycles);
+    if (a == 0x35 || a == 0x3D)                 /* MAME uart*_ctrl_reg1_w: bit 1 (TX empty) is kept */
+        v = (uint8_t)((prev & ((v & 4) ? 0xFA : 0x0A)) | (v & 0x05));
     c->sfr[a] = v;
     if (a == 0x1E) {
         /* A-D control. Bit 6 starts a conversion; it completes 57*2*(4 or 2)

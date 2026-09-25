@@ -23,6 +23,9 @@
 #include "rr_hw.h"
 #include "rr_dsp.h"
 #include "rr_video.h"
+#include "rr_gl.h"
+#include <GL/gl.h>
+#include "rr_scene.h"
 #include "rr_lift_rt.h"
 #include "rr_lifted.h"
 #include "rr_input.h"
@@ -34,6 +37,14 @@ bool rr_host_paused(void);
 void rr_host_close(void);
 int rr_host_joytest(void);
 static int windowed;
+/* THE RENDERER. 1 = the shared engine's OpenGL pipeline (../engine, src/rr_gl.c):
+ * the game's renderer, always, in the window and headless. 0 = src/rr_video.c,
+ * the software MAME port -- a test ORACLE, compiled only into the dev binaries
+ * (RR_ORACLE: rr_oracle, rr_trace, rr_sndoracle), where it is the headless
+ * default and --gl selects the engine. */
+int g_rr_gl = 1;
+static int gl_w = 640, gl_h = 480;             /* headless picture size (RR_RENDER_SIZE) */
+static bool gl_ok;                             /* a GL context and the video ROMs: there is a picture */
 
 /* --perf: per-frame emulation time (68K + DSP + render, host sleep excluded) and
  * render time, reported as percentiles at exit. Quote these, never one run's fps. */
@@ -270,7 +281,17 @@ void rr_tick(void)
     if (++slice % SLICES) return;
     frame++;
     double tv0 = perf_on ? now_ms() : 0;
-    rr_video_frame(rr_dsp_slave_active());         /* screen update at the end of the frame */
+    if (g_rr_gl && gl_ok) {                        /* screen update at the end of the frame */
+        rr_gl_prepare(rr_dsp_slave_active());
+        /* headless: draw every frame (RR_GL_DRAWALL=1) so --perf counts the GL
+         * cost too; glFinish so it is the GPU's time, not just the submission */
+        static int drawall = -1;
+        if (drawall < 0) { const char *e = getenv("RR_GL_DRAWALL"); drawall = e && *e == '1'; }
+        if (drawall && !windowed) { rr_gl_draw(gl_w, gl_h); glFinish(); }
+    }
+#ifdef RR_ORACLE
+    else if (!g_rr_gl) rr_video_frame(rr_dsp_slave_active());
+#endif
     if (perf_on) {
         double t1 = now_ms();
         if (perf_n == perf_cap) { perf_cap = perf_cap ? perf_cap * 2 : 4096;
@@ -291,7 +312,10 @@ void rr_tick(void)
     if (perf_on) t_frame_start = now_ms();
     if (shot_dir && shot_every && frame % shot_every == 0) {
         char p[1024]; snprintf(p, sizeof p, "%s/f%05u.ppm", shot_dir, frame);
-        rr_video_write_ppm(p);
+        if (g_rr_gl && gl_ok && !windowed) { rr_gl_draw(gl_w, gl_h); rr_gl_write_ppm(p, gl_w, gl_h); }
+#ifdef RR_ORACLE
+        else if (!g_rr_gl) rr_video_write_ppm(p);
+#endif
     }
     vblank_slices = 2;
     rr_dsp_vblank();
@@ -327,6 +351,11 @@ int main(int argc, char **argv)
     rr_win_startup();               /* the program's folder, raveracer.log, DPI */
 #endif
     const char *rom_dir = "extracted";
+#ifdef RR_ORACLE
+    int use_gl = -1;                            /* -1: GL in a window, the oracle headless */
+#else
+    int use_gl = 1;                             /* the game: always the engine */
+#endif
     if (argc == 1) windowed = -1;               /* started with no arguments (a double-click): play */
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--frames") && i + 1 < argc) max_frames = (uint32_t)atoi(argv[++i]);
@@ -340,6 +369,10 @@ int main(int argc, char **argv)
             if (i + 1 < argc && argv[i + 1][0] >= '1' && argv[i + 1][0] <= '9' && !argv[i + 1][1]) windowed = atoi(argv[++i]);
         }
         else if (!strcmp(argv[i], "--perf")) perf_on = 1;
+        else if (!strcmp(argv[i], "--gl")) use_gl = 1;
+#ifdef RR_ORACLE
+        else if (!strcmp(argv[i], "--sw")) use_gl = 0;
+#endif
         else if (!strcmp(argv[i], "--freeplay")) freeplay = 1;
         else if (!strcmp(argv[i], "--coins")) freeplay = 0;
         else if (!strcmp(argv[i], "--record") && i + 1 < argc) rec_path = argv[++i];
@@ -350,16 +383,37 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--gas") && i + 1 < argc) test_gas = atoi(argv[++i]);
         else rom_dir = argv[i];
     }
+#ifdef RR_ORACLE
+    { const char *e = getenv("RR_RENDER");
+      if (e && !strcmp(e, "sw")) use_gl = 0;
+      if (e && !strcmp(e, "gl")) use_gl = 1; }
+#endif
     for (int i = 1; i + 3 < argc; i++)          /* --render-dump DIR FRAME OUT.ppm: renderer gate, no CPU */
         if (!strcmp(argv[i], "--render-dump")) {
-            if (!rr_video_init(rom_dir) || !rr_dsp_init(rom_dir)) return 2;
-            return rr_video_render_dump(argv[i + 1], atoi(argv[i + 2]), argv[i + 3]) ? 0 : 1;
+            if (!rr_dsp_init(rom_dir)) return 2;
+#ifdef RR_ORACLE
+            if (use_gl != 1) return rr_video_init(rom_dir) && rr_video_render_dump(argv[i + 1], atoi(argv[i + 2]), argv[i + 3]) ? 0 : 1;
+#endif
+            /* the captured state through the engine's pipeline */
+            if (!rr_scene_load_capture(argv[i + 1], atoi(argv[i + 2])) || !rr_gl_init(rom_dir) || !rr_gl_open_headless(640, 480)) return 2;
+            rr_scene_force_walk();
+            rr_gl_prepare(true);
+            rr_gl_draw(640, 480);
+            fprintf(stderr, "[GL] render-dump: %d quads\n", rr_gl_quads());
+            return rr_gl_write_ppm(argv[i + 3], 640, 480) ? 0 : 1;
         }
     if (rep_path && !rr_input_replay_open(rep_path)) return 2;
     if (rec_path && !rr_input_record_start(rec_path)) return 2;
+    g_rr_gl = use_gl < 0 ? (windowed != 0) : use_gl;
     if (windowed) {
         if (!rr_host_open(windowed > 0 ? windowed : 0)) return 2;
         max_frames = 0xFFFFFFFFu;
+    } else if (g_rr_gl) {
+        const char *e = getenv("RR_RENDER_SIZE"); int w, h;
+        if (e && sscanf(e, "%dx%d", &w, &h) == 2 && w >= 64 && h >= 48) { gl_w = w; gl_h = h; }
+        /* no GL here: the game still runs (sound, traces, dumps), without a picture */
+        gl_ok = rr_gl_open_headless(gl_w, gl_h);
+        if (!gl_ok && shot_dir) { fprintf(stderr, "[RR] --shots needs OpenGL\n"); return 2; }
     }
     /* First run: take the ROMs out of MAME's raverace.zip + namcoc74.zip if the ROM
      * folder is incomplete (src/rr_romzip.c) -- how the Windows build is set up;
@@ -392,7 +446,13 @@ int main(int argc, char **argv)
         rr_hw_set_freeplay(g_cfg_freeplay);
         fprintf(stderr, "[RR] %s (rr_controls.cfg)\n", g_cfg_freeplay ? "free play" : "coins required");
     }
-    if (!rr_video_init(rom_dir)) fprintf(stderr, "[RR] video ROMs missing\n");
+#ifdef RR_ORACLE
+    if (!g_rr_gl && !rr_video_init(rom_dir)) fprintf(stderr, "[RR] video ROMs missing\n");
+#endif
+    if (g_rr_gl) {
+        if (!rr_gl_init(rom_dir)) { fprintf(stderr, "[RR] video ROMs missing\n"); return 2; }
+        if (windowed) gl_ok = true;             /* the window's context */
+    }
     memset(R, 0, sizeof R);
     RS4(REG_SP, rr_read(0, 4));                 /* reset SP from vector 0 */
     set_sr(0x2700);                             /* supervisor, IPL 7 */

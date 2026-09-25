@@ -83,9 +83,12 @@ set(OpenGL_GL_PREFERENCE GLVND)
 find_package(OpenGL REQUIRED)
 find_package(ZLIB REQUIRED)
 
-# Engine sources shared by the game binary and the standalone rig viewer.
+# THE SHARED ENGINE (engine/): one renderer, texture bake, C352 and sound-MCU
+# peripheral model for every System 22 game in this tree (HARD RULE 3).
+include(${CMAKE_CURRENT_SOURCE_DIR}/engine/engine.cmake)
+
+# Prop Cycle sources shared by the game binary and the standalone rig viewer.
 set(PROPCYCL_ENGINE_SRC
-    src/c71_master.c
     src/master_dsp.c
     src/memory.c
     src/trace.c
@@ -93,17 +96,15 @@ set(PROPCYCL_ENGINE_SRC
     src/renderer_2d.c
     src/renderer_3d.c
     src/audio.c
-    src/geo_hw.c
     src/fog_hw.c
     src/sprite_hw.c
     src/text_hw.c
     src/ui_menu.c
-    src/render_target.c
     src/pause_world.c
     src/flight_rec.c
     src/level_select.c
     src/framedump.c
-    src/renderer_texture.c
+    src/pc_palette.c
     src/rom_zip.c
     src/input.c
     src/rom_loader.c
@@ -129,13 +130,16 @@ set(PROPCYCL_ENGINE_SRC
     src/v2/game_math_v2.c
     src/screenshot.c
     src/game_props.c
-    src/c352.c
     src/audio_hle.c
     src/mcu_sound.c
-    src/snd/m377_periph.c
     src/snd/snd_engine.c
     gen/snd_driver.c
+    ${NAMCO22_ENGINE_GL_SRC}
+    ${NAMCO22_ENGINE_SND_SRC}
+    ${NAMCO22_ENGINE_C25_SRC}
+    gen/pc_c25.c
 )
+
 
 # The sound program (pr1data.8k), TRANSLATED to C at build time from the ROM and
 # tools/gen/snd.cov (addresses only; see tools/gen/snd_translate.py). The game
@@ -149,6 +153,18 @@ add_custom_command(OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/gen/snd_driver.c
 set_source_files_properties(gen/snd_driver.c PROPERTIES COMPILE_OPTIONS "-O1;-w")
 include_directories(src/snd)
 
+# The MASTER DSP program (the C71 BIOS + the block the 68K uploads to program
+# 0x4000), translated to C from the ROM files by tools/gen/c25_translate.py --
+# the tool Rave Racer uses too. tools/gen/c25_pc.cov: the addresses the
+# interpreter oracle executed (addresses only; committed).
+add_custom_command(OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/gen/pc_c25.c
+  COMMAND ${Python3_EXECUTABLE} tools/gen/c25_translate.py --game pc --roms extracted
+          --cov tools/gen/c25_pc.cov --out gen/pc_c25.c --func pc_c25_exec
+  DEPENDS tools/gen/c25_translate.py tools/gen/c25_pc.cov
+  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+  COMMENT "Translating the master DSP program to C")
+set_source_files_properties(gen/pc_c25.c PROPERTIES COMPILE_OPTIONS "-O1;-w")
+
 add_executable(propcycl
     src/main.c
     ${PROPCYCL_ENGINE_SRC}
@@ -158,7 +174,7 @@ target_include_directories(propcycl PRIVATE include ${SDL2_INCLUDE_DIRS})
 if(WIN32)
     # Windows: no opengl32 import -- src/gl_dyn.c resolves OpenGL at run time, so the
     # game can fall back to the bundled Mesa (mesa/) when there is no real driver
-    target_sources(propcycl PRIVATE src/gl_dyn.c)
+    target_sources(propcycl PRIVATE engine/gl_dyn.c)
     target_link_libraries(propcycl PRIVATE ${SDL2_LINK_LIBRARIES} m ZLIB::ZLIB)
 else()
     target_link_libraries(propcycl PRIVATE ${SDL2_LINK_LIBRARIES} OpenGL::GL m ZLIB::ZLIB)
@@ -166,11 +182,10 @@ endif()
 # Hand-written files get normal warnings
 set_source_files_properties(
     src/main.c src/memory.c src/trace.c src/hw_regs.c
-    src/renderer_2d.c src/renderer_3d.c src/renderer_texture.c
+    src/renderer_2d.c src/renderer_3d.c src/pc_palette.c
     src/input.c src/rom_loader.c src/game_logic.c src/flight_rec.c
     src/level_select.c
     src/rom_decode.c
-    src/c352.c
     src/audio_hle.c
     src/mcu_sound.c
     PROPERTIES COMPILE_FLAGS "-Wall -Wno-unused-variable -Wno-unused-function"
@@ -257,7 +272,7 @@ target_compile_options(rig_viewer PRIVATE -Wall -Wno-unused-variable -Wno-unused
 # ported chip and writes a WAV -- see tools/overnight/c352_gate.py.
 add_executable(c352_replay
     tools/overnight/c352_replay.c
-    src/c352.c
+    engine/c352.c
 )
 target_include_directories(c352_replay PRIVATE include)
 target_compile_options(c352_replay PRIVATE -Wall -Wno-unused-variable)
@@ -265,10 +280,10 @@ target_link_libraries(c352_replay PRIVATE m)
 
 # Master DSP (TMS320C25 "C71") port and its gate against MAME polygon-RAM
 # dumps / the MiSTer project's Python interpreter.
-add_executable(master_gate tools/master_gate.c src/c71_master.c)
+add_executable(master_gate tools/master_gate.c ${NAMCO22_ENGINE_C25_SRC} ${NAMCO22_C25_ORACLE_SRC})
 target_include_directories(master_gate PRIVATE include)
 target_compile_options(master_gate PRIVATE -Wall)
-add_executable(master_seq_gate tools/master_seq_gate.c src/c71_master.c)
+add_executable(master_seq_gate tools/master_seq_gate.c ${NAMCO22_ENGINE_C25_SRC} ${NAMCO22_C25_ORACLE_SRC})
 target_include_directories(master_seq_gate PRIVATE include)
 target_compile_options(master_seq_gate PRIVATE -Wall)
 
@@ -276,6 +291,13 @@ target_compile_options(master_seq_gate PRIVATE -Wall)
 # memory in place of gen/snd_driver.c. Never shipped. See tools/sndoracle/.
 set(PROPCYCL_ORACLE_SRC ${PROPCYCL_ENGINE_SRC})
 list(REMOVE_ITEM PROPCYCL_ORACLE_SRC gen/snd_driver.c src/snd/snd_engine.c)
+# THE MASTER-DSP ORACLE build: the game with the interpreter linked beside the
+# translation (PROPCYCL_C25=oracle selects it) -- tools/c25_gate.sh runs both.
+add_executable(propcycl_oracle src/main.c ${PROPCYCL_ENGINE_SRC} ${NAMCO22_C25_ORACLE_SRC})
+target_include_directories(propcycl_oracle PRIVATE include ${SDL2_INCLUDE_DIRS})
+target_link_libraries(propcycl_oracle PRIVATE ${SDL2_LINK_LIBRARIES} OpenGL::GL m ZLIB::ZLIB)
+target_compile_definitions(propcycl_oracle PRIVATE PROPCYCL_ORACLE)
+
 add_executable(propcycl_sndoracle src/main.c ${PROPCYCL_ORACLE_SRC} tools/sndoracle/m37710.c tools/sndoracle/sound_oracle.c)
 target_include_directories(propcycl_sndoracle PRIVATE include ${SDL2_INCLUDE_DIRS})
 target_link_libraries(propcycl_sndoracle PRIVATE ${SDL2_LINK_LIBRARIES} OpenGL::GL m ZLIB::ZLIB)

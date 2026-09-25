@@ -1,5 +1,5 @@
 /*
- * geo_hw.h — SS22 geometry stage (see src/geo_hw.c).
+ * geo_hw.h — the System 22 / Super 22 geometry stage (see engine/geo_hw.c).
  *
  * Screen coordinates come out in 1/16 pixel, exactly as the hardware and
  * the oracle (pc_geo_fixed.py) produce them. Divide by 16.0 for float.
@@ -65,6 +65,11 @@ typedef struct {
      * polygon, whose interpolated UVs move every frame and made every
      * near-clipped quad a new texture every frame. */
     uint16_t uvbox[4];
+    /* System 22 object flags from the 0x10 (233002) record, bits 21-23 of its
+     * third word: non-zero draws the quad UNTEXTURED in one palette pen
+     * (namcos22_v.cpp poly3d_drawquad). Super 22 never sets them. */
+    int      objectflags;
+    int      direct;       /* a quad the master sent straight to the renderer */
 } geo_quad;
 
 typedef struct {
@@ -85,6 +90,7 @@ typedef struct {
     int32_t viewq[3][3];   /* view matrix alone, Q15, reflection applied */
     int32_t light[3];      /* light vector, Q15 */
     int32_t ambient, power;
+    int     objectflags;   /* System 22 only, see geo_quad */
 } geo_view;
 
 typedef struct {
@@ -93,6 +99,8 @@ typedef struct {
     int32_t zmin_seen, zmax_seen;
 } geo_stats;
 extern geo_stats g_geo_stats;
+extern unsigned  g_eng_frame;   /* set by the game each frame; diagnostics only */
+extern int       g_bbox_cur;    /* object code being walked, -1 = none */
 
 typedef void (*geo_quad_cb)(const geo_quad *q, void *user);
 
