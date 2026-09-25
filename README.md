@@ -7,7 +7,7 @@ they are not included here.
 | Game | Year | Status | Game files you need | Linux | Windows |
 |---|---|---|---|---|---|
 | **Prop Cycle** | 1996 | Playable from start to finish, with sound | `propcycl.zip` | yes | yes |
-| **Rave Racer** | 1995 | Playable: races, with sound | `raverace.zip` + `namcoc74.zip` | yes | not yet |
+| **Rave Racer** | 1995 | Playable: races, with sound | `raverace.zip` + `namcoc74.zip` | yes | yes |
 
 ## How it was made
 
@@ -55,16 +55,18 @@ Then play:
 ./launch.sh           # the list of games and options
 ```
 
-## Windows (Prop Cycle)
+## Windows
 
-The Windows version is built from Linux. Type:
+Both games run on Windows. The Windows version is built from Linux. Type:
 
 ```bash
 ./build-windows.sh
 ```
 
 This makes a `windows-release` folder. Copy it to the Windows computer.
-Put `propcycl.zip` in its `roms` folder. Then double-click **PropCycle.exe**.
+Put the game files in its `roms` folder: `propcycl.zip` for Prop Cycle,
+`raverace.zip` and `namcoc74.zip` for Rave Racer. Then double-click
+**PropCycle.exe** or **RaveRacer.exe**.
 
 ## How to play
 
