@@ -92,6 +92,7 @@ int fog_load_frame_into(fog_state *out, const char *dir, int frame)
     fs.text_alpha_mask = mix[0x14];
     fs.text_alpha      = mix[0x15];
     fs.text_palbase    = mix[0x1b];
+    { int sf = mix[0x0e] << 8 | mix[0x0d]; fs.spot_factor = sf < 0x100 ? 0 : sf & 0xff; }
     memcpy(fs.gamma[0], mix + 0x100, 256);
     memcpy(fs.gamma[1], mix + 0x200, 256);
     memcpy(fs.gamma[2], mix + 0x300, 256);
@@ -178,6 +179,7 @@ int fog_state_from_regs(fog_state *out, const uint8_t *mix, const uint16_t czatt
     fs.text_alpha_mask = mix[0x14];
     fs.text_alpha      = mix[0x15];
     fs.text_palbase    = mix[0x1b];
+    { int sf = mix[0x0e] << 8 | mix[0x0d]; fs.spot_factor = sf < 0x100 ? 0 : sf & 0xff; }
     memcpy(fs.gamma[0], mix + 0x100, 256);
     memcpy(fs.gamma[1], mix + 0x200, 256);
     memcpy(fs.gamma[2], mix + 0x300, 256);

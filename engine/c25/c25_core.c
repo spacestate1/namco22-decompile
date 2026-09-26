@@ -11,7 +11,7 @@
 
 static bool push(c71_t *d, uint16_t v)
 {
-    if (d->sp >= 64) { snprintf(d->error, sizeof d->error, "stack overflow"); return false; }
+    if (d->sp >= 8) { for (int i = 1; i < 8; i++) d->stack[i - 1] = d->stack[i]; d->sp = 7; }   /* 8 levels, the oldest is lost (see c25_sem.h push) */
     d->stack[d->sp++] = v; return true;
 }
 

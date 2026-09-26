@@ -15,6 +15,10 @@
  * the widescreen mode (Hor+: full-frame viewports widen to fill it). */
 extern float g_scene_x0, g_scene_x1;
 
+/* Widescreen HUD (engine/hud_edges.h): how far a game moves this quad (scene units, whole), or NULL / 0 = where the game put it. A quad in
+ * a sub-window viewport takes its clip window along. */
+extern int (*g_eng_quad_dx)(const geo_quad *q);
+
 /* One quad's depth fog, filled by the board.
  *   Super 22: a per-depth table -- alpha = 0xff - min(tab[z>>8] + sdelta, 0xff)
  *   System 22: one factor per quad -- alpha_const (0..255, 255 = no fog)
@@ -42,6 +46,8 @@ typedef struct {
     int  (*fog_quad)(const geo_quad *q, eng_fog *f);
     /* per-channel poly fade, applied after fog; NULL = none */
     void (*fade_rgb)(float *r, float *g, float *b);
+    /* Widescreen: a quad that is the game's own screen-sized backdrop (see eng_draw_quad) continues sideways to the picture's edges. */
+    int  wide_backdrop;
 } eng_draw_cfg;
 
 /* Sort far to near; ties draw in REVERSE submission order (q->order), which

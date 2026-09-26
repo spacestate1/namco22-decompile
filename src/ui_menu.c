@@ -423,7 +423,23 @@ void render_banner_pick_set(int idx);
 static bool restart_req = false;
 bool ui_restart_requested(void) { return restart_req; }
 
+/* a one-line hint at the bottom of the window while the menu is closed (a pad has no Esc: how to reach the menu) */
+static char hint_text[96]; static int hint_left;
+void ui_set_hint(const char *text, int frames) { snprintf(hint_text, sizeof hint_text, "%s", text ? text : ""); hint_left = frames; }
+
 void ui_draw(SDL_Window *win, bool *quit) {
+    if (ctx && !menu_open && hint_left > 0 && hint_text[0]) {
+        hint_left--;
+        int hw, hh; SDL_GetWindowSize(win, &hw, &hh);
+        const float w = 440 < hw - 8 ? 440.0f : (float)hw - 8;
+        if (nk_begin(ctx, "hint", nk_rect(((float)hw - w) / 2, (float)hh - 36, w, 28), NK_WINDOW_NO_SCROLLBAR)) {
+            nk_layout_row_dynamic(ctx, 18, 1);
+            nk_label(ctx, hint_text, NK_TEXT_CENTERED);
+        }
+        nk_end(ctx);
+        nk_sdl_render(NK_ANTI_ALIASING_ON);
+        return;
+    }
     if (!ctx || !menu_open) return;
     int ww, wh;
     SDL_GetWindowSize(win, &ww, &wh);
@@ -436,8 +452,13 @@ void ui_draw(SDL_Window *win, bool *quit) {
 
         /* ---- File ---- */
         nk_layout_row_push(ctx, 50);
-        if (nk_menu_begin_label(ctx, "File", NK_TEXT_LEFT, nk_vec2(200, 90))) {
+        if (nk_menu_begin_label(ctx, "File", NK_TEXT_LEFT, nk_vec2(260, 150))) {
             nk_layout_row_dynamic(ctx, 28, 1);
+            /* the cabinet's Test switch (a toggle) and Service button: F2 and 9 on a keyboard, and here for a pad -- the Steam Deck has none */
+            { extern int input_test_on(void); extern void input_set_test(int), input_service_pulse(void);
+              char tl[48]; snprintf(tl, sizeof tl, "Test mode: %s", input_test_on() ? "ON" : "OFF");
+              if (nk_button_label(ctx, tl)) { input_set_test(!input_test_on()); menu_open = false; }
+              if (nk_button_label(ctx, "Service button (press)")) { input_service_pulse(); menu_open = false; } }
             /* Restart = power-cycle the cabinet: main() re-launches the
              * program with the same arguments. Scores and settings are
              * already saved to disk as they change. */

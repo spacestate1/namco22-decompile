@@ -19,6 +19,15 @@
 #define TW 640
 #define TH 480
 
+/* THE SPOT (MAME namcos22s_mix_text_layer; used by Dirt Dash's night section, and as a table there all day): when the game enables
+ * it, a text pixel's index (tile palette << 4 | pen) goes through the spot RAM -- 256 groups of four words, the group's column chosen by
+ * the low two bits of the mixer's text palette base, the low byte of the word the REMAPPED pen. A remapped pen below 0x80 is drawn from
+ * the palette as usual; 0x80 and up is not a colour but a DARKENING of what is behind it, by (spot_factor * (pen & 0x7F)) >> 7 of 256.
+ * With the factor 0 (daylight) such a pixel is invisible: Dirt Dash's HUD label plates are drawn in pen 14, which the table sends there. */
+static const uint16_t *g_spotram;
+static int g_spot_on;
+void text_set_spot(const uint16_t *spotram, int enabled) { g_spotram = spotram; g_spot_on = spotram && enabled; }
+
 void text_free(text_state *st)
 {
     if (!st) return;
@@ -120,17 +129,34 @@ void text_render(const text_state *st, const fog_state *fog,
             if (pix == 0xF) continue;                 /* transparent pen */
 
             int pen = (palbase | (tpal << 4) | pix) & 0x7FFF;
+            int p8 = pen & 0xFF;                      /* the pen the alpha test looks at */
+            int dark = -1;                            /* a spot pen's darkening factor, else -1 */
+            if (g_spot_on) {
+                const int sp = g_spotram[(((tpal << 4 | pix) << 2) | ((palbase >> 8) & 3)) & 0x3FF] & 0xFF;
+                if (sp < 0x80) { pen = (palbase | sp) & 0x7FFF; p8 = sp; }
+                else { dark = (fog->spot_factor * (sp & 0x7F)) >> 7; p8 = sp; }
+            }
+            long o = ((long)y * TW + x) * 4;
+            if (dark >= 0) {                          /* darken what is behind: black at alpha factor/256 (dest * (0x100 - factor) >> 8) */
+                if (dark == 0) continue;
+                if (gate_mode) {
+                    int br = rgba[o], bg2 = rgba[o+1], bb = rgba[o+2];
+                    rgba[o] = (uint8_t)(br * (0x100 - dark) >> 8); rgba[o+1] = (uint8_t)(bg2 * (0x100 - dark) >> 8);
+                    rgba[o+2] = (uint8_t)(bb * (0x100 - dark) >> 8); rgba[o+3] = 255;
+                } else {
+                    rgba[o] = rgba[o+1] = rgba[o+2] = 0; rgba[o+3] = (uint8_t)(dark > 255 ? 255 : dark);
+                }
+                continue;
+            }
             int r = pal[pen], g = pal[pen + 0x8000], b = pal[pen + 0x10000];
             if (fade_en) {
                 r = (r * (0xFF - fade_f) + fog->screen_fade[0] * fade_f) / 0xFF;
                 g = (g * (0xFF - fade_f) + fog->screen_fade[1] * fade_f) / 0xFF;
                 b = (b * (0xFF - fade_f) + fog->screen_fade[2] * fade_f) / 0xFF;
             }
-            long o = ((long)y * TW + x) * 4;
             int out_a = 255;
             if (alpha_f) {
                 int am = fog->text_alpha_mask & 0xF;
-                int p8 = pen & 0xFF;
                 if ((p8 & 0xF) == am ||
                     (fog->text_alpha_lo <= p8 && p8 <= fog->text_alpha_hi)) {
                     if (gate_mode) {

@@ -292,10 +292,27 @@ static void note_line(const char *fmt, ...)      /* what a page's notes() calls:
     nk_label(ctx, b, NK_TEXT_LEFT);
 }
 
+static char hint_text[96]; static int hint_left;
+void eng_ui_set_hint(const char *text, int frames) { snprintf(hint_text, sizeof hint_text, "%s", text ? text : ""); hint_left = frames; }
+
 void eng_ui_draw(bool *quit)
 {
     if (quit_req && quit) *quit = true;
-    if (!ctx || !open_) return;
+    if (!ctx) return;
+    if (!open_) {                                    /* the menu-button hint (a pad has no Esc), for a few seconds after the start */
+        if (hint_left > 0 && hint_text[0]) {
+            hint_left--;
+            int hw, hh; SDL_GetWindowSize(uwin, &hw, &hh);
+            const float w = 440 < hw - 8 ? 440.0f : (float)hw - 8;
+            if (nk_begin(ctx, "hint", nk_rect(((float)hw - w) / 2, (float)hh - 36, w, 28), NK_WINDOW_NO_SCROLLBAR)) {
+                nk_layout_row_dynamic(ctx, 18, 1);
+                nk_label(ctx, hint_text, NK_TEXT_CENTERED);
+            }
+            nk_end(ctx);
+            nk_sdl_render(NK_ANTI_ALIASING_ON);
+        }
+        return;
+    }
     int ww, wh;
     SDL_GetWindowSize(uwin, &ww, &wh);
     /* THE MENU BAR across the top of the window. The chosen page drops down under its title; on the keyboard the bar is the

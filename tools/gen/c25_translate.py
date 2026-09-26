@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""c25_translate.py --game pc|rr|tw --roms DIR --cov FILE [--cov FILE...] --out FILE --func NAME
+"""c25_translate.py --game pc|rr|tw|dd --roms DIR --cov FILE [--cov FILE...] --out FILE --func NAME
                    [--block ADDR ...]
 
 Translate a System 22 / Super System 22 MASTER DSP program -- the C71 BIOS
@@ -31,7 +31,7 @@ translation TRAPS LOUDLY (the master stops and says where) -- never skipped.
 import argparse, os, sys
 
 ap = argparse.ArgumentParser()
-ap.add_argument('--game', required=True, choices=['pc', 'rr', 'tw'])
+ap.add_argument('--game', required=True, choices=['pc', 'rr', 'tw', 'dd'])
 ap.add_argument('--roms', required=True)
 ap.add_argument('--cov', action='append', default=[])
 ap.add_argument('--out')
@@ -52,7 +52,16 @@ else:   # optional in some ROM sets: the BIOS is then left untranslated (the mas
     print(f'c25_translate: WARNING: no {bp}; the master DSP BIOS is not translated', file=sys.stderr)
     bios_img = {}
 
-if a.game in ('pc', 'tw'):
+if a.game == 'dd':
+    # Dirt Dash (Super System 22): two 2 MB chips, MAME ROM_LOAD32_WORD_SWAP -- dt2vera.2 the high word of every long, dt2vera.1 the
+    # low, each word byte-swapped (dirtdash/src/dd_mem.c dd_load_program). The master program's count word is at 0x57F00 (0x187B: 6,268
+    # words, program 0x4000..0x587B): found by matching MAME's master program RAM (tools/mame/mseq_run.sh captures) in the 68K ROM.
+    hi = open(os.path.join(a.roms, 'dt2vera.2'), 'rb').read(); lo = open(os.path.join(a.roms, 'dt2vera.1'), 'rb').read()
+    rom = bytearray(2 * len(hi) + 2 * len(lo))
+    for i in range(0, len(hi), 2):
+        rom[2 * i] = hi[i + 1]; rom[2 * i + 1] = hi[i]; rom[2 * i + 2] = lo[i + 1]; rom[2 * i + 3] = lo[i]
+    main_block = 0x57F00
+elif a.game in ('pc', 'tw'):
     # Super System 22: <game>ver-a.1..4 byte-interleaved 4,3,2,1 (src/rom_loader.c; ROM_LOAD32_BYTE).
     #   Prop Cycle: pr2ver-a.*, the game program's count word at 0x43748 (src/master_dsp.c)
     #   Tokyo Wars: tw2ver-a.*, the master program's count word at 0x127816 (FUN_0012ED28 uploads it

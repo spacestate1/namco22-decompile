@@ -120,7 +120,11 @@ static inline bool fault(c71_t *d, const char *what, int op, int pc)
 
 static inline bool push(c71_t *d, uint16_t v)
 {
-    if (d->sp >= 64) { snprintf(d->error, sizeof d->error, "stack overflow"); return false; }
+    /* THE TMS320C25 STACK IS 8 LEVELS AND A PUSH ON A FULL STACK LOSES THE OLDEST ENTRY (MAME's tms32025 PUSH_STACK shifts the whole
+     * stack down). Dirt Dash's master program LEAKS two entries every frame -- its frame handler is entered by the interrupt (pushing the
+     * idle loop's PC) and calls down without ever returning -- which the chip absorbs silently: a 64-deep stack that faulted on overflow
+     * killed the DSP at frame ~1500. */
+    if (d->sp >= 8) { for (int i = 1; i < 8; i++) d->stack[i - 1] = d->stack[i]; d->sp = 7; }
     d->stack[d->sp++] = v; return true;
 }
 

@@ -99,6 +99,9 @@ static void dump_state(void)
     snprintf(p, sizeof p, "%s/wram_f%u.bin", dump_dir, frame);
     FILE *f = fopen(p, "wb");
     if (f) { fwrite(g_rr.wram, 1, RR_WRAM_SIZE, f); fclose(f); }
+    snprintf(p, sizeof p, "%s/text_f%u.bin", dump_dir, frame);      /* the text tilemap: what marks a screen type (the HUD) */
+    f = fopen(p, "wb");
+    if (f) { fwrite(g_rr.text, 1, RR_TEXT_SIZE, f); fclose(f); }
     snprintf(p, sizeof p, "%s/shared_f%u.bin", dump_dir, frame);    /* 68K byte order */
     f = fopen(p, "wb");
     if (f) { fwrite(g_rr.shared, 1, RR_SHARED_SIZE, f); fclose(f); }

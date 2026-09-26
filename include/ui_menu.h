@@ -60,4 +60,5 @@ void ui_draw(SDL_Window *win, bool *quit);
 /* File -> Restart was chosen: main() re-launches the program on exit. */
 bool ui_restart_requested(void);
 
+void ui_set_hint(const char *text, int frames);   /* a hint line at the bottom of the window while the menu is closed */
 #endif /* UI_MENU_H */

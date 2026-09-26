@@ -26,6 +26,7 @@
 #include "geo_hw.h"
 #include "slave_list.h"
 #include "quad_gl.h"
+#include "hud_edges.h"
 #include "tex_bake.h"
 #include "post_gl.h"
 #include "rr_mem.h"
@@ -162,6 +163,8 @@ static bool build_text(int text_palbase, bool shadow_enabled, bool *any_shadow)
     uint8_t mix[3][3];
     for (int k = 0; k < 3; k++) for (int c = 0; c < 3; c++) mix[k][c] = mixer_b(0x08 + k * 3 + c);
     bool any = false; *any_shadow = false;
+    static uint8_t occ[NW * NH];                       /* where either layer draws: the widescreen HUD's pieces are found in it */
+    memset(occ, 0, sizeof occ);
     memset(shd_rgba, 0xff, sizeof shd_rgba);
     for (int y = 0; y < NH; y++) {
         const int ty = (y + sy) & 0x3ff, trow = ty >> 4, cy = ty & 15;
@@ -183,13 +186,16 @@ static bool build_text(int text_palbase, bool shadow_enabled, bool *any_shadow)
             if (shadow_enabled && p8 >= 0xfc && p8 <= 0xfe) {
                 sd[0] = mix[p8 - 0xfc][0]; sd[1] = mix[p8 - 0xfc][1]; sd[2] = mix[p8 - 0xfc][2];
                 sd[3] = 255; *any_shadow = true;
+                occ[(size_t)y * NW + x] = 1;
                 continue;
             }
             pen_rgb(text_palbase + p8, d);
             d[3] = 255;
+            occ[(size_t)y * NW + x] = 1;
             any = true;
         }
     }
+    if (g_eng_hud_e) eng_hud_text_scan(occ);
     return any;
 }
 
@@ -214,12 +220,15 @@ static void draw_layer(GLuint tex)
     glEnable(GL_TEXTURE_2D);
     glBindTexture(GL_TEXTURE_2D, tex);
     glColor4f(1, 1, 1, 1);
+    if (g_eng_hud_e) eng_hud_text_draw();               /* widescreen HUD: each piece of the layer at its side (engine/hud_edges.h) */
+    else {
     glBegin(GL_QUADS);
     glTexCoord2f(0, 0); glVertex2f(0, 0);
     glTexCoord2f(1, 0); glVertex2f(NW, 0);
     glTexCoord2f(1, 1); glVertex2f(NW, NH);
     glTexCoord2f(0, 1); glVertex2f(0, NH);
     glEnd();
+    }
     glDisable(GL_TEXTURE_2D);
 }
 
@@ -256,10 +265,19 @@ static void post_lut(int vw, int vh)
  * of times after it -- a paused window redraws the same frame. */
 static int frame_mixer_flags, frame_bg_palbase, frame_text_palbase;
 
+/* widescreen: the race HUD is up while the gear ladder's first row is on screen (text cells row 22, cols 2 and 3). That row holds F0C0 /
+ * F0C1 while gear 1 is NOT selected and 40D2 / 40D3 while it is (measured over a whole race: the two states never show on any other
+ * screen), so both are marks -- with only the first, the HUD sat in the 4:3 centre through the start countdown and in gear 1. The map's
+ * dots and the mirror's frame are polygons in the full-frame viewport at priority band 0 (the mirror's own picture is a sub-window
+ * viewport). */
+static const eng_hud_mark hud_marks[] = { { 22, 2, 0xF0C0 }, { 22, 3, 0xF0C1 }, { 22, 2, 0x40D2 }, { 22, 3, 0x40D3 } };
+static bool hud_on;
+
 void rr_gl_prepare(bool slave_active)
 {
     if (!assets_ok) return;
     g_eng_frame++;
+    { static int hold; hud_on = eng_hud_marks_up(g_rr.text, hud_marks, (int)(sizeof hud_marks / sizeof *hud_marks), &hold); }
     /* update_mixer (System 22), latched with the frame */
     frame_mixer_flags  = mixer_b(0x00) << 8 | mixer_b(0x01);
     frame_bg_palbase   = mixer_b(0x04) << 8 & 0x7f00;
@@ -275,6 +293,54 @@ void rr_gl_prepare(bool slave_active)
         eng_walk_list(poly_word, &cfg, push_quad, NULL);
     }
     eng_quad_sort(qbuf, qn, 0);
+    { static int want = -1, n;                          /* RR_CLIPLOG=<n>: the distinct viewport clip windows of screen update n */
+      if (want < 0) { const char *e = getenv("RR_CLIPLOG"); want = e ? atoi(e) : 0; }
+      if (want && n + 1 == want) {                       /* per priority band: how many quads and where (the HUD's polygons are the small bands) */
+          int ap_n[8] = { 0 }, ax0[8], ax1[8], ay0[8], ay1[8];
+          for (int b = 0; b < 8; b++) { ax0[b] = 1 << 30; ax1[b] = -(1 << 30); ay0[b] = 1 << 30; ay1[b] = -(1 << 30); }
+          for (int i = 0; i < qn; i++) {
+              const int b = (qbuf[i].zsort >> 21) & 7;
+              ap_n[b]++;
+              for (int k = 0; k < qbuf[i].nrv; k++) {
+                  int x = qbuf[i].rv[k].sx16 >> 4, y = qbuf[i].rv[k].sy16 >> 4;
+                  if (x < ax0[b]) ax0[b] = x; if (x > ax1[b]) ax1[b] = x;
+                  if (y < ay0[b]) ay0[b] = y; if (y > ay1[b]) ay1[b] = y;
+              }
+          }
+          for (int i = 0; i < qn; i++) {
+              if (((qbuf[i].zsort >> 21) & 7) != 0 || qbuf[i].clip[1] < 639) continue;
+              int x0 = 1 << 30, x1 = -(1 << 30), y0 = 1 << 30, y1 = -(1 << 30);
+              for (int k = 0; k < qbuf[i].nrv; k++) {
+                  int x = qbuf[i].rv[k].sx16 >> 4, y = qbuf[i].rv[k].sy16 >> 4;
+                  if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+              }
+              fprintf(stderr, "[HUDQ] pick %d  direct %d  x %d..%d  y %d..%d  zsort %06X nrv %d\n", qbuf[i].pick_code, qbuf[i].direct, x0, x1, y0, y1, qbuf[i].zsort & 0xffffff, qbuf[i].nrv);
+          }
+          for (int b = 0; b < 8; b++) if (ap_n[b]) fprintf(stderr, "[AP] band %d: %d quads  x %d..%d  y %d..%d\n", b, ap_n[b], ax0[b], ax1[b], ay0[b], ay1[b]);
+          { int bx0, by0, bx1, by1;                          /* RR_CLIPLOG_BOX=x0,y0,x1,y1: every quad that lies wholly inside that screen box */
+            const char *e = getenv("RR_CLIPLOG_BOX");
+            if (e && sscanf(e, "%d,%d,%d,%d", &bx0, &by0, &bx1, &by1) == 4)
+                for (int i = 0; i < qn; i++) {
+                    int x0 = 1 << 30, x1 = -(1 << 30), y0 = 1 << 30, y1 = -(1 << 30);
+                    for (int k = 0; k < qbuf[i].nrv; k++) {
+                        int x = qbuf[i].rv[k].sx16 >> 4, y = qbuf[i].rv[k].sy16 >> 4;
+                        if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+                    }
+                    if (qbuf[i].nrv && x0 >= bx0 && x1 <= bx1 && y0 >= by0 && y1 <= by1)
+                        fprintf(stderr, "[BOXQ] pick %d  direct %d  band %d  clip %d..%d  x %d..%d  y %d..%d  zsort %06X nrv %d\n", qbuf[i].pick_code, qbuf[i].direct,
+                                (qbuf[i].zsort >> 21) & 7, qbuf[i].clip[0], qbuf[i].clip[1], x0, x1, y0, y1, qbuf[i].zsort & 0xffffff, qbuf[i].nrv);
+                } }
+      }
+      if (want && ++n == want) {
+          int32_t seen[64][4]; int cnt[64], ns = 0;
+          for (int i = 0; i < qn; i++) {
+              int k;
+              for (k = 0; k < ns; k++) if (!memcmp(seen[k], qbuf[i].clip, sizeof seen[k])) break;
+              if (k == ns && ns < 64) { memcpy(seen[ns], qbuf[i].clip, sizeof seen[0]); cnt[ns++] = 0; }
+              if (k < 64) cnt[k]++;
+          }
+          for (int k = 0; k < ns; k++) fprintf(stderr, "[CLIP] %4d..%4d x %4d..%4d  %d quads\n", seen[k][0], seen[k][1], seen[k][2], seen[k][3], cnt[k]);
+      } }
 }
 
 int rr_gl_quads(void) { return qn; }
@@ -292,6 +358,10 @@ void rr_gl_draw(int vw, int vh)
     } else { g_scene_x0 = 0.0f; g_scene_x1 = NW; }
 
     eng_palette_from_planar(g_rr.pal, 0x8000);
+
+    eng_hud_begin(hud_on);                              /* widescreen: how far the HUD goes out (0 = it stays) */
+    g_eng_quad_dx = eng_hud_quad_dx;
+    eng_hud_quads_scan(qbuf, qn, 0, true);                /* band 0 = the direct polys (map dots, mirror frame); depth 0 = the tacho needle */
 
     glViewport(0, 0, vw, vh);
     glMatrixMode(GL_PROJECTION); glLoadIdentity();
@@ -324,7 +394,9 @@ void rr_gl_draw(int vw, int vh)
      * prioverchar (destination alpha 0). Transparent texels are discarded by
      * the alpha test, so the polygons stay where the layer draws nothing. */
     bool any_shadow;
-    const bool any_text = build_text(frame_text_palbase, (frame_mixer_flags >> 8) & 1, &any_shadow);
+    bool any_text = build_text(frame_text_palbase, (frame_mixer_flags >> 8) & 1, &any_shadow);
+    { static int no = -1; if (no < 0) { const char *e = getenv("RR_NO_TEXT"); no = e && *e == '1'; }     /* dev: the picture without the text layer */
+      if (no) { any_text = false; any_shadow = false; } }
     glEnable(GL_BLEND);
     if (any_shadow) {                                   /* rgb *= mix/256 */
         upload(&shd_tex, shd_rgba, NW, NH);

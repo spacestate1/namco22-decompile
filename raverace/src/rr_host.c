@@ -29,6 +29,8 @@
 #include "rr_font.h"
 #include "rr_sound.h"
 #include "rr_ui.h"
+#include "eng_pad.h"
+#include "eng_pace.h"
 #include "rr_gl.h"
 #include "render_target.h"
 #include "eng_gl.h"
@@ -343,6 +345,7 @@ bool rr_host_open(int scale)
     tex_w = 640; tex_h = 480;
     { extern int g_rr_draw_extra; g_rr_draw_extra = draw_extra[g_cfg_draw < 0 ? 0 : g_cfg_draw > 3 ? 3 : g_cfg_draw]; }
     if (!rr_ui_init(win)) fprintf(stderr, "[HOST] menu: Nuklear init failed\n");
+    else if (eng_pad_present()) rr_ui_set_hint(ENG_PAD_MENU_HINT, 60 * 8);      /* a pad has no Esc: say how to reach the menu */
     SDL_SetWindowMinimumSize(win, 320, 240);
     if (g_cfg_winmode == 2) apply_fullscreen();                                /* exclusive: set the mode */
     else if (!g_cfg_fullscreen && g_cfg_scale > max_scale()) apply_fullscreen();   /* too big for this display: shrink */
@@ -375,6 +378,15 @@ static void set_bit(uint16_t bit, int down)       /* active low */
 {
     if (down) g_hw.inputs &= (uint16_t)~bit; else g_hw.inputs |= bit;
 }
+
+/* THE TEST SWITCH IS A TOGGLE, like MAME's (PORT_SERVICE = "Service Mode": press once = on, press again = off). It used to be
+ * "held while F2 is down", which a keyboard user could just about manage and a pad user (the Steam Deck) could not do at all.
+ * The File page of the menu has it too, and a Service button that is pressed for a few frames. */
+static bool g_test_sw;
+static int  g_service_frames;
+bool rr_host_test_on(void) { return g_test_sw; }
+void rr_host_set_test(bool on) { g_test_sw = on; fprintf(stderr, "[HOST] test switch %s\n", on ? "ON" : "OFF"); }
+void rr_host_service_pulse(void) { g_service_frames = 12; }
 
 static void ramp(uint16_t *v, int toward, int lo, int hi, int step)
 {
@@ -572,6 +584,7 @@ bool rr_host_frame(void)
                                                     e.cbutton.button == SDL_CONTROLLER_BUTTON_RIGHTSTICK))) {
             rr_ui_set_open(true); fprintf(stderr, "[HOST] menu open\n"); continue;
         }
+        if (pressed(&e, RR_TEST)) rr_host_set_test(!g_test_sw);
         if (pressed(&e, RR_SCREENSHOT)) screenshot();
         if (pressed(&e, RR_RECORD)) toggle_record();
         if (pressed(&e, RR_PAUSE)) { paused = !paused; fprintf(stderr, "[HOST] %s\n", paused ? "paused" : "running"); }
@@ -589,7 +602,7 @@ bool rr_host_frame(void)
           if (k >= 0 && k % 10 == 0 && k / 10 <= 4) {
               menu_test_step = (int)(k / 10);
               switch (menu_test_step) {
-              case 0: rr_ui_set_open(true); rr_ui_test_goto(3, 0); break;       /* Controls, Free play */
+              case 0: rr_ui_set_open(true); rr_ui_test_goto(getenv("RR_MENU_TEST_TAB") ? atoi(getenv("RR_MENU_TEST_TAB")) : 3, 0); break;   /* Controls, Free play (RR_MENU_TEST_TAB=0: File) */
               case 1: rr_ui_test_nav(RR_UI_OK); break;                           /* toggle it */
               case 2: rr_ui_test_goto(1, 0); break;                              /* Display */
               case 3: rr_ui_test_nav(RR_UI_DOWN); rr_ui_test_nav(RR_UI_DOWN); rr_ui_test_nav(RR_UI_DOWN);
@@ -602,8 +615,9 @@ bool rr_host_frame(void)
     if (!paused && !rr_ui_is_open() && !rr_input_replaying()) {
         set_bit(0x1000, held(RR_COIN1));
         set_bit(0x0200, held(RR_COIN2));
-        set_bit(0x0800, held(RR_SERVICE));
-        set_bit(0x0400, held(RR_TEST));          /* PORT_SERVICE */
+        set_bit(0x0800, held(RR_SERVICE) || g_service_frames > 0);
+        if (g_service_frames > 0) g_service_frames--;
+        set_bit(0x0400, g_test_sw);              /* PORT_SERVICE: the toggle */
         set_bit(0x0001, held(RR_SHIFT_DOWN));
         set_bit(0x0002, held(RR_SHIFT_UP));
         set_bit(0x0040, held(RR_VIEW));
@@ -623,15 +637,17 @@ bool rr_host_frame(void)
      * native or widescreen size follows the window; it lands next frame) */
     apply_render_size();
     present_picture();
-    if (rr_ui_is_open()) {                                   /* the menu, over the dimmed game */
+    if (rr_ui_is_open() || rr_ui_hint_active()) {            /* the menu, over the dimmed game (or just the menu-button hint) */
         int ow, oh; out_size(&ow, &oh);
         glViewport(0, 0, ow, oh);
         glMatrixMode(GL_PROJECTION); glLoadIdentity(); glOrtho(0, 1, 0, 1, -1, 1);
         glMatrixMode(GL_MODELVIEW); glLoadIdentity();
         glDisable(GL_TEXTURE_2D); glDisable(GL_SCISSOR_TEST); glDisable(GL_ALPHA_TEST);
         glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        glColor4f(0, 0, 0, 150 / 255.0f);
-        glBegin(GL_QUADS); glVertex2f(0, 0); glVertex2f(1, 0); glVertex2f(1, 1); glVertex2f(0, 1); glEnd();
+        if (rr_ui_is_open()) {
+            glColor4f(0, 0, 0, 150 / 255.0f);
+            glBegin(GL_QUADS); glVertex2f(0, 0); glVertex2f(1, 0); glVertex2f(1, 1); glVertex2f(0, 1); glEnd();
+        }
         glDisable(GL_BLEND);
         bool q = false; rr_ui_draw(&q);
     }
@@ -681,7 +697,22 @@ bool rr_host_frame(void)
               else if (step != 5) apply_fullscreen();
           } else at = -1;
       } }
+    static eng_pace pace_log;
+    if (rr_ui_is_open() || paused) eng_pace_reset(&pace_log);
+    eng_pace_before_swap(&pace_log);
     SDL_GL_SwapWindow(win);
+
+    /* TRUST VSYNC ONLY IF IT BLOCKS (Tokyo Wars' host learnt this first): a window the compositor does not throttle (an unmapped or
+     * occluded one, Wayland, some gamescope set-ups) swaps at once, and the game would then run as fast as the CPU allows -- measured
+     * over 50 frames after the first 10; a frame under 12 ms means it does not block, and the timer takes over at 59.906 Hz. */
+    { static int vs_frames; static uint64_t vs_t0;
+      if (vsync && vs_frames < 60) {
+          if (vs_frames++ == 10) vs_t0 = now_ns();
+          if (vs_frames == 60 && (now_ns() - vs_t0) / 50 < 12000000ull) {
+              vsync = false; SDL_GL_SetSwapInterval(0); next_ns = now_ns();
+              fprintf(stderr, "[HOST] vsync does not block here (%.1f ms a frame): timer-paced at 59.906 Hz\n", (double)((now_ns() - vs_t0) / 50) / 1e6);
+          }
+      } }
 
     /* pacing: vsync blocks in RenderPresent; otherwise sleep to the board's
      * 59.906 Hz, the last millisecond spun for precision */
@@ -694,6 +725,7 @@ bool rr_host_frame(void)
             while (now_ns() < next_ns) ;
         } else if (now - next_ns > 100000000ull) next_ns = now;   /* fell behind: resync, no catch-up burst */
     }
+    eng_pace_after(&pace_log, "rr");
     return true;
 }
 

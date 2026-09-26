@@ -57,7 +57,7 @@ enum { D_WIDE, D_DRAW, D_MODE, D_SIZE, D_RES, D_ASPECT, D_SCALING, D_N };
 static int nrows(int t)
 {
     switch (t) {
-    case T_FILE: return 2;
+    case T_FILE: return 4;
     case T_DISPLAY: return D_N;
     case T_AUDIO: return 1;
     case T_CONTROLS: return 1 + RR_ACT_N;
@@ -86,7 +86,11 @@ static void row_text(int t, int r, char *label, size_t ln, char *value, size_t v
     static const char *sc[3] = { "Smooth", "Sharp", "Integer" };
     *value = 0;
     switch (t) {
-    case T_FILE: snprintf(label, ln, "%s", r == 0 ? "Resume" : "Exit"); break;
+    case T_FILE:
+        if (r == 1) snprintf(label, ln, "Test mode: %s", rr_host_test_on() ? "ON" : "OFF");
+        else if (r == 2) snprintf(label, ln, "Service button (press)");
+        else snprintf(label, ln, "%s", r == 0 ? "Resume" : "Exit");
+        break;
     case T_DISPLAY:
         switch (r) {
         case D_DRAW:    snprintf(label, ln, "Draw distance"); snprintf(value, vn, "%s", rr_host_draw_name(g_cfg_draw)); break;
@@ -125,7 +129,14 @@ static void row_change(int t, int r, int dir)
     if (!row_enabled(t, r)) return;
     const int d = dir ? dir : 1;
     switch (t) {
-    case T_FILE: if (dir == 0) { if (r == 0) open_ = false; else quit_req = true; } break;
+    case T_FILE:
+        if (r == 1) { rr_host_set_test(!rr_host_test_on()); open_ = false; }        /* on to see the test menu; off to leave it */
+        else if (dir == 0) {
+            if (r == 0) open_ = false;
+            else if (r == 2) { rr_host_service_pulse(); open_ = false; }
+            else quit_req = true;
+        }
+        break;
     case T_DISPLAY:
         switch (r) {
         case D_WIDE:    rr_host_set_wide(!g_cfg_wide); break;
@@ -261,9 +272,26 @@ static void labelf(nk_flags align, const char *fmt, ...)
     nk_label(ctx, b, align);
 }
 
+/* a one-line hint at the bottom of the window while the menu is closed (a pad has no Esc: how to reach the menu) */
+static char hint_text[96]; static int hint_left;
+void rr_ui_set_hint(const char *text, int frames) { snprintf(hint_text, sizeof hint_text, "%s", text ? text : ""); hint_left = frames; }
+bool rr_ui_hint_active(void) { return ctx && !open_ && hint_left > 0 && hint_text[0]; }
+
 void rr_ui_draw(bool *quit)
 {
     if (quit_req) *quit = true;
+    if (rr_ui_hint_active()) {
+        hint_left--;
+        int hw, hh; SDL_GetWindowSize(uwin, &hw, &hh);
+        const float w = 440 < hw - 8 ? 440.0f : (float)hw - 8;
+        if (nk_begin(ctx, "hint", nk_rect(((float)hw - w) / 2, (float)hh - 36, w, 28), NK_WINDOW_NO_SCROLLBAR)) {
+            nk_layout_row_dynamic(ctx, 18, 1);
+            nk_label(ctx, hint_text, NK_TEXT_CENTERED);
+        }
+        nk_end(ctx);
+        nk_sdl_render(NK_ANTI_ALIASING_ON);
+        return;
+    }
     if (!ctx || !open_) return;
     int ww, wh;
     SDL_GetWindowSize(uwin, &ww, &wh);
@@ -287,7 +315,7 @@ void rr_ui_draw(bool *quit)
     nk_end(ctx);
 
     /* the dropdown: sized to its page, under its title, inside the window */
-    static const float drop_w[T_N] = { 220, 440, 300, 340, 380 };
+    static const float drop_w[T_N] = { 300, 440, 300, 340, 380 };
     const int n0 = nrows(tab);
     const float rh0 = tab == T_CONTROLS ? 20 : 26;
     float dh = 48 + n0 * (rh0 + 4) + (tab == T_DISPLAY ? 88 : tab == T_FILE ? 0 : 44);

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build the WINDOWS versions of Prop Cycle, Rave Racer and Tokyo Wars, from Linux.
+# Build the WINDOWS versions of Prop Cycle, Rave Racer, Tokyo Wars and Dirt Dash, from Linux.
 #
 #   ./build-windows.sh
 #
@@ -91,6 +91,11 @@ cmake --build build-win/rr --target rr -j"$(nproc)"
 cmake -S tokyowar -B build-win/tw -DCMAKE_TOOLCHAIN_FILE="$TOP/build-win/toolchain.cmake" \
       -DCMAKE_BUILD_TYPE=Release >/dev/null
 cmake --build build-win/tw --target tw -j"$(nproc)"
+# Dirt Dash (dirtdash/): the same again -- gen/dd_lifted.c comes with the tree, the sound and master-DSP programs are
+# translated at build time from the ROM set (dirtdash/extracted/)
+cmake -S dirtdash -B build-win/dd -DCMAKE_TOOLCHAIN_FILE="$TOP/build-win/toolchain.cmake" \
+      -DCMAKE_BUILD_TYPE=Release >/dev/null
+cmake --build build-win/dd --target dd -j"$(nproc)"
 
 # --- package: windows-release/ ---------------------------------------------------
 # Everything Windows needs, in one folder. The instructions and the roms/
@@ -102,12 +107,13 @@ cp -r "$TOP/packaging/windows/." "$REL/"
 cp build-win/cmake/propcycl.exe "$REL/PropCycle.exe"
 cp build-win/rr/rr.exe "$REL/RaveRacer.exe"
 cp build-win/tw/tw.exe "$REL/TokyoWars.exe"
+cp build-win/dd/dd.exe "$REL/DirtDash.exe"
 mkdir -p "$REL/mesa"
 cp "$MESA/opengl32.dll" "$MESA/libgallium_wgl.dll" "$REL/mesa/"
-x86_64-w64-mingw32-strip "$REL/PropCycle.exe" "$REL/RaveRacer.exe" "$REL/TokyoWars.exe"
+x86_64-w64-mingw32-strip "$REL/PropCycle.exe" "$REL/RaveRacer.exe" "$REL/TokyoWars.exe" "$REL/DirtDash.exe"
 # the .exe must need nothing beside it: every DLL it imports must ship with Windows
 # (OPENGL32.dll does -- it hands over to the installed GPU driver and is never bundled)
-for exe in PropCycle.exe RaveRacer.exe TokyoWars.exe; do
+for exe in PropCycle.exe RaveRacer.exe TokyoWars.exe DirtDash.exe; do
     bad=$(x86_64-w64-mingw32-objdump -p "$REL/$exe" | awk '/DLL Name/ {print $3}' |
           grep -viE '^(kernel32|user32|gdi32|opengl32|advapi32|shell32|ole32|oleaut32|imm32|setupapi|version|winmm|dinput8|api-ms-win-crt-.*)\.dll$' || true)
     [ -z "$bad" ] || { echo "$exe needs DLLs Windows does not ship: $bad"; exit 1; }

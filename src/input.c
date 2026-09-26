@@ -354,8 +354,17 @@ void input_pedal_sample(int pressed, int analog)
     pedal_analog_now  = analog;
 }
 
+/* THE TEST SWITCH IS A TOGGLE, like MAME's (PORT_SERVICE = "Service Mode": press once = on, again = off). It used to be "on while F2 is
+ * held", which a pad (the Steam Deck) could not do at all. File > Test mode has it too, and File > Service button pulses the service
+ * button for a few SIMULATED frames (input_pedal_step runs once per simulated frame, so a pulse never elapses while the menu holds the game). */
+static int test_latch, service_pulse;
+int  input_test_on(void) { return test_latch; }
+void input_set_test(int on) { test_latch = on; fprintf(stderr, "[INPUT] test switch %s\n", on ? "ON" : "OFF"); }
+void input_service_pulse(void) { service_pulse = 12; }
+
 void input_pedal_step(void)
 {
+    if (service_pulse > 0) service_pulse--;
     int analog = pedal_analog_now, pressed = pedal_pressed_now;
     /* An analog trigger sets the level directly; a key ramps it. */
     if (analog > 0) {
@@ -585,8 +594,12 @@ void input_poll(void) {
     if (coin_pulse > 0)                    inputs |= IN_COIN1;
     if (keys[ui_binding[ACT_SERVICE]] ||
         pad_button(SDL_CONTROLLER_BUTTON_LEFTSHOULDER) ||
-        raw_button(ACT_SERVICE))                         inputs |= IN_SERVICE1;
-    if (keys[ui_binding[ACT_TEST]] || raw_button(ACT_TEST)) inputs |= IN_TEST;
+        raw_button(ACT_SERVICE) || service_pulse > 0)    inputs |= IN_SERVICE1;
+    { static int test_key_prev;                          /* a press flips the Test switch */
+      const int test_key = keys[ui_binding[ACT_TEST]] || raw_button(ACT_TEST);
+      if (test_key && !test_key_prev) input_set_test(!test_latch);
+      test_key_prev = test_key; }
+    if (test_latch) inputs |= IN_TEST;
     /* NOT key 1 by default: main.c binds 1-4 to "force stage start", so
      * mapping START1 there too fired both actions from one press. */
     /* PROPCYCL_TEST_START=<frame>: press Start for 4 frames from that frame,

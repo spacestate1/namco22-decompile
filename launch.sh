@@ -7,6 +7,8 @@
 #   ./launch.sh prop 0       Prop Cycle, straight into level 0 (or 1, 2, 3)
 #   ./launch.sh rave         Rave Racer (add a number for the window size: rave 3)
 #   ./launch.sh tokyo        Tokyo Wars (add a number for the window size: tokyo 3)
+#   ./launch.sh dirt         Dirt Dash (add a number for the window size: dirt 3)
+#   ./launch.sh dirt jungle  Dirt Dash starting at a stage (city, jungle, hill, mountain, snow): the coins, stage and car are played for you
 #
 # Prop Cycle keys:  5 coin, Enter start, arrow keys steer, Space pedal,
 #                   P pause, Esc menu, F12 picture.
@@ -14,6 +16,8 @@
 #                   V view, P pause, Esc menu, F12 picture.
 # Tokyo Wars keys:  5 coin, Enter start, arrows/A D steer, Up/W forward, Down/S back,
 #                   X / Z triggers, P pause, Esc menu (widescreen ...), F12 picture.
+# Dirt Dash keys:   5 coin (a game costs two), Z brake, X gas (throttle), C select (view change / confirm),
+#                   arrows/A D steer, Q / E shift down / up, M motion stop, P pause, Esc menu, F12 picture.
 set -e
 cd "$(dirname "$0")"
 
@@ -61,7 +65,28 @@ case "$game" in
         fi
         exec ./build/tw extracted "$@"
         ;;
+    dirt|dirtdash)
+        if [ ! -f dirtdash/build/CMakeCache.txt ]; then
+            echo "Dirt Dash is not built yet. Run:  dirtdash/build.sh /path/to/dirtdash.zip"; exit 1
+        fi
+        rebuild dirtdash dd
+        cd dirtdash
+        stage=""; rest=()
+        while [ $# -gt 0 ]; do
+            case "$1" in
+                --stage)   stage="${2:-}"; shift; [ $# -gt 0 ] && shift ;;
+                --stage=*) stage="${1#--stage=}"; shift ;;
+                city|jungle|hill|mountain|snow) stage="$1"; shift ;;
+                *) rest+=("$1"); shift ;;
+            esac
+        done
+        set -- ${rest[@]+"${rest[@]}"}
+        if [ $# -eq 0 ] || [[ "$1" =~ ^[0-9]+$ ]]; then
+            exec ./build/dd extracted --window ${1:+"$1"} ${stage:+--stage "$stage"}
+        fi
+        exec ./build/dd extracted "$@" ${stage:+--stage "$stage"}
+        ;;
     *)
-        sed -n '2,16p' "$0" | sed 's/^# \?//'
+        sed -n '2,20p' "$0" | sed 's/^# \?//'
         ;;
 esac

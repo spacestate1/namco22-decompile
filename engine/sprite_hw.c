@@ -49,6 +49,7 @@ static uint32_t *read_words(const char *path, int *nwords)
 
 uint8_t *g_sprite_tiles;
 size_t   g_sprite_tiles_size;
+int      g_sprite_vics_count_in_list;
 static uint32_t *live_spr, *live_vicsd;
 
 void sprite_free(sprite_state *st)
@@ -239,6 +240,9 @@ static void build_list_impl(const sprite_state *st)
         const int cregs[2] = {0x48, 0x68}, aregs[2] = {0x58, 0x78}, nregs[2] = {0x40, 0x60};
         for (int b = 0; b < 2 && v_on; b++) {
             int n2 = (int)((st->vicsc[nregs[b]/4] >> 4) & 0x1FF);   /* no +1 */
+            /* MAME: "where do the games store the number of sprites to be processed by vics???" -- Dirt Dash's list starts at xxx4 and its
+             * count minus one is the byte at xxx0 (the 0x4000 bit of the list base names the bank); set #2 is unused there. */
+            if (g_sprite_vics_count_in_list && b == 0) n2 = (int)(VD((st->vicsc[cregs[0]/4] & 0x4000) / 4) & 0xFF) + 1;
             if (n2 <= 0) continue;
             int sbase = (int)(st->vicsc[cregs[b]/4] & 0xFFFF) / 4;
             int abase = (int)(st->vicsc[aregs[b]/4] & 0xFFFF) / 4;
@@ -357,6 +361,8 @@ int sprite_collect(const sprite_state *st, const fog_state *fog,
         out[n].x0 = minx; out[n].y0 = miny;
         out[n].w = maxx - minx + 1; out[n].h = maxy - miny + 1;
         out[n].idx = i;
+        out[n].prioverchar = d.c.prioverchar;
+        out[n].tile = d.tile;
         n++;
     }
     qsort(out, n, sizeof out[0], item_cmp);

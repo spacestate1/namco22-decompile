@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""snd_translate.py [COVERAGE] [--game pc|tw] [--roms DIR] [--out FILE] -> gen/snd_driver.c
+"""snd_translate.py [COVERAGE] [--game pc|tw|dd] [--roms DIR] [--out FILE] -> gen/snd_driver.c
 
 Translate a Super System 22 game's sound program (Prop Cycle's pr1data.8k, Tokyo Wars' tw1data.8k --
 the same M37710 and S22-BIOS ver1.41, run by the board's one MCU) to C, AHEAD OF TIME. `--game tw` emits the
@@ -18,7 +18,7 @@ LOUDLY (the sound stops and says where) -- never silently skipped.
 import sys, os, collections, argparse
 _ap = argparse.ArgumentParser()
 _ap.add_argument('coverage', nargs='?', default='tools/gen/snd.cov')
-_ap.add_argument('--game', choices=['pc', 'tw'], default='pc')
+_ap.add_argument('--game', choices=['pc', 'tw', 'dd'], default='pc')
 _ap.add_argument('--roms')
 _ap.add_argument('--out', default='gen/snd_driver.c')
 _a = _ap.parse_args()

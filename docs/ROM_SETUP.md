@@ -84,3 +84,19 @@ this themselves the first time the game starts, from `tokyowar.zip` in the
 game's `roms` folder. The Japanese set inside the zip (`tokyowarj/`) is a
 different program and is not used.
 
+## Dirt Dash
+
+Dirt Dash needs one MAME set: `dirtdash.zip` (World, DT2 Ver.A). Give it
+to the build script:
+
+```bash
+dirtdash/build.sh /path/to/dirtdash.zip
+```
+
+It checks all 27 files by name and size and copies them into
+`dirtdash/extracted/`; the game's 68020 program is the pair of chips
+`dt2vera.1` / `dt2vera.2` inside the zip's `dirtdasha/` folder. The
+installed packages and the Windows version do this themselves the first time
+the game starts, from `dirtdash.zip` in the game's `roms` folder. The
+Japanese set inside the zip (`dirtdashj/`) is a different program and is not
+used.

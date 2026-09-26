@@ -99,6 +99,8 @@ Wars. Then double-click **PropCycle.exe**, **RaveRacer.exe** or
 | Left / Right | Steer |
 | `A` / `S` | Shift down / up |
 | `V` | Change the view |
+| `F2` | Test mode on / off (press again to leave it) |
+| `9` | Service |
 | `P` | Pause |
 | `Esc` | Menu |
 | `F12` | Take a picture |
@@ -113,14 +115,25 @@ Wars. Then double-click **PropCycle.exe**, **RaveRacer.exe** or
 | Up / Down (or `W` / `S`) | Forward / backward pedal |
 | `X` / `Z` | Right / left trigger |
 | `9` | Service |
+| `F2` | Test mode on / off |
 | `Esc` | Menu (screen, sound, keys) |
 | `P` | Pause |
 | `F11` | Full screen |
 | `F12` | Take a picture |
 
-A game controller works in all three games. In Rave Racer the keys can be
+A game controller works in all the games. In Rave Racer the keys can be
 changed in `raverace/rr_controls.cfg`; in Tokyo Wars, in the menu
 (**Controls**) or in `tokyowar/tw_controls.cfg`.
+
+**On a game pad or a Steam Deck** (no keyboard): the menu opens with **R3**
+(click the right stick) or by **holding Start for a second** (a quick tap is
+still the game's own Start). The cabinet's **Test mode** (the service switch,
+`F2` on a keyboard) and **Service** button are in the menu too -- the **File**
+page in Rave Racer and Prop Cycle, the **Controls** page in Tokyo Wars and
+Dirt Dash. Test mode is a switch: turn it on to enter the operator menu (its
+screen says which controls choose, enter and change a value), turn it off from
+the menu to leave. A hint on the screen says how to open the menu for the first
+few seconds after the game starts, when a pad is connected.
 
 ## Pictures
 

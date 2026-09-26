@@ -18,6 +18,7 @@ double g_perf_game, g_perf_render;
 #include "sprite_hw.h"
 #include "text_hw.h"
 #include "ui_menu.h"
+#include "eng_pad.h"
 #include "render_target.h"
 #include "rom_zip.h"
 #include <signal.h>
@@ -667,6 +668,7 @@ int main(int argc, char* argv[]) {
 
     /* Init subsystems */
     ui_init(window);   /* also in headless, so screenshots can show the menu */
+    if (!headless && eng_pad_present()) ui_set_hint(ENG_PAD_MENU_HINT, 60 * 8);   /* a pad has no Esc: say how to reach the menu */
     { extern int g_bbox_code; const char *e = getenv("PROPCYCL_BBOX");
       if (e) g_bbox_code = atoi(e); }
     { extern int g_zord_on; g_zord_on = getenv("PROPCYCL_ZORD") ? 1 : 0; }
@@ -1168,6 +1170,10 @@ int main(int argc, char* argv[]) {
             }
             ui_input_end();     /* commits the frame's input to Nuklear */
         }
+
+        /* THE STEAM DECK'S MENU BUTTON is Start, and the game needs Start itself (a tap; in gameplay it pauses): held for a second it opens
+         * the menu, like R3. */
+        if (!headless && !ui_is_open() && eng_pad_start_hold(60)) { ui_toggle(); fprintf(stderr, "[HOST] menu open (Start held)\n"); }
 
         /* Continuous key state. While the menu is up the keyboard belongs
          * to it, so nothing here runs. */

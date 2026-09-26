@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Dirt Dash
+Comment=Namco's 1995 arcade off-road racer (decompiled engine)
+Exec=dirtdash
+Icon=dirtdash
+Terminal=false
+Categories=Game;ArcadeGame;

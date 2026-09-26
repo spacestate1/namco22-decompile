@@ -25,6 +25,8 @@ int  text_load_frame_into(text_state *st, const char *dir, int frame,
 void text_free(text_state *st);
 /* Point a text_state at a board's RAM (engine/text_hw.c): CGRAM with the text RAM as its tail, planar palette, host-order
  * tilemap attribute words. */
+/* The spot RAM (2048 host-order words) and whether the game has enabled it: (enable & 1) && (chipselect & 0xC000). See text_hw.c. */
+void text_set_spot(const uint16_t *spotram, int enabled);
 int  text_load_regs(text_state *st, const uint8_t *cg, const uint8_t *pal, const uint16_t attr[8]);
 
 /* gate_mode = 1: fill the mixer background, apply the final gamma, and

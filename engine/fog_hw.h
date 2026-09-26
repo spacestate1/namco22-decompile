@@ -34,6 +34,7 @@ typedef struct {
     uint8_t  text_alpha_mask;    /* mixer 0x14, low nibble */
     uint8_t  text_alpha;         /* mixer 0x15 */
     uint8_t  text_palbase;       /* mixer 0x1b */
+    int      spot_factor;        /* mixer 0x0e:0x0d, 0 unless >= 0x100 (then the low byte): MAME's m_spot_factor */
     /* Final-stage gamma: 3 x 256-byte LUTs at mixer 0x100/0x200/0x300,
      * applied to the WHOLE frame (background included) after every other
      * stage. Omitting it left a systematic per-pixel colour error --

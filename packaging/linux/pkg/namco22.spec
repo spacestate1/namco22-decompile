@@ -3,7 +3,7 @@
 Name:           namco22
 Version:        %{_ver}
 Release:        1%{?dist}
-Summary:        Prop Cycle, Rave Racer and Tokyo Wars -- decompiled Namco System 22 engines
+Summary:        Prop Cycle, Rave Racer, Tokyo Wars and Dirt Dash -- decompiled Namco System 22 engines
 License:        LicenseRef-Not-Specified
 ExclusiveArch:  x86_64
 Recommends:     zenity
@@ -13,12 +13,13 @@ Recommends:     xdg-utils
 
 %description
 Native, decompiled engines for the Namco arcade games Prop Cycle (1996),
-Rave Racer (1995) and Tokyo Wars (1996), rendered with OpenGL.
+Rave Racer (1995), Tokyo Wars (1996) and Dirt Dash (1995), rendered with OpenGL.
 
 NO GAME DATA IS INCLUDED. After installing, put the MAME ROM sets in
 ~/.local/share/namco22/propcycle/roms/ (propcycl.zip) and
 ~/.local/share/namco22/raverace/roms/ (raverace.zip, namcoc74.zip) and
-~/.local/share/namco22/tokyowar/roms/ (tokyowar.zip).
+~/.local/share/namco22/tokyowar/roms/ (tokyowar.zip) and
+~/.local/share/namco22/dirtdash/roms/ (dirtdash.zip).
 See /usr/share/doc/namco22/README.txt.
 
 %install
@@ -32,12 +33,15 @@ exit 0
 /usr/bin/propcycle
 /usr/bin/raveracer
 /usr/bin/tokyowars
+/usr/bin/dirtdash
 /usr/lib/namco22
 /usr/share/applications/propcycle.desktop
 /usr/share/applications/raveracer.desktop
 /usr/share/applications/tokyowars.desktop
+/usr/share/applications/dirtdash.desktop
 /usr/share/icons/hicolor/256x256/apps/propcycle.png
 /usr/share/icons/hicolor/256x256/apps/raveracer.png
 /usr/share/icons/hicolor/256x256/apps/tokyowars.png
+/usr/share/icons/hicolor/256x256/apps/dirtdash.png
 %doc /usr/share/doc/namco22/README.txt
 %doc /usr/share/doc/namco22/rom-note.txt

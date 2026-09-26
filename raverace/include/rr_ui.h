@@ -31,6 +31,11 @@ void rr_host_set_scaling(int s);         /* 0 smooth, 1 sharp, 2 integer */
 void rr_host_set_volume(int percent);
 void rr_host_set_freeplay(bool on);
 void rr_host_toggle_record(void);
+void rr_ui_set_hint(const char *text, int frames);   /* a hint line at the bottom of the window while the menu is closed */
+bool rr_ui_hint_active(void);
+bool rr_host_test_on(void);                 /* the test (service) switch: a toggle, like MAME's */
+void rr_host_set_test(bool on);
+void rr_host_service_pulse(void);           /* the service button, pressed for a few frames */
 int  rr_host_res_count(void);
 void rr_host_res_get(int i, int *w, int *h);
 void rr_host_render_size(int *w, int *h);

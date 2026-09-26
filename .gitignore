@@ -31,5 +31,14 @@ __pycache__/
 /tokyowar/gen/tw_snd_driver.c
 /tokyowar/tw_controls.cfg
 /tokyowar/screenshots/
+/dirtdash/build/
+/dirtdash/extracted/
+/dirtdash/dirtdash_main.bin
+/dirtdash/gen/dd_c25.c
+/dirtdash/gen/dd_snd_driver.c
+/dirtdash/dd_controls.cfg
+/dirtdash/dd_eeprom.nv
+/dirtdash/dd_eeprom.nv.tmp
+/dirtdash/screenshots/
 *.log
 *.ppm

@@ -1,12 +1,13 @@
-PROP CYCLE, RAVE RACER and TOKYO WARS
-=====================================
+PROP CYCLE, RAVE RACER, TOKYO WARS and DIRT DASH
+================================================
 
 1. Put the MAME ROM sets into the "roms" folder (don't unzip them):
      Prop Cycle   propcycl.zip
      Rave Racer   raverace.zip  and  namcoc74.zip
      Tokyo Wars   tokyowar.zip
+     Dirt Dash    dirtdash.zip
 
-2. Double-click PropCycle.exe, RaveRacer.exe or TokyoWars.exe.
+2. Double-click PropCycle.exe, RaveRacer.exe, TokyoWars.exe or DirtDash.exe.
 
 That's it. The first start takes a few seconds while it unpacks the ROMs.
 Nothing needs installing. Keep the "mesa" folder beside PropCycle.exe: it is
@@ -39,7 +40,17 @@ KEYS -- TOKYO WARS
                 Audio (volume), Controls (rebind the keys)
   F11           fullscreen              F12        screenshot
 
-A game controller works in all three.
+KEYS -- DIRT DASH
+-----------------
+  5             insert a coin (a game costs two)     C          select (view change / confirm)
+  Left / Right  steer (or A / D)                     X          gas (throttle)
+  Z             brake                                Q / E      shift down / up
+  M             motion stop                          9          service
+  Esc           menu: Display (widescreen, window mode, resolution ...),
+                Audio (volume), Controls (rebind the keys)
+  F11           fullscreen                           F12        screenshot
+
+A game controller works in all four.
 
 
 PROBLEMS?
@@ -48,7 +59,8 @@ PROBLEMS?
                                 are the wrong game. You need the MAME sets
                                 "propcycl" (World, PR2 Ver.A), "raverace"
                                 (World, RV2 Ver.B) plus "namcoc74", and
-                                "tokyowar" (World, TW2 Ver.A).
+                                "tokyowar" (World, TW2 Ver.A) and
+                                "dirtdash" (World, DT2 Ver.A).
 
 "Windows protected your PC"     Click "More info", then "Run anyway".
                                 (The games are not signed.)
@@ -59,7 +71,7 @@ Black screen or won't start     Update your graphics driver. In a virtual
                                 PropCycle.exe.
 
 Something else                  Each game writes a log beside it, from its
-                                last start: propcycl.log / raveracer.log / tokyowar.log.
+                                last start: propcycl.log / raveracer.log / tokyowar.log / dirtdash.log.
                                 It says what went wrong.
 
 Keep the folder somewhere you can write to (Downloads, Desktop, Documents --

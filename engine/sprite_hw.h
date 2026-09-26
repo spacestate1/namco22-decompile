@@ -47,6 +47,8 @@ int  sprite_load_regs(sprite_state *st, const uint8_t *spriteram, size_t spriter
  * pr1scg0-1, Tokyo Wars 8 MB from tw1scg0-3). A tile code past the end draws nothing. */
 extern uint8_t *g_sprite_tiles;
 extern size_t   g_sprite_tiles_size;
+/* Dirt Dash: the VICS bank's sprite count is in its list (the byte at the list's page start, plus one), not in a control register */
+extern int      g_sprite_vics_count_in_list;
 
 /* Render the sprite layer into a 640x480 RGBA buffer (alpha 0 = untouched)
  * and a matching priority buffer. */
@@ -78,6 +80,8 @@ typedef struct {
     uint32_t z;              /* zcoord, same space as polygon zsort */
     int      x0, y0, w, h;   /* screen bbox, clipped */
     int      idx;            /* index into the frame's sprite list */
+    int      prioverchar;    /* drawn over the text layer (the text shows nothing where this sprite has a pixel) */
+    int      tile;           /* the sprite's first tile number (which art it is: a game can tell a HUD's parts by it) */
 } sprite_item;
 
 int  sprite_collect(const sprite_state *st, const fog_state *fog,

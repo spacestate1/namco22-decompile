@@ -77,10 +77,9 @@ else()
   set(TW_GL_SRC "")
 endif()
 
-set(TW_CORE_SRC src/tw_main.c src/tw_mem.c src/tw_hw.c src/tw_env.c src/tw_dsp.c src/tw_snd.c src/tw_rd_stub.c
-    src/tw_video.c src/tw_input.c src/tw_host.c src/tw_rom.c
+set(TW_CORE_SRC src/tw_game.c
     ${NAMCO22_ENGINE_LIFT_SRC} ${NAMCO22_ENGINE_C25_SRC} ${NAMCO22_ENGINE_SND_SRC}
-    ${NAMCO22_ENGINE_GL_SRC} ${NAMCO22_ENGINE_SS22_SRC} ${NAMCO22_ENGINE_UI_SRC} ${NAMCO22_ENGINE_ROMZIP_SRC} ${TW_GL_SRC}
+    ${NAMCO22_ENGINE_GL_SRC} ${NAMCO22_ENGINE_SS22_SRC} ${NAMCO22_ENGINE_SS22_HOST_SRC} ${NAMCO22_ENGINE_UI_SRC} ${NAMCO22_ENGINE_ROMZIP_SRC} ${TW_GL_SRC}
     gen/tw_c25.c gen/tw_lifted.c)
 set(TW_CPU_SRC ${TW_CORE_SRC} gen/tw_snd_driver.c)
 
@@ -106,6 +105,6 @@ target_link_libraries(tw_trace ${SDL2_LIBRARIES} OpenGL::GL ZLIB::ZLIB m)
 add_executable(tw_oracle ${TW_CORE_SRC} ${NAMCO22_C25_ORACLE_SRC}
     ${NAMCO22_TOOLS_DIR}/sndoracle/m37710.c ${NAMCO22_TOOLS_DIR}/sndoracle/sound_oracle.c)
 target_compile_options(tw_oracle PRIVATE -Wall)
-target_compile_definitions(tw_oracle PRIVATE TW_ORACLE)
+target_compile_definitions(tw_oracle PRIVATE TW_ORACLE SS22_ORACLE)
 target_link_libraries(tw_oracle ${SDL2_LIBRARIES} OpenGL::GL ZLIB::ZLIB m)
 endif()

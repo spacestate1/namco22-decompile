@@ -12,6 +12,7 @@ set(NAMCO22_ENGINE_GL_SRC
     ${NAMCO22_ENGINE_DIR}/tex_bake.c
     ${NAMCO22_ENGINE_DIR}/render_target.c
     ${NAMCO22_ENGINE_DIR}/quad_gl.c
+    ${NAMCO22_ENGINE_DIR}/hud_edges.c
     ${NAMCO22_ENGINE_DIR}/post_gl.c
 )
 # the Super 22 layers every Super 22 game shares: depth fog + mixer state, the C374 sprites, the text tilemap. Each
@@ -22,6 +23,19 @@ set(NAMCO22_ENGINE_SS22_SRC
     ${NAMCO22_ENGINE_DIR}/text_hw.c
     ${NAMCO22_ENGINE_DIR}/ss22_gl.c
     ${NAMCO22_ENGINE_DIR}/frame_rule.c
+)
+# THE HOST of the Super 22 games whose 68K is a lifted program (Tokyo Wars, Dirt Dash): the window, the controls, the board (memory map
+# and devices), the master DSP and sound-MCU hosts, the video RAM -> engine, the trace environment and the scheduler/command line
+# (ss22_run.c). A game is one table (src/<game>_game.c, engine/ss22_game.h). Needs the menu group below
+set(NAMCO22_ENGINE_SS22_HOST_SRC
+    ${NAMCO22_ENGINE_DIR}/ss22_host.c
+    ${NAMCO22_ENGINE_DIR}/ss22_input.c
+    ${NAMCO22_ENGINE_DIR}/ss22_board.c
+    ${NAMCO22_ENGINE_DIR}/ss22_dsp.c
+    ${NAMCO22_ENGINE_DIR}/ss22_snd.c
+    ${NAMCO22_ENGINE_DIR}/ss22_video.c
+    ${NAMCO22_ENGINE_DIR}/ss22_env.c
+    ${NAMCO22_ENGINE_DIR}/ss22_run.c
 )
 # THE MENU AND THE DISPLAY CHOICES (Nuklear): a settings file, the display modes (widescreen, window mode/size, resolution,
 # aspect, scaling) and the menu bar every game's Escape menu is. Its own list because eng_ui.c defines Nuklear's
@@ -56,5 +70,5 @@ set(NAMCO22_ENGINE_SND_SRC
     ${NAMCO22_ENGINE_DIR}/snd/m377_periph.c
 )
 include_directories(${NAMCO22_ENGINE_DIR} ${NAMCO22_ENGINE_DIR}/snd ${NAMCO22_ENGINE_DIR}/c25 ${NAMCO22_TOOLS_DIR}/c25oracle)
-set_source_files_properties(${NAMCO22_ENGINE_GL_SRC} ${NAMCO22_ENGINE_SS22_SRC} ${NAMCO22_ENGINE_UI_SRC} ${NAMCO22_ENGINE_ROMZIP_SRC} ${NAMCO22_ENGINE_SND_SRC} ${NAMCO22_ENGINE_C25_SRC} ${NAMCO22_ENGINE_LIFT_SRC}
+set_source_files_properties(${NAMCO22_ENGINE_GL_SRC} ${NAMCO22_ENGINE_SS22_SRC} ${NAMCO22_ENGINE_SS22_HOST_SRC} ${NAMCO22_ENGINE_UI_SRC} ${NAMCO22_ENGINE_ROMZIP_SRC} ${NAMCO22_ENGINE_SND_SRC} ${NAMCO22_ENGINE_C25_SRC} ${NAMCO22_ENGINE_LIFT_SRC}
     PROPERTIES COMPILE_FLAGS "-Wall -Wno-unused-variable -Wno-unused-function -Wno-misleading-indentation")

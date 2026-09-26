@@ -15,9 +15,10 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
+#include "hud_edges.h"
 
 typedef struct {
-    bool            walk;                    /* this update keeps the master's list (frame_rule.h); false = no 3D, sprites and text only */
+    bool            walk;                   /* this update keeps the master's list (frame_rule.h); false = no 3D, sprites and text only */
     uint32_t (*poly_word)(int index);        /* polygon RAM word (MAME's stored value, signed 24), index & 0x7FFF */
     const uint8_t  *pal;                     /* palette RAM as planar R, G, B planes of 0x8000 bytes */
     const uint8_t  *mixer;                   /* the video mixer, 0x400 bytes (0x824000) */
@@ -28,7 +29,13 @@ typedef struct {
     const uint8_t  *spriteram;  size_t spriteram_size;   /* C374, big-endian bytes */
     const uint8_t  *vics;       size_t vics_size;        /* VICS data, big-endian bytes */
     uint32_t        vics_ctl[0x20];          /* VICS control, host-order words */
+    const uint16_t *spotram;                 /* the spot RAM: 0x800 host-order words (text_hw.c) */
+    bool            spot_enabled;            /* (spot enable & 1) && (chipselect & 0xC000) */
 } ss22_regs;
+
+/* WIDESCREEN: the game's HUD description (engine/hud_edges.h); NULL or no marks = the HUD stays where the game put it. The pointer must
+ * outlive the frames drawn. A board host calls it once; a caller that never does (Prop Cycle links this file) gets no HUD move. */
+void ss22_gl_set_hud(const eng_hud_cfg *h);
 
 /* Once per screen update: latch the state, walk the display list, sort, collect the sprites. The walk decides what the
  * update keeps, so it must happen exactly once per update. */

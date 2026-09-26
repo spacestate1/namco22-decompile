@@ -9,6 +9,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
+#include <stdbool.h>
 #include <time.h>
 #include "eng_gl.h"
 #include "eng.h"
@@ -17,6 +19,7 @@
 #include "quad_gl.h"
 
 float  g_scene_x0 = 0.0f, g_scene_x1 = (float)ENG_SCREEN_W;
+int  (*g_eng_quad_dx)(const geo_quad *q);
 double g_perf_bake, g_perf_gl, g_perf_clip;
 int    g_bri_min = 9999, g_bri_max = -9999;
 int    g_fogged_quads, g_fogA_min = 999, g_fogA_max = -999;
@@ -154,7 +157,7 @@ void eng_draw_end(void)
     glDisableClientState(GL_TEXTURE_COORD_ARRAY);
 }
 
-void eng_draw_quad(const geo_quad *q, const eng_draw_cfg *cfg)
+static void draw_quad_one(const geo_quad *q, const eng_draw_cfg *cfg)
 {
     if (cfg->flat_white) {                 /* coverage probe: flat white, no texture */
         if (q->nrv < 3) return;
@@ -220,8 +223,9 @@ void eng_draw_quad(const geo_quad *q, const eng_draw_cfg *cfg)
      * results map, the name-entry lens, the credits window) keeps its own. */
     const int sx0 = (int)g_scene_x0, sx1 = (int)g_scene_x1 - 1;
     const int fullw = q->clip[0] <= 0 && q->clip[1] >= ENG_SCREEN_W - 1;
-    int cminx = fullw ? sx0 : (q->clip[0] < 0 ? 0 : q->clip[0]);
-    int cmaxx = fullw ? sx1 : (q->clip[1] > ENG_SCREEN_W - 1 ? ENG_SCREEN_W - 1 : q->clip[1]);
+    const int hdx = g_eng_quad_dx ? g_eng_quad_dx(q) : 0;      /* widescreen HUD: this quad's move outward (0 = stays) */
+    int cminx = fullw ? sx0 : (q->clip[0] < 0 ? 0 : q->clip[0]) + hdx;
+    int cmaxx = fullw ? sx1 : (q->clip[1] > ENG_SCREEN_W - 1 ? ENG_SCREEN_W - 1 : q->clip[1]) + hdx;
     int cminy = q->clip[2] < 0 ? 0 : q->clip[2];
     int cmaxy = q->clip[3] > ENG_SCREEN_H - 1 ? ENG_SCREEN_H - 1 : q->clip[3];
     if (cminx > cmaxx || cminy > cmaxy) return;      /* fully clipped away */
@@ -326,7 +330,7 @@ void eng_draw_quad(const geo_quad *q, const eng_draw_cfg *cfg)
             if (q->rv[i].bri < g_bri_min) g_bri_min = q->rv[i].bri;
             if (q->rv[i].bri > g_bri_max) g_bri_max = q->rv[i].bri;
         }
-        sv[nsv].x = q->rv[i].sx16 / 16.0f;
+        sv[nsv].x = q->rv[i].sx16 / 16.0f + (float)hdx;
         sv[nsv].y = q->rv[i].sy16 / 16.0f;
         sv[nsv].s = tu * iw;
         sv[nsv].t = tv * iw;
@@ -473,3 +477,58 @@ void eng_draw_quad(const geo_quad *q, const eng_draw_cfg *cfg)
     if (scissored) glDisable(GL_SCISSOR_TEST);
 }
 
+
+/* ---------------------------------------------------------------- widescreen: the game's own backdrop reaches the picture's edges
+ * A quad that IS the game's 640-wide picture -- a full-frame viewport, the four corners at ONE depth (screen space, not a piece of the
+ * world), an axis-aligned rectangle from the left edge to the right edge of the 640 frame (a menu's map with its shade, a screen-sized
+ * gradient) -- shows in a wider picture only its own 640 and leaves the sides bare. Its outermost texel columns are what the game shows
+ * to the edge of ITS screen, so they are repeated outward: a shade or gradient (which runs along y) reaches the picture's edges, and the
+ * artwork in the middle is never stretched. Off unless the game asks (eng_draw_cfg.wide_backdrop); ENG_WIDE_BACKDROP=0 turns it off. */
+static bool backdrop_rect(const geo_quad *q, int L[2], int R[2])
+{
+    if (q->nrv != 4 || !(q->clip[0] <= 0 && q->clip[1] >= ENG_SCREEN_W - 1)) return false;
+    int xmin = 1 << 30, xmax = -(1 << 30), ymin = 1 << 30, ymax = -(1 << 30);
+    for (int i = 0; i < 4; i++) {
+        if (q->rv[i].z <= 0 || q->rv[i].z != q->rv[0].z) return false;               /* not one depth: a piece of the world */
+        if (q->rv[i].sx16 < xmin) xmin = q->rv[i].sx16;
+        if (q->rv[i].sx16 > xmax) xmax = q->rv[i].sx16;
+        if (q->rv[i].sy16 < ymin) ymin = q->rv[i].sy16;
+        if (q->rv[i].sy16 > ymax) ymax = q->rv[i].sy16;
+    }
+    if (xmin > 4 * 16 || xmin < -8 * 16 || xmax < (ENG_SCREEN_W - 1 - 4) * 16 || xmax > (ENG_SCREEN_W + 8) * 16) return false;   /* not edge to edge */
+    /* The WHOLE picture, top to bottom too: a full-width strip (a title panel, a bar) has a border of its own on its side columns, and
+     * repeating a border sideways is wrong; the screen-sized backdrop's edge columns are the gradient the game runs off the screen. */
+    if (ymin > 4 * 16 || ymax < (ENG_SCREEN_H - 4) * 16) return false;
+    int nl = 0, nr = 0;
+    for (int i = 0; i < 4; i++) {
+        const int x = q->rv[i].sx16;
+        if (x - xmin <= 16)      { if (nl < 2) L[nl] = i; nl++; }
+        else if (xmax - x <= 16) { if (nr < 2) R[nr] = i; nr++; }
+        else return false;                                                            /* not an upright rectangle */
+    }
+    if (nl != 2 || nr != 2) return false;
+    if (q->rv[L[0]].sy16 > q->rv[L[1]].sy16) { const int t = L[0]; L[0] = L[1]; L[1] = t; }
+    if (q->rv[R[0]].sy16 > q->rv[R[1]].sy16) { const int t = R[0]; R[0] = R[1]; R[1] = t; }
+    for (int k = 0; k < 2; k++) {
+        const int dy = q->rv[L[k]].sy16 - q->rv[R[k]].sy16;
+        if (dy > 16 || dy < -16) return false;
+    }
+    return true;
+}
+
+void eng_draw_quad(const geo_quad *q, const eng_draw_cfg *cfg)
+{
+    draw_quad_one(q, cfg);
+    if (!cfg->wide_backdrop || g_scene_x0 > -0.5f) return;
+    static int on = -1;
+    if (on < 0) { const char *e = getenv("ENG_WIDE_BACKDROP"); on = !(e && *e == '0'); }
+    int L[2], R[2];
+    if (!on || !backdrop_rect(q, L, R)) return;
+    const int out0 = (int)floorf(g_scene_x0) * 16, out1 = (int)ceilf(g_scene_x1) * 16;
+    geo_quad e = *q;                                 /* left: its left edge goes out to the picture's edge, its right edge comes in to the left edge and takes its texels */
+    for (int k = 0; k < 2; k++) { e.rv[R[k]] = q->rv[L[k]]; e.rv[L[k]] = q->rv[L[k]]; e.rv[L[k]].sx16 = out0; }
+    draw_quad_one(&e, cfg);
+    e = *q;                                          /* right: the mirror image */
+    for (int k = 0; k < 2; k++) { e.rv[L[k]] = q->rv[R[k]]; e.rv[R[k]] = q->rv[R[k]]; e.rv[R[k]].sx16 = out1; }
+    draw_quad_one(&e, cfg);
+}
