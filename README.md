@@ -124,19 +124,19 @@ changed in `raverace/rr_controls.cfg`; in Tokyo Wars, in the menu
 
 ## Pictures
 
+Tokyo Wars:
+
+![Tokyo Wars: widescreen, with the menu open](docs/images/tokyowar-widescreen.png)
+![Tokyo Wars: the title screen](docs/images/tokyowar-title.png)
+
 Prop Cycle:
 
-![The rider flies past the namco logo](docs/images/attract-namco.png)
 ![The title screen](docs/images/attract-title.png)
 ![The demo, popping balloons](docs/images/attract-demo.png)
 
 Rave Racer:
 
 ![Rave Racer: the START of a race](docs/images/raverace-race.png)
-
-Tokyo Wars:
-
-![Tokyo Wars: the title screen](docs/images/tokyowar-title.png)
 
 ## Screen settings (Prop Cycle and Tokyo Wars)
 
