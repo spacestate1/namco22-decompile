@@ -135,7 +135,7 @@ Rave Racer:
 Prop Cycle:
 
 ![The title screen](docs/images/attract-title.png)
-![The demo, popping balloons](docs/images/attract-demo.png)
+![Prop Cycle: gameplay, over the river](docs/images/propcycle-gameplay.png)
 
 Tokyo Wars, the title screen:
 
