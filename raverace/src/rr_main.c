@@ -50,6 +50,9 @@ static bool gl_ok;                             /* a GL context and the video ROM
 /* --perf: per-frame emulation time (68K + DSP + render, host sleep excluded) and
  * render time, reported as percentiles at exit. Quote these, never one run's fps. */
 #include <time.h>
+#include "tex_bake.h"
+static FILE *perflog;                         /* RR_PERFLOG=<file>: one line per frame -- see the perf block */
+static double perflog_texels;
 static int perf_on;
 static double *perf_frame, *perf_video;
 static uint32_t perf_n, perf_cap;
@@ -74,6 +77,7 @@ static void perf_report(void)
 static const char *rec_path, *rep_path;
 static int freeplay = -1;
 static int32_t test_coin = -1, test_gas = -1;   /* --coin F: pulse coin 1 at frame F; --gas F: hold gas from F */
+static struct { int32_t at; int32_t value; } test_steer[8]; static int n_steer;   /* --steer F:V (repeatable): the wheel at V (0..0xFFF, centre 0x800) from frame F */
 
 #define REG_SP   RR_REG_SP
 #define REG_SR   RR_REG_SR
@@ -170,12 +174,18 @@ void rr_tick(void)
         if (perf_n == perf_cap) { perf_cap = perf_cap ? perf_cap * 2 : 4096;
             perf_frame = realloc(perf_frame, perf_cap * sizeof *perf_frame); perf_video = realloc(perf_video, perf_cap * sizeof *perf_video); }
         if (t_frame_start > 0 && frame > 60) { perf_frame[perf_n] = t1 - t_frame_start; perf_video[perf_n] = t1 - tv0; perf_n++; }
+        if (perflog && t_frame_start > 0) {         /* frame total_ms video_ms quads hits misses reallocs texels-this-frame placeholders refined (the last two cumulative) */
+            fprintf(perflog, "%u %.3f %.3f %d %d %d %d %.0f %d %d\n", frame, t1 - t_frame_start, t1 - tv0, rr_gl_quads(), tex_frame_hits, tex_frame_misses,
+                    tex_reallocs, g_bake_texels - perflog_texels, tex_placeholders, tex_refined);
+            perflog_texels = g_bake_texels;
+        }
     }
     if (test_coin >= 0) {                          /* scripted inputs for headless captures */
         if (frame == (uint32_t)test_coin) g_hw.inputs &= (uint16_t)~0x1000;
         if (frame == (uint32_t)test_coin + 6) g_hw.inputs |= 0x1000;
     }
     if (test_gas >= 0 && frame >= (uint32_t)test_gas) g_hw.gas = 0x610;
+    for (int i = 0; i < n_steer; i++) if (frame >= (uint32_t)test_steer[i].at) g_hw.steer = (uint16_t)test_steer[i].value;
     if (windowed) {
         do {
             if (!rr_host_frame()) { perf_report(); rr_audio_close(); rr_host_close(); fprintf(stderr, "[RR] window closed at frame %u\n", frame); exit(0); }
@@ -242,6 +252,7 @@ int main(int argc, char **argv)
             if (i + 1 < argc && argv[i + 1][0] >= '1' && argv[i + 1][0] <= '9' && !argv[i + 1][1]) windowed = atoi(argv[++i]);
         }
         else if (!strcmp(argv[i], "--perf")) perf_on = 1;
+        else if (!strcmp(argv[i], "--perflog") && i + 1 < argc) { perflog = fopen(argv[++i], "w"); perf_on = perflog != NULL; }
         else if (!strcmp(argv[i], "--gl")) use_gl = 1;
 #ifdef RR_ORACLE
         else if (!strcmp(argv[i], "--sw")) use_gl = 0;
@@ -254,6 +265,9 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--write-controls")) return rr_input_write("rr_controls.cfg") ? 0 : 1;
         else if (!strcmp(argv[i], "--coin") && i + 1 < argc) test_coin = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--gas") && i + 1 < argc) test_gas = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--steer") && i + 1 < argc && n_steer < 8) {
+            int f, v; if (sscanf(argv[++i], "%d:%i", &f, &v) == 2) { test_steer[n_steer].at = f; test_steer[n_steer].value = v; n_steer++; }
+        }
         else rom_dir = argv[i];
     }
 #ifdef RR_ORACLE

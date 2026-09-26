@@ -24,6 +24,7 @@
 #include "eng_gl.h"
 #include "eng.h"
 #include "tex_bake.h"
+#include "geo_hw.h"                       /* g_eng_frame: the per-frame bake budget below is keyed on it */
 #include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
@@ -386,9 +387,11 @@ static uint32_t tex_cache_hash(int min_u, int min_v, int range_u, int range_v,
  * visible. Degenerate ranges < 16 are expanded to 16 (matches Python exporter).
  * pen=0 pixels are transparent (alpha=0).
  */
-GLuint bake_quad_texture(int min_u, int min_v, int range_u, int range_v,
-                         int texbank, int pal_group, int cmode,
-                         float *out_su, float *out_sv) {
+static GLuint bake_impl(int min_u, int min_v, int range_u, int range_v,
+                        int texbank, int pal_group, int cmode,
+                        float *out_su, float *out_sv,
+                        int force_cap,      /* > 0: at most this cap (a coarse placeholder) */
+                        int peek)           /* 1: only look in the cache -- 0 on a miss, nothing baked, no miss counted */ {
     /* Expand degenerate UV ranges to minimum 16 texels */
     if (range_u < 16) { min_u = (min_u * 2 + range_u) / 2 - 8; range_u = 16; }
     if (range_v < 16) { min_v = (min_v * 2 + range_v) / 2 - 8; range_v = 16; }
@@ -404,6 +407,7 @@ GLuint bake_quad_texture(int min_u, int min_v, int range_u, int range_v,
         int want = g_tex_bake_cap_req;
         cap = want > 512 ? 1024 : want > 256 ? 512 : 256;
     }
+    if (force_cap > 0 && force_cap < cap) cap = force_cap;
     uint32_t h = tex_cache_hash(min_u, min_v, range_u, range_v, texbank, pal_group, cmode);
     h ^= (uint32_t)cap; h *= 16777619u;
     for (int probe = 0; probe < TEX_CACHE_PROBES; probe++) {
@@ -422,6 +426,7 @@ GLuint bake_quad_texture(int min_u, int min_v, int range_u, int range_v,
             return e->gl_texture;
         }
     }
+    if (peek) return 0;
     tex_frame_misses++;
 
     /* Reuse an evicted slot's texture OBJECT rather than deleting and
@@ -781,4 +786,105 @@ GLuint bake_quad_texture(int min_u, int min_v, int range_u, int range_v,
     slotp->occupied = 1;
     slotp->ref = 1;
     return tex;
+}
+
+/* ---------------------------------------------------------------- a per-frame budget for COLD bakes (interactive hosts)
+ *
+ * Almost every frame of a race bakes nothing (median 0 texels; p99 300k) -- and then the first frame of a new scene needs every texture in
+ * view at once: Rave Racer's mountain start bakes ~10 MILLION texels in one frame (50 ms here, 125 ms on a 1440p GTX 1660 -- the stutter
+ * "slightly after the start"), and the frame after it another 1.2M. At ~5-12 ns a texel that is many missed vsyncs.
+ *
+ * With a budget, a frame that has already baked `draw` texels serves further cold quads a COARSE PLACEHOLDER -- the same texture sampled
+ * every 4th-8th texel (cap 32: 16-64x cheaper, cached under its own key) -- and remembers them; the next frames re-bake the most recently
+ * requested (= nearest, the draw order is far to near) at full quality, `pump` texels a frame, and any quad drawn again in a frame with
+ * budget to spare takes its full bake on the spot, so nothing stays coarse. A scene change sharpens over a few tenths of a second instead
+ * of freezing. Small quads (<= 32 texels a side) are always baked in full: they cost nothing.
+ *
+ * OFF unless a host asks (tex_bake_window_defaults) or ENG_TEX_BUDGET=<draw>:<pump> (texels; "0" = off), so headless runs and every gate
+ * bake exactly as before. Needs g_eng_frame to advance once per shown frame (Rave Racer's and the Super 22 compositors do; Prop Cycle's
+ * does not, so it must not enable this). */
+#include <time.h>
+#define COARSE_CAP 32
+#define PEND_MAX 8192
+#define REF_NS_PER_TEXEL 6.0                    /* what the budgets are sized for: a bake+upload at this speed (measured here 5-7 ns a texel) */
+static double   ns_per_texel = REF_NS_PER_TEXEL;/* this machine's, smoothed from the bakes it has done */
+static double   now_ns(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec * 1e9 + t.tv_nsec; }
+/* The budgets are in texels sized for the reference speed; a slower machine (a 1440p GTX 1660 measured 12 ns) gets proportionally less per frame,
+ * a faster one is never given more than configured. */
+static double budget_scale(void) { double k = REF_NS_PER_TEXEL / ns_per_texel; return k < 0.25 ? 0.25 : k > 1.0 ? 1.0 : k; }
+static long     g_budget_draw, g_budget_pump;
+static int      budget_env_done;
+static double   frame_spent;
+static unsigned budget_frame = ~0u;
+static int      in_pump;
+int tex_placeholders, tex_refined;              /* placeholders served / refined to full quality (cumulative, for the perf logs) */
+typedef struct { uint16_t min_u, min_v, range_u, range_v; uint8_t texbank, pal_group, cmode; int cap_req, opaque; } PendingBake;
+static PendingBake pend[PEND_MAX];
+static int         pend_n;
+
+void tex_bake_set_budget(long draw_texels, long pump_texels) { g_budget_draw = draw_texels; g_budget_pump = pump_texels; pend_n = 0; }
+void tex_bake_window_defaults(void)                          /* an interactive host: on (250k + 350k texels a frame) unless ENG_TEX_BUDGET says otherwise */
+{
+    if (!getenv("ENG_TEX_BUDGET")) tex_bake_set_budget(250000, 350000);
+}
+static void budget_env(void)
+{
+    budget_env_done = 1;
+    const char *e = getenv("ENG_TEX_BUDGET");
+    if (!e) return;
+    long d = 0, pu = 0;
+    const int n = sscanf(e, "%ld:%ld", &d, &pu);
+    if (n >= 1) tex_bake_set_budget(d, n == 2 ? pu : d);
+}
+static void budget_pump(void)                               /* the previous frames' placeholders, nearest first, within the pump budget */
+{
+    double spent = 0;
+    in_pump = 1;
+    const int req = g_tex_bake_cap_req, op = g_tex_opaque;
+    const double limit = (double)g_budget_pump * budget_scale();
+    while (pend_n > 0 && spent < limit) {
+        const PendingBake pb = pend[--pend_n];
+        g_tex_bake_cap_req = pb.cap_req; g_tex_opaque = pb.opaque;
+        float su, sv; const double t0 = g_bake_texels, c0 = now_ns();
+        bake_impl(pb.min_u, pb.min_v, pb.range_u, pb.range_v, pb.texbank, pb.pal_group, pb.cmode, &su, &sv, 0, 0);
+        const double tx = g_bake_texels - t0;
+        spent += tx;
+        if (tx >= 20000) ns_per_texel += 0.1 * ((now_ns() - c0) / tx - ns_per_texel);
+        tex_refined++;
+    }
+    g_tex_bake_cap_req = req; g_tex_opaque = op;
+    in_pump = 0;
+}
+
+GLuint bake_quad_texture(int min_u, int min_v, int range_u, int range_v,
+                         int texbank, int pal_group, int cmode,
+                         float *out_su, float *out_sv) {
+    if (!budget_env_done) budget_env();
+    if (g_budget_draw <= 0 || in_pump) return bake_impl(min_u, min_v, range_u, range_v, texbank, pal_group, cmode, out_su, out_sv, 0, 0);
+    if (budget_frame != g_eng_frame) {                      /* a new shown frame: a fresh budget, and the refinement of what earlier frames coarsened */
+        budget_frame = g_eng_frame; frame_spent = 0;
+        if (g_budget_pump > 0) budget_pump(); else pend_n = 0;
+    }
+    GLuint t = bake_impl(min_u, min_v, range_u, range_v, texbank, pal_group, cmode, out_su, out_sv, 0, 1);       /* cached at full quality? */
+    if (t) return t;
+    if (frame_spent < (double)g_budget_draw * budget_scale() || (range_u <= COARSE_CAP && range_v <= COARSE_CAP)) {
+        const double t0 = g_bake_texels, c0 = now_ns();
+        t = bake_impl(min_u, min_v, range_u, range_v, texbank, pal_group, cmode, out_su, out_sv, 0, 0);
+        const double tx = g_bake_texels - t0;
+        frame_spent += tx;
+        if (tx >= 20000) ns_per_texel += 0.1 * ((now_ns() - c0) / tx - ns_per_texel);      /* only bakes big enough to time */
+        return t;
+    }
+    t = bake_impl(min_u, min_v, range_u, range_v, texbank, pal_group, cmode, out_su, out_sv, COARSE_CAP, 1);       /* a placeholder already there? */
+    if (t) return t;
+    { const double t0 = g_bake_texels;
+      t = bake_impl(min_u, min_v, range_u, range_v, texbank, pal_group, cmode, out_su, out_sv, COARSE_CAP, 0);
+      frame_spent += g_bake_texels - t0; }
+    tex_placeholders++;
+    if (pend_n < PEND_MAX) {                               /* (a full queue is fine: a quad drawn again with budget to spare bakes itself) */
+        const PendingBake pb = { (uint16_t)min_u, (uint16_t)min_v, (uint16_t)range_u, (uint16_t)range_v, (uint8_t)texbank, (uint8_t)pal_group,
+                                 (uint8_t)cmode, g_tex_bake_cap_req, g_tex_opaque };
+        pend[pend_n++] = pb;
+    }
+    return t;
 }

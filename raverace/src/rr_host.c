@@ -31,6 +31,7 @@
 #include "rr_ui.h"
 #include "eng_pad.h"
 #include "eng_pace.h"
+#include "tex_bake.h"
 #include "rr_gl.h"
 #include "render_target.h"
 #include "eng_gl.h"
@@ -341,6 +342,7 @@ bool rr_host_open(int scale)
     fprintf(stderr, "[HOST] OpenGL: %s (%s renderer)\n", (const char *)glGetString(GL_RENDERER),
             g_rr_gl ? "engine" : "software oracle");
     fprintf(stderr, "[HOST] display %d Hz, %s\n", hz, vsync ? "vsync" : "timer-paced at 59.906 Hz");
+    tex_bake_window_defaults();      /* a per-frame budget for cold texture bakes: a new scene sharpens over a few frames instead of one long one (ENG_TEX_BUDGET) */
 
     tex_w = 640; tex_h = 480;
     { extern int g_rr_draw_extra; g_rr_draw_extra = draw_extra[g_cfg_draw < 0 ? 0 : g_cfg_draw > 3 ? 3 : g_cfg_draw]; }

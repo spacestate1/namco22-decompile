@@ -25,4 +25,10 @@ extern size_t tex_cache_budget;
 extern int    tex_frame_hits, tex_frame_misses, tex_cache_evictions;
 extern int    tex_reallocs, tex_subimages;
 extern double g_bake_texels;
+
+/* A per-frame budget for cold bakes (engine/tex_bake.c): OFF by default. An interactive host calls tex_bake_window_defaults() once; ENG_TEX_BUDGET=<draw>:<pump>
+ * (texels, "0" = off) overrides. Needs g_eng_frame to advance once per shown frame. */
+void tex_bake_set_budget(long draw_texels, long pump_texels);
+void tex_bake_window_defaults(void);
+extern int tex_placeholders, tex_refined;
 #endif
