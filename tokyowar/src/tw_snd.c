@@ -256,6 +256,7 @@ void tw_snd_slice(void)
             raise_due_pins();
             uint64_t stop = end, np = next_pin_time();
             if (np < stop) stop = np;
+            { extern uint64_t snd_spin_fast(m37710_t *, uint64_t); snd_spin_fast(&cpu, stop - base); }   /* a wait loop, jumped exactly */
             uint64_t n = stop - (base + cpu.cycles);
             if (n < 1) n = 1;
             snd_run(&cpu, n < 64 ? (int)n : 64);

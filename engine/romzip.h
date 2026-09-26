@@ -3,8 +3,8 @@
  *
  * So a game can be set up by dropping its zip(s) beside it: on Windows there is no Python for tools/setup_roms.py. At startup,
  * if the ROM folder is incomplete, the game calls eng_romzip_autosetup() with ITS chip list (name and size): every chip is taken
- * by name and size, checked against the zip's own CRC, and written into the ROM folder. Only top-level zip entries are taken (a
- * MAME set also carries its Japanese program sets under sub-folders). The same code as Rave Racer's src/rr_romzip.c, with the
+ * by name and size, checked against the zip's own CRC, and written into the ROM folder. Only top-level zip entries are taken, unless a chip names its
+ * zip path (`zname`): a MAME set also carries its other program sets under sub-folders. The same code as Rave Racer's src/rr_romzip.c, with the
  * chip list and the zip names supplied by the game; Rave Racer keeps its own copy for now.
  */
 #ifndef ENG_ROMZIP_H
@@ -13,7 +13,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-typedef struct { const char *name; uint32_t size; } eng_rom_t;
+typedef struct { const char *name; uint32_t size; const char *zname; } eng_rom_t;   /* zname: the entry's PATH in the zip when it is not top-level ("dirtdasha/dt2vera.1"); NULL = top-level `name` */
 
 /* the first chip missing from dir (or of the wrong size), NULL when complete */
 const char *eng_romzip_missing(const char *dir, const eng_rom_t *roms, int n);

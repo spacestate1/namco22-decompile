@@ -31,7 +31,7 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/../engine/engine.cmake)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 add_custom_command(OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/gen/snd_driver.c
   COMMAND ${Python3_EXECUTABLE} tools/gen/snd_translate.py tools/gen/snd.cov
-  DEPENDS tools/gen/snd_translate.py tools/gen/m7700_decode.py tools/gen/snd_rom.py tools/gen/snd.cov
+  DEPENDS tools/gen/snd_translate.py tools/gen/m7700_decode.py tools/gen/snd_rom.py ../tools/gen/snd_spin.inc tools/gen/snd.cov
   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
   COMMENT "Translating the C74 sound program to C")
 

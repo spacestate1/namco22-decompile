@@ -50,6 +50,51 @@ bool c71_step(c71_t *d)
     return true;
 }
 
+/* Run `steps` steps, exactly as that many calls of c71_step would -- but an IDLE DSP is fast-forwarded.
+ *
+ * The C71 runs at 10 MIPS, so a frame is ~166,667 steps, and the master DSP spends ~93% of them halted on IDLE
+ * waiting for the next frame's interrupt (measured on Rave Racer: ~12,000 retired instructions a frame). Each of
+ * those halted steps did nothing but tick the timer -- and cost a whole c71_step call: about a third of the game's
+ * CPU time on a fast PC, most of it on a slow one.
+ *
+ * While the DSP is halted, a step changes only TIM and TINT_PEND (see c71_step): nothing retires, no hook runs, no
+ * counter moves. And nothing can wake the DSP inside this call except the timer: the other interrupts are raised
+ * BETWEEN calls (c71_irq from the frame loop). So after one real step that leaves it halted:
+ *   - if the timer can wake it (INTM 0, TINT enabled) it is skipped up to the step BEFORE the timer event;
+ *   - otherwise every remaining step is skipped, TINT_PEND set if an event fell inside (INTM 1 case).
+ * The timer arithmetic is closed-form: TIM counts down to 0, reloads PRD, and an "event" is a step that leaves
+ * TIM == PRD. tools/c25_run_test.c checks this against c71_step, step for step, on random states. */
+static long idle_skip(c71_t *d, long n)
+{
+    const int wake = !d->intm && (d->imr & 8);
+    if (!d->intm && d->tint_pend) return 0;                 /* the next step takes the timer interrupt */
+    uint32_t tim = d->tim, prd = d->prd;
+    /* steps until the next event (a step that leaves TIM == PRD) */
+    long k = tim > prd ? (long)(tim - prd) : (long)tim + 1;
+    if (wake) {
+        long m = n < k - 1 ? n : k - 1;                    /* stop before the event: normal stepping takes it */
+        d->tim = (uint16_t)(tim - (uint32_t)m);            /* m < k, so no reload and no event in between */
+        return m;
+    }
+    if (n < k) { d->tim = (uint16_t)(tim - (uint32_t)n); return n; }
+    long r = n - k;                                         /* the event step, then whole periods, then a remainder */
+    if (d->imr & 8) d->tint_pend = 1;
+    long period = (long)prd + 1;
+    r %= period;
+    d->tim = (uint16_t)(prd - (uint32_t)r);
+    return n;
+}
+
+bool c71_run(c71_t *d, long steps)
+{
+    while (steps > 0) {
+        if (!c71_step(d)) return false;
+        steps--;
+        if (d->idle && steps > 0) steps -= idle_skip(d, steps);
+    }
+    return true;
+}
+
 void c71_reset(c71_t *d)
 {
     d->bank = 0; d->latch = 0; d->pt_addr = 0; d->pt_data = 0; d->bioz = 1;

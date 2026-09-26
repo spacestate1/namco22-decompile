@@ -179,6 +179,13 @@ void tw_dsp_run(long steps)
 #ifdef TW_ORACLE
     if (lockstep) memcpy(shadow_poly, m[0]->poly, sizeof shadow_poly);   /* the 68K's writes since last slice */
 #endif
+    if (nm == 1) {                        /* the shipped game: same result as `steps` calls of c71_step, a halted DSP fast-forwarded */
+        if (!c71_run(m[0], steps)) {
+            fprintf(stderr, "[DSP] master stopped at %04X: %s\n", m[0]->cur_pc, m[0]->error);
+            faulted = true; return;
+        }
+        return;
+    }
     for (long s = 0; s < steps; s++)
         for (int i = 0; i < nm; i++)
             if (!c71_step(m[i])) {

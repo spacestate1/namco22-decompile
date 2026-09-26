@@ -330,6 +330,7 @@ void mcu_sound_run_frame(void)
         g_pin_next = g_cpu.cycles < end ? end : hard_end;
         if (g_int0_last + CYC_FRAME < g_pin_next) g_pin_next = g_int0_last + CYC_FRAME;
         if (g_int2_last + CYC_FRAME < g_pin_next) g_pin_next = g_int2_last + CYC_FRAME;
+        { extern uint64_t snd_spin_fast(m37710_t *, uint64_t); snd_spin_fast(&g_cpu, g_pin_next); }   /* a wait loop, jumped exactly */
         uint64_t n = g_pin_next - g_cpu.cycles;
         snd_run(&g_cpu, n < 64 ? (int)n : 64);
     }

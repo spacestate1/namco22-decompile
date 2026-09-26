@@ -149,7 +149,7 @@ set(PROPCYCL_ENGINE_SRC
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 add_custom_command(OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/gen/snd_driver.c
   COMMAND ${Python3_EXECUTABLE} tools/gen/snd_translate.py tools/gen/snd.cov
-  DEPENDS tools/gen/snd_translate.py tools/gen/m7700_decode.py tools/gen/snd_rom.py tools/gen/snd.cov src/snd/snd_engine.c
+  DEPENDS tools/gen/snd_translate.py tools/gen/m7700_decode.py tools/gen/snd_rom.py tools/gen/snd_spin.inc tools/gen/snd.cov src/snd/snd_engine.c
   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
   COMMENT "Translating the sound program to C")
 set_source_files_properties(gen/snd_driver.c PROPERTIES COMPILE_OPTIONS "-O1;-w")

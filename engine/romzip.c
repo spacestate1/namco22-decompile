@@ -34,10 +34,11 @@ static uint32_t rd32(const uint8_t *p) { return (uint32_t)p[0] | (uint32_t)p[1] 
 static int rom_index(const char *name, size_t len, const eng_rom_t *k_roms, int NROMS)
 {
     for (int i = 0; i < NROMS; i++) {
-        size_t n = strlen(k_roms[i].name);
+        const char *want = k_roms[i].zname ? k_roms[i].zname : k_roms[i].name;     /* the entry's full path */
+        size_t n = strlen(want);
         if (n != len) continue;
         size_t k = 0;
-        while (k < n && tolower((unsigned char)name[k]) == k_roms[i].name[k]) k++;
+        while (k < n && tolower((unsigned char)name[k]) == want[k]) k++;
         if (k == n) return i;
     }
     return -1;
@@ -78,7 +79,7 @@ int eng_romzip_extract(const char *zip_path, const char *dest_dir, const eng_rom
         uint16_t nlen = rd16(z + p + 28), xlen = rd16(z + p + 30), clen = rd16(z + p + 32);
         uint32_t lho = rd32(z + p + 42);
         const char *name = (const char *)(z + p + 46);
-        int idx = memchr(name, '/', nlen) ? -1 : rom_index(name, nlen, k_roms, NROMS);
+        int idx = rom_index(name, nlen, k_roms, NROMS);
         p += 46 + nlen + xlen + clen;
         if (idx < 0 || usize != k_roms[idx].size) continue;
         if ((long)lho + 30 > zn || rd32(z + lho) != 0x04034b50) continue;

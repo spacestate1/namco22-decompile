@@ -111,6 +111,20 @@ if not LEAN and os.path.exists(_eng):
 for a in overrides:
     if a not in ins: raise SystemExit(f'SND_ENTRY at {a:06X}: no instruction there')
 
+
+# POLLING LOOPS (tools/gen/snd_spin.inc): `LDA dp ; BEQ/BNE self` -- the driver's wait-for-interrupt loop
+spin = []
+for _pc in sorted(ins):
+    for _mx in sorted(ins[_pc]):
+        _b, _ = source(_pc, 6)
+        if _b is None: continue
+        _mn, _ea, _n, _pre = decode(_b, _mx)
+        if _mn != 'LDA' or _ea != 'D' or _n != 2: continue
+        _nb, _ = source(_pc + 2, 6)
+        if _nb is None or _mx not in ins.get(_pc + 2, {}): continue
+        _mn2, _ea2, _n2, _ = decode(_nb, _mx)
+        if _mn2 in ('BEQ', 'BNE') and _n2 == 2 and _nb[1] == 0xFC: spin.append((_pc, _mx, _b[1]))
+
 out = []
 w = out.append
 def wp(x):                                            # Prop Cycle only (readable routines, profiling)
@@ -219,11 +233,13 @@ wp('        step(c);')
 wp('    }')
 wp('}')
 wp('')
+w(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'snd_spin.inc')).read().replace('@SITES@', ', '.join('{0x%06X, %d, 0x%02X}' % t for t in spin) if spin else '{0, 9, 0}'))
+w('')
 w('void snd_executor_init(void) { ' + ('' if LEAN else 'xprof_init(); ') + 'printf("[SND] translated sound program (%d instructions)\\n", ' + str(sum(len(v) for v in ins.values())) + '); }')
 w('')
 w('/* src/mcu_sound.c\'s contract, identical to m37710_run(): run `cycles` cycles. */')
 w('int snd_run(m37710_t *c, int cycles) { run_chunk(c, c->cycles + (uint64_t)cycles); return 0; }')
 os.makedirs(os.path.dirname(os.path.abspath(_a.out)), exist_ok=True)
 open(_a.out, 'w').write('\n'.join(out) + '\n')
-print(f'{len(overrides)} readable routines; translated {sum(len(v) for v in ins.values())} instructions at {len(ins)} addresses: {covered} executed by the oracle '
+print(f'{len(spin)} polling loops; {len(overrides)} readable routines; translated {sum(len(v) for v in ins.values())} instructions at {len(ins)} addresses: {covered} executed by the oracle '
       f'+ {static} reached statically; {nram} from RAM (guarded) -> ' + _a.out)

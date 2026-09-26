@@ -103,6 +103,8 @@ void c71_reset(c71_t *d);
 /* One step: take a pending interrupt, idle, tick the timer, then run the
  * instruction at PC through d->xlat. Returns false on a fault (d->error). */
 bool c71_step(c71_t *d);
+/* `steps` steps -- the same result as calling c71_step that many times, with a halted (IDLE) DSP fast-forwarded. */
+bool c71_run(c71_t *d, long steps);
 
 /* ---- the bus (engine/c25/c25_bus.c), used by the semantics ---------------- */
 uint16_t c25_dr(c71_t *d, uint32_t a);            /* data space read */

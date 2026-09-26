@@ -125,11 +125,10 @@ void rr_dsp_control(uint8_t v)
 void rr_dsp_run(long steps)
 {
     if (!m || !running || faulted) return;
-    while (steps-- > 0)
-        if (!c71_step(m)) {
-            fprintf(stderr, "[DSP] master stopped at %04X: %s\n", m->cur_pc, m->error);
-            faulted = true; return;
-        }
+    if (!c71_run(m, steps)) {            /* same result as `steps` calls of c71_step; a halted DSP is fast-forwarded */
+        fprintf(stderr, "[DSP] master stopped at %04X: %s\n", m->cur_pc, m->error);
+        faulted = true; return;
+    }
 }
 
 void rr_dsp_vblank(void) { if (m && running && irq_on) c71_irq(m, 1); }

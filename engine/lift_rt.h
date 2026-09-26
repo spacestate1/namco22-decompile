@@ -32,6 +32,10 @@ static inline void RS1(uint32_t o, uint64_t v) { R[o] = (uint8_t)v; }
 static inline void RS2(uint32_t o, uint64_t v) { R[o] = (uint8_t)(v >> 8); R[o + 1] = (uint8_t)v; }
 static inline void RS4(uint32_t o, uint64_t v) { R[o] = (uint8_t)(v >> 24); R[o + 1] = (uint8_t)(v >> 16); R[o + 2] = (uint8_t)(v >> 8); R[o + 3] = (uint8_t)v; }
 static inline void RS8(uint32_t o, uint64_t v) { RS4(o, v >> 32); RS4(o + 4, v); }
+/* 80-bit extended-precision registers: 68881 opcodes Ghidra reads out of DATA regions (a 68EC020 has no FPU and the traces never execute them);
+ * kept as their low 64 bits so the file compiles, not as floating point. */
+static inline uint64_t RG10(uint32_t o) { return RG8(o + 2); }
+static inline void RS10(uint32_t o, uint64_t v) { R[o] = 0; R[o + 1] = 0; RS8(o + 2, v); }
 
 static inline uint32_t MRD1(uint32_t a) { return rr_read(a, 1); }
 static inline uint32_t MRD2(uint32_t a) { return rr_read(a, 2); }
