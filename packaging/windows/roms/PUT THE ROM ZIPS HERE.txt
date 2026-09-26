@@ -2,3 +2,4 @@ Put the MAME ROM sets in this folder, still zipped:
 
   Prop Cycle   propcycl.zip
   Rave Racer   raverace.zip  and  namcoc74.zip  (the sound chip's BIOS)
+  Tokyo Wars   tokyowar.zip

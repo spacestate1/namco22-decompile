@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Tokyo Wars
+Comment=Namco's 1996 arcade tank shooter (decompiled engine)
+Exec=tokyowars
+Icon=tokyowars
+Terminal=false
+Categories=Game;ArcadeGame;

@@ -29,7 +29,10 @@ static inline uint8_t  rd8 (m37710_t *c, uint32_t a)
     a &= 0xFFFFFF;
     if (a >= 0x20 && a < 0x30)          /* A-D conversion results, 8 x 16-bit */
         return (uint8_t)(c->ad_result[(a - 0x20) >> 1] >> (((a & 1) ? 8 : 0)));
-    if (a < 0x80) return c->sfr[a];
+    if (a < 0x80) {
+        if (c->port_r && (a == 0x0A || a == 0x0B || a == 0x0E)) return c->port_r(c->user, (unsigned)a, c->sfr[a]);
+        return c->sfr[a];
+    }
     return c->read8(c->user, a);
 }
 static inline void     wr8 (m37710_t *c, uint32_t a, uint8_t v)

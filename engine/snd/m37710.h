@@ -86,6 +86,14 @@ struct m37710_s {
     m377_write8_fn write8;
     void          *user;
 
+    /* BOARD PORT HOOKS for the three on-chip I/O ports the Super System 22 board wires up (P4 at SFR
+     * 0x0A, P5 at 0x0B, P6 at 0x0E -- namcos22.cpp mcu_port4/5/6). NULL (System 22, and Prop Cycle's
+     * own host): a port register just holds what the program wrote, exactly as before. Set (Tokyo
+     * Wars): a READ returns port_r(user, reg, latch) -- the host merges the input pins with the
+     * output latch by the direction register -- and a WRITE also calls port_w(user, reg, value). */
+    uint8_t      (*port_r)(void *user, unsigned reg, uint8_t latch);
+    void         (*port_w)(void *user, unsigned reg, uint8_t value);
+
     /* Opcode coverage, so the probe can report what the real program needs
      * in the order it needs it rather than guessing from a datasheet. */
     uint32_t op_count[512];     /* 0x00-0xFF, plus 0x100+op for the 0x42 page */

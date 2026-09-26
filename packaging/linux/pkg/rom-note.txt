@@ -1,6 +1,6 @@
 
  ==================================================================
-  Prop Cycle / Rave Racer are installed.  THE GAMES NEED ROM FILES.
+  Prop Cycle / Rave Racer / Tokyo Wars are installed.  THE GAMES NEED ROM FILES.
  ==================================================================
   No game data is included. Put the MAME ROM sets here:
 
@@ -10,9 +10,12 @@
     Rave Racer:  raverace.zip  AND  namcoc74.zip
                  -> ~/.local/share/namco22/raverace/roms/
 
+    Tokyo Wars:  tokyowar.zip
+                 -> ~/.local/share/namco22/tokyowar/roms/
+
   (Each user has their own folder. Starting a game once creates it
    and opens it for you. Zips already in ~/Downloads are found
-   automatically.)  Then start "Prop Cycle" or "Rave Racer" from
-  the applications menu, or run:  propcycle   /   raveracer
+   automatically.)  Then start "Prop Cycle", "Rave Racer" or "Tokyo Wars"
+  from the applications menu, or run:  propcycle / raveracer / tokyowars
  ==================================================================
 

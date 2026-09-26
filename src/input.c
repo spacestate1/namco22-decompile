@@ -77,6 +77,7 @@
 #include <math.h>
 #include <stdio.h>
 #include "ui_menu.h"
+#include "pedal_enc.h"        /* an exercise bike's encoder / a Peloton as the pedal */
 
 /* MCU shared RAM, relative to commsram base 0xA04000 */
 #define MCU_CMD      (0xBD00 - 0x4000)   /* command from CPU        */
@@ -148,6 +149,7 @@ static void pad_open_all(void) {
 }
 
 void input_pad_event(const SDL_Event *e) {
+    pedal_enc_event(e);          /* encoder A/B buttons or counter axis; no-op unless configured */
     /* JOYDEVICE events fire for gamepads AND raw joysticks, so one pair of
      * cases covers both; a remove closes only the device that left (by
      * instance id -- the old code closed and re-opened every pad). */
@@ -199,6 +201,7 @@ static int raw_pedal(void) {
 
 /* propcycl_controls.cfg hooks (ui_menu.c): 1 if the line was ours */
 int input_joy_cfg(const char *key, const char *val) {
+    if (pedal_enc_cfg(key, val)) return 1;      /* enc_* : the external pedal */
     joyaxis_t *ax = !strcmp(key, "joy_steer") ? &joy_steer : !strcmp(key, "joy_lean") ? &joy_lean
                   : !strcmp(key, "joy_pedal") ? &joy_pedal : NULL;
     if (ax) {
@@ -218,6 +221,7 @@ void input_joy_cfg_save(FILE *f) {
         fprintf(f, "%s=%d%s%s\n", nm[i], ax[i]->axis, ax[i]->invert ? " invert" : "", ax[i]->half ? " half" : "");
     fprintf(f, "joy_coin=%d\njoy_start=%d\njoy_service=%d\njoy_test=%d\n",
             joy_btn[ACT_COIN], joy_btn[ACT_START], joy_btn[ACT_SERVICE], joy_btn[ACT_TEST]);
+    pedal_enc_cfg_save(f);       /* or Save would drop the enc_* keys */
 }
 
 /* --joytest: list every device and print axis/button/hat changes live */
@@ -380,9 +384,9 @@ void input_pedal_step(void)
     { static int dbg = -1;
       if (dbg < 0) { const char *e = getenv("PROPCYCL_PEDALDBG"); dbg = (e && *e != '0'); }
       if (dbg && (g_sys.frame_count % 60) == 0)
-          printf("[PEDAL] f%u level=%d ctr=%u W[0x2C04]=%ld W[0x0D80]=%ld W[0x0D48]=%ld\n",
+          printf("[PEDAL] f%u level=%d ctr=%u W[0x2C04]=%ld W[0x0D80]=%ld W[0x0D48]=%ld enc_rpm=%.1f\n",
                  g_sys.frame_count, pedal_level, pedal_counter,
-                 (long)_W[0x2C04], (long)_W[0x0D80], (long)_W[0x0D48]); }
+                 (long)_W[0x2C04], (long)_W[0x0D80], (long)_W[0x0D48], pedal_enc_rpm()); }
 }
 
 /* Force the handlebar to a raw ADC pair for one frame -- the headless stand-in
@@ -519,6 +523,9 @@ void input_pausecam_update(void)
 }
 
 void input_poll(void) {
+    /* Serial I/O for an external pedal runs even with the menu open, so the
+     * port never backs up and a Peloton keeps being polled. */
+    pedal_enc_poll();
     const uint8_t *keys = SDL_GetKeyboardState(NULL);
     /* Menu open: swallow game input so menu typing never reaches the game. */
     if (ui_is_open()) {
@@ -836,6 +843,13 @@ void input_poll(void) {
       }
       { int rp = raw_pedal(); if (rp > trig) trig = rp; }
       int analog = trig > 3000 ? (trig * PEDAL_LEVEL_MAX) / 32767 : 0;
+
+      /* A real crank: an encoder or a Peloton's cadence, already mapped onto
+       * the same 0..127 level (pedal_enc.h). Like a pad trigger it sets the
+       * level directly, so while it is turning it takes over from the key ramp
+       * (and the higher of trigger and bike wins); at 0 -- idle, unplugged, or
+       * not configured -- the keyboard is in charge exactly as before. */
+      { int enc = pedal_enc_level(); if (enc > analog) analog = enc; }
 
       /* PROPCYCL_TEST_PEDAL=<level 1..127>: hold the pedal at a fixed level
        * for headless runs, the same way TEST_COIN and TEST_ANALOG stand in

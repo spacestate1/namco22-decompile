@@ -232,6 +232,7 @@ void m377_sfr_w(m37710_t *c, uint32_t a, uint8_t v)
     if (a == 0x35 || a == 0x3D)                 /* MAME uart*_ctrl_reg1_w: bit 1 (TX empty) is kept */
         v = (uint8_t)((prev & ((v & 4) ? 0xFA : 0x0A)) | (v & 0x05));
     c->sfr[a] = v;
+    if (c->port_w && (a == 0x0A || a == 0x0B || a == 0x0E)) c->port_w(c->user, (unsigned)a, v);
     if (a == 0x1E) {
         /* A-D control. Bit 6 starts a conversion; it completes 57*2*(4 or 2)
          * clocks later, and the interrupt is raised only when the conversion

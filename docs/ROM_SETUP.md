@@ -69,3 +69,18 @@ It checks every file's name and size and copies them into
 zips, works too. The Japanese sets inside `raverace.zip` (`raveracej/`,
 `raveraceja/`) are different programs and are not used.
 
+## Tokyo Wars
+
+Tokyo Wars needs one MAME set: `tokyowar.zip` (World, TW2 Ver.A). Give it
+to the build script:
+
+```bash
+tokyowar/build.sh /path/to/tokyowar.zip
+```
+
+It checks all 34 files by name and size and copies them into
+`tokyowar/extracted/`. The installed packages and the Windows version do
+this themselves the first time the game starts, from `tokyowar.zip` in the
+game's `roms` folder. The Japanese set inside the zip (`tokyowarj/`) is a
+different program and is not used.
+

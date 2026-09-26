@@ -49,6 +49,7 @@
     GLF(glFinish) \
     GLF(glFrustum) \
     GLF(glGenTextures) \
+    GLF(glGetError) \
     GLF(glGetIntegerv) \
     GLF(glGetString) \
     GLF(glLineWidth) \
@@ -62,6 +63,7 @@
     GLF(glPopMatrix) \
     GLF(glPushAttrib) \
     GLF(glPushMatrix) \
+    GLF(glReadBuffer) \
     GLF(glReadPixels) \
     GLF(glRotatef) \
     GLF(glScalef) \

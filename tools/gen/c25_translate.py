@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""c25_translate.py --game pc|rr --roms DIR --cov FILE [--cov FILE...] --out FILE --func NAME
+"""c25_translate.py --game pc|rr|tw --roms DIR --cov FILE [--cov FILE...] --out FILE --func NAME
                    [--block ADDR ...]
 
 Translate a System 22 / Super System 22 MASTER DSP program -- the C71 BIOS
@@ -31,7 +31,7 @@ translation TRAPS LOUDLY (the master stops and says where) -- never skipped.
 import argparse, os, sys
 
 ap = argparse.ArgumentParser()
-ap.add_argument('--game', required=True, choices=['pc', 'rr'])
+ap.add_argument('--game', required=True, choices=['pc', 'rr', 'tw'])
 ap.add_argument('--roms', required=True)
 ap.add_argument('--cov', action='append', default=[])
 ap.add_argument('--out')
@@ -52,13 +52,16 @@ else:   # optional in some ROM sets: the BIOS is then left untranslated (the mas
     print(f'c25_translate: WARNING: no {bp}; the master DSP BIOS is not translated', file=sys.stderr)
     bios_img = {}
 
-if a.game == 'pc':
-    # Prop Cycle: pr2ver-a.1..4 byte-interleaved 4,3,2,1 (src/rom_loader.c);
-    # the game program's count word at 0x43748 (src/master_dsp.c)
-    chips = [open(os.path.join(a.roms, f'pr2ver-a.{k}'), 'rb').read() for k in (4, 3, 2, 1)]
+if a.game in ('pc', 'tw'):
+    # Super System 22: <game>ver-a.1..4 byte-interleaved 4,3,2,1 (src/rom_loader.c; ROM_LOAD32_BYTE).
+    #   Prop Cycle: pr2ver-a.*, the game program's count word at 0x43748 (src/master_dsp.c)
+    #   Tokyo Wars: tw2ver-a.*, the master program's count word at 0x127816 (FUN_0012ED28 uploads it
+    #   as block 1; blocks 0x12EECA and 0x12A90E are the SLAVE's, relayed through the master's port 7)
+    pfx = 'pr2' if a.game == 'pc' else 'tw2'
+    chips = [open(os.path.join(a.roms, f'{pfx}ver-a.{k}'), 'rb').read() for k in (4, 3, 2, 1)]
     rom = bytearray(4 * len(chips[0]))
     for k in range(4): rom[k::4] = chips[k]
-    main_block = 0x43748
+    main_block = 0x43748 if a.game == 'pc' else 0x127816
 else:
     # Rave Racer: the assembled 68K program; the game program's count at 0x31A68
     # (FUN_000318BE), the test-mode programs' at FUN_00006DA2's call sites
@@ -149,12 +152,46 @@ def walk(img, seeds):
             if t not in ins and t in img: work.append(t)
     return ins
 
+def dispatch_seeds(img, ins):
+    """Where the computed branches go, from the program's own tables (no ROM is interpreted: the words
+    are read the way the disassembler reads them). Two idioms cover every BACC/CALA in the master
+    programs seen so far:
+      BACC  `ADLK/LALK base ; ... ; BACC` followed IN LINE by a table of `B target` (0xFF80 target),
+            one per index -- every `B` right after the BACC is a case, executed or not;
+      CALA  `LALK T ; ADD index ; SACL ; LAR ARn ; LAC * ; CALA`: a table of code pointers at T in
+            program memory (data space aliases 0x4000..), read while the words are addresses in this image.
+    A coverage-only translation traps on every case the oracle's scenarios never took; this finds them.
+    Returns (seeds, [(kind, site, entries)])."""
+    seeds, sites = set(), []
+    for pc in sorted(ins):
+        op = img[pc]
+        if op == 0xCE25:
+            a, n = pc + 1, 0
+            while img.get(a) == 0xFF80 and (a + 1) in img: seeds.add(a); a += 2; n += 1
+            sites.append(('BACC', pc, n))
+        elif op == 0xCE24:
+            base = None
+            for a in range(pc - 1, pc - 17, -1):
+                if a in ins and img.get(a) == 0xD001 and (a + 1) in img: base = img[a + 1]; break
+            n = 0
+            if base is not None:
+                while n < 64 and img.get(base + n) is not None and (base + n) in img and img[base + n] in img: seeds.add(img[base + n]); n += 1
+            sites.append(('CALA', pc, n))
+    return seeds, sites
+
 variants = {}                                # pc -> {(op, op2 or None)}
 n_cov = n_all = 0
+dispatch = []
 for tag, img in images.items():
     seeds = set(cov[tag])
     if tag == 'bios': seeds |= {0x0000, 0x0002, 0x0004, 0x0006, 0x0018, 0x001A, 0x001C, 0x001E}
     ins = walk(img, seeds)
+    while True:                                  # tables can lead to code with more tables
+        extra, sites = dispatch_seeds(img, ins)
+        new = walk(img, seeds | ins | extra)
+        if new == ins: break
+        ins = new
+    dispatch += [(tag,) + x for x in sites]
     n_cov += len(cov[tag] & ins); n_all += len(ins)
     for pc in ins:
         op = img[pc]
@@ -208,5 +245,11 @@ w('    }')
 w('}')
 os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
 open(a.out, 'w').write('\n'.join(out) + '\n')
+# BIOS sites (the same c71.bin in every game) are data-driven and covered by every game's coverage: one summary line.
+# A site in a GAME program with no readable table is a real gap in a coverage-only translation: named.
+bios_open = [f'{kind} {site:04X}' for tag, kind, site, n in dispatch if n == 0 and tag == 'bios']
+if bios_open: print(f'c25_translate: note: {len(bios_open)} BIOS BACC/CALA sites have no table this tool can read (coverage only): ' + ', '.join(bios_open), file=sys.stderr)
+for tag, kind, site, n in dispatch:
+    if n == 0 and tag != 'bios': print(f'c25_translate: WARNING: {kind} at {tag}:{site:04X} has no table this tool can read -- its targets come from coverage only', file=sys.stderr)
 print(f'c25_translate: {a.game}: {len(ins)} addresses, {sum(len(v) for v in variants.values())} variants ({n_cov} covered, {static} static) -> {a.out}',
       file=sys.stderr)

@@ -554,6 +554,7 @@ static int g_frame_poly_count = 0;
 #include "geo_hw.h"
 #include "fog_hw.h"
 #include "sprite_hw.h"
+#include "pc_live2d.h"
 #include "text_hw.h"
 #include "ui_menu.h"
 void framedump_render(geo_quad_cb cb, void *user);

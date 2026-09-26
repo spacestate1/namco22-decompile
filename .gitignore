@@ -24,5 +24,12 @@ __pycache__/
 /raverace/rr_controls.cfg
 /raverace/screenshots/
 /raverace/recordings/
+/tokyowar/build/
+/tokyowar/extracted/
+/tokyowar/tokyowar_main.bin
+/tokyowar/gen/tw_c25.c
+/tokyowar/gen/tw_snd_driver.c
+/tokyowar/tw_controls.cfg
+/tokyowar/screenshots/
 *.log
 *.ppm

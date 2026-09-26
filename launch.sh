@@ -6,11 +6,14 @@
 #   ./launch.sh prop         Prop Cycle, from the start (press 5 for a coin)
 #   ./launch.sh prop 0       Prop Cycle, straight into level 0 (or 1, 2, 3)
 #   ./launch.sh rave         Rave Racer (add a number for the window size: rave 3)
+#   ./launch.sh tokyo        Tokyo Wars (add a number for the window size: tokyo 3)
 #
 # Prop Cycle keys:  5 coin, Enter start, arrow keys steer, Space pedal,
 #                   P pause, Esc menu, F12 picture.
 # Rave Racer keys:  5 coin, X gas, Z brake, arrow keys steer, A/S shift,
 #                   V view, P pause, Esc menu, F12 picture.
+# Tokyo Wars keys:  5 coin, Enter start, arrows/A D steer, Up/W forward, Down/S back,
+#                   X / Z triggers, P pause, Esc menu (widescreen ...), F12 picture.
 set -e
 cd "$(dirname "$0")"
 
@@ -47,7 +50,18 @@ case "$game" in
         fi
         exec ./build/rr extracted "$@"
         ;;
+    tokyo|tokyowar)
+        if [ ! -f tokyowar/build/CMakeCache.txt ]; then
+            echo "Tokyo Wars is not built yet. Run:  tokyowar/build.sh /path/to/tokyowar.zip"; exit 1
+        fi
+        rebuild tokyowar tw
+        cd tokyowar
+        if [ $# -eq 0 ] || [[ "$1" =~ ^[0-9]+$ ]]; then
+            exec ./build/tw extracted --window ${1:+"$1"}
+        fi
+        exec ./build/tw extracted "$@"
+        ;;
     *)
-        sed -n '2,13p' "$0" | sed 's/^# \?//'
+        sed -n '2,16p' "$0" | sed 's/^# \?//'
         ;;
 esac

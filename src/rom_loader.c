@@ -8,12 +8,12 @@
  * Sprite:      2x2MB sequential → 4MB tile data
  */
 #include "propcycl.h"
+#include "sprite_hw.h"
 #include <stdlib.h>
 
 /* Asset storage */
 int32_t   g_pointrom[POINTROM_SIZE];
 uint32_t  g_pointrom_count;
-uint8_t*  g_sprite_tiles = NULL;
 
 static bool load_file(const char* path, uint8_t* buf, size_t size) {
     FILE* f = fopen(path, "rb");
@@ -147,6 +147,7 @@ static bool load_texture_tilemap(const char* dir) { (void)dir; return true; }  /
 static bool load_sprite_rom(const char* dir) {
     g_sprite_tiles = calloc(SPRITE_TOTAL_SIZE, 1);
     if (!g_sprite_tiles) return false;
+    g_sprite_tiles_size = SPRITE_TOTAL_SIZE;
 
     bool ok = true;
     ok = ok && load_file_at(dir, "pr1scg0.12f", g_sprite_tiles, 0, 0x200000);

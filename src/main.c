@@ -536,6 +536,9 @@ int main(int argc, char* argv[]) {
         if (strcmp(argv[i], "--joytest") == 0) {
             extern int input_joytest(void);
             return input_joytest();
+        } else if (strcmp(argv[i], "--enctest") == 0) {
+            extern int pedal_enctest(void);     /* the external-pedal / exercise-bike monitor */
+            return pedal_enctest();
         } else if (strcmp(argv[i], "--noaudio") == 0) {
             no_audio = true;
         } else if (strcmp(argv[i], "--screenshot") == 0) {
@@ -846,6 +849,7 @@ int main(int argc, char* argv[]) {
      * point, which an 80 s level does not reach. Test harness only. */
     { extern int g_test_timehold; const char *e = getenv("PROPCYCL_TEST_TIMEHOLD");
       g_test_timehold = (e && *e && *e != '0'); }
+    { extern int g_sndsweep_hold; const char *e = getenv("PROPCYCL_SNDSWEEP"); g_sndsweep_hold = e ? atoi(e) : 0; }
     { extern int g_test_pass; const char *e = getenv("PROPCYCL_TEST_PASS");
       g_test_pass = e ? atoi(e) : 0; }
     /* Read here, never mid-game: getenv() in the frame loop faults (row 40). */
@@ -880,6 +884,7 @@ int main(int argc, char* argv[]) {
     { const char *e = getenv("PROPCYCL_SHOT_EVERY");
       if (e) shot_every = atoi(e); }
     input_init();
+    { extern void pedal_enc_init(int); pedal_enc_init(!headless); }   /* reads PROPCYCL_ENC once */
     renderer2d_init();
     renderer3d_init();
     renderer3d_load_palette(rom_dir);
@@ -1503,6 +1508,7 @@ int main(int argc, char* argv[]) {
              * this branch does not -- so a pause banked thrust and delivered
              * it in a single frame on resume. See src/input.c. */
             { extern void input_pedal_step(void); input_pedal_step(); }
+            { extern void snd_sweep_tick(void); snd_sweep_tick(); }
             double _t=perf_now(); game_frame(); g_perf_game += perf_now()-_t;  /* frame_count incremented below */
             { extern void flight_rec_tick(void);      flight_rec_tick();
               extern void flight_replay_report(void); flight_replay_report(); }

@@ -1494,6 +1494,33 @@ void sound_play_p_ungated(undefined4 param_1)
   }
 }
 
+/* PROPCYCL_SNDSWEEP=<hold>: a TEST harness for the sound driver's coverage. After frame 1000 it plays every
+ * sound id 0..0x58 in turn, each `hold` frames, once with its own default parameter and then with the parameter
+ * word forced to 0x0000, 0x4000, 0x8000 and 0xFFFF (sound_play_p_ungated), stopping the previous one first.
+ * The translated sound program (gen/snd_driver.c) only contains code the ORACLE ran (tools/gen/snd.cov); an address it
+ * never ran halts the driver with "no translation for this address". Run propcycl_sndoracle with this and SND_COV
+ * to grow the coverage from every command the game can send -- what a scripted flight cannot reach. */
+int g_sndsweep_hold;
+void snd_sweep_tick(void)
+{
+  static int n = -1, prev = -1;
+  static unsigned frames;
+  const int nid = 0x59, npar = 5;
+  if (g_sndsweep_hold <= 0) return;
+  if (++frames < 1000) return;
+  if ((frames - 1000) % (unsigned)g_sndsweep_hold) return;
+  if (prev >= 0) sound_stop((undefined4)prev);
+  n++;
+  if (n >= nid * npar) { if (n == nid * npar) fprintf(stderr, "[SNDSWEEP] done at frame %u\n", frames); prev = -1; return; }
+  {
+    int id = n % nid, pv = n / nid;
+    static const int par[5] = { -1, 0x0000, 0x4000, 0x8000, 0xFFFF };
+    if (pv == 0) sound_play_ungated((undefined4)id);
+    else sound_play_p_ungated((undefined4)(((unsigned)id << 16) | (unsigned)par[pv]));
+    prev = id;
+  }
+}
+
 /* ---- scene_node_render_scaled ---- */
 
 void scene_node_render_scaled(undefined4 *param_1,int param_2)

@@ -96,9 +96,7 @@ set(PROPCYCL_ENGINE_SRC
     src/renderer_2d.c
     src/renderer_3d.c
     src/audio.c
-    src/fog_hw.c
-    src/sprite_hw.c
-    src/text_hw.c
+    src/pc_live2d.c
     src/ui_menu.c
     src/pause_world.c
     src/flight_rec.c
@@ -107,6 +105,9 @@ set(PROPCYCL_ENGINE_SRC
     src/pc_palette.c
     src/rom_zip.c
     src/input.c
+    src/pedal_enc.c
+    src/pedal_enc_core.c
+    src/pedal_enc_serial.c
     src/rom_loader.c
     src/game_logic.c
     src/game_debug.c
@@ -135,6 +136,7 @@ set(PROPCYCL_ENGINE_SRC
     src/snd/snd_engine.c
     gen/snd_driver.c
     ${NAMCO22_ENGINE_GL_SRC}
+    ${NAMCO22_ENGINE_SS22_SRC}
     ${NAMCO22_ENGINE_SND_SRC}
     ${NAMCO22_ENGINE_C25_SRC}
     gen/pc_c25.c
@@ -183,7 +185,8 @@ endif()
 set_source_files_properties(
     src/main.c src/memory.c src/trace.c src/hw_regs.c
     src/renderer_2d.c src/renderer_3d.c src/pc_palette.c
-    src/input.c src/rom_loader.c src/game_logic.c src/flight_rec.c
+    src/input.c src/pedal_enc.c src/pedal_enc_core.c src/pedal_enc_serial.c
+    src/rom_loader.c src/game_logic.c src/flight_rec.c
     src/level_select.c
     src/rom_decode.c
     src/audio_hle.c
@@ -243,6 +246,13 @@ add_executable(l2_verify
 )
 target_include_directories(l2_verify PRIVATE include)
 target_compile_options(l2_verify PRIVATE -Wall ${PROPCYCL_WERROR_FLAG})
+
+# External-pedal (exercise bike / Peloton) logic, tested with synthetic input:
+# quadrature, cadence estimator, the Peloton serial frames, text lines.
+add_executable(pedal_enc_test tools/pedal_enc_test.c src/pedal_enc_core.c)
+target_include_directories(pedal_enc_test PRIVATE include)
+target_link_libraries(pedal_enc_test PRIVATE m)
+target_compile_options(pedal_enc_test PRIVATE -Wall -Wextra)
 
 # Standalone model viewer
 add_executable(model_viewer src/model_viewer.c)

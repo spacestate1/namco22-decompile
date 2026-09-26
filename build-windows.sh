@@ -1,14 +1,15 @@
 #!/bin/bash
-# Build the WINDOWS versions of Prop Cycle and Rave Racer, from Linux.
+# Build the WINDOWS versions of Prop Cycle, Rave Racer and Tokyo Wars, from Linux.
 #
 #   ./build-windows.sh
 #
-# Makes windows-release/ -- everything Windows needs: PropCycle.exe and
-# RaveRacer.exe (each ONE file: SDL2 and the C runtime are linked in; OpenGL
+# Makes windows-release/ -- everything Windows needs: PropCycle.exe,
+# RaveRacer.exe and TokyoWars.exe (each ONE file: SDL2 and the C runtime are linked in; OpenGL
 # comes with Windows and the GPU driver), an empty roms/ folder and
 # HOW TO PLAY.txt -- plus windows-release.zip.
 # On Windows: put the MAME ROM sets in roms/ (propcycl.zip for Prop Cycle;
-# raverace.zip + namcoc74.zip for Rave Racer) and double-click the game. The
+# raverace.zip + namcoc74.zip for Rave Racer; tokyowar.zip for Tokyo Wars) and
+# double-click the game. The
 # first start unpacks the ROMs into extracted/ beside it.
 #
 # Needs the MinGW-w64 cross compiler (Arch: mingw-w64-gcc, Debian/Ubuntu:
@@ -85,6 +86,11 @@ cmake --build build-win/cmake --target propcycl -j"$(nproc)"
 cmake -S raverace -B build-win/rr -DCMAKE_TOOLCHAIN_FILE="$TOP/build-win/toolchain.cmake" \
       -DCMAKE_BUILD_TYPE=Release >/dev/null
 cmake --build build-win/rr --target rr -j"$(nproc)"
+# Tokyo Wars (tokyowar/): the same toolchain; its lifted program (gen/tw_lifted.c) comes with the tree, the sound and
+# master-DSP programs are translated at build time from the ROM set (tokyowar/extracted/) with the host python
+cmake -S tokyowar -B build-win/tw -DCMAKE_TOOLCHAIN_FILE="$TOP/build-win/toolchain.cmake" \
+      -DCMAKE_BUILD_TYPE=Release >/dev/null
+cmake --build build-win/tw --target tw -j"$(nproc)"
 
 # --- package: windows-release/ ---------------------------------------------------
 # Everything Windows needs, in one folder. The instructions and the roms/
@@ -95,12 +101,13 @@ mkdir -p "$REL"
 cp -r "$TOP/packaging/windows/." "$REL/"
 cp build-win/cmake/propcycl.exe "$REL/PropCycle.exe"
 cp build-win/rr/rr.exe "$REL/RaveRacer.exe"
+cp build-win/tw/tw.exe "$REL/TokyoWars.exe"
 mkdir -p "$REL/mesa"
 cp "$MESA/opengl32.dll" "$MESA/libgallium_wgl.dll" "$REL/mesa/"
-x86_64-w64-mingw32-strip "$REL/PropCycle.exe" "$REL/RaveRacer.exe"
+x86_64-w64-mingw32-strip "$REL/PropCycle.exe" "$REL/RaveRacer.exe" "$REL/TokyoWars.exe"
 # the .exe must need nothing beside it: every DLL it imports must ship with Windows
 # (OPENGL32.dll does -- it hands over to the installed GPU driver and is never bundled)
-for exe in PropCycle.exe RaveRacer.exe; do
+for exe in PropCycle.exe RaveRacer.exe TokyoWars.exe; do
     bad=$(x86_64-w64-mingw32-objdump -p "$REL/$exe" | awk '/DLL Name/ {print $3}' |
           grep -viE '^(kernel32|user32|gdi32|opengl32|advapi32|shell32|ole32|oleaut32|imm32|setupapi|version|winmm|dinput8|api-ms-win-crt-.*)\.dll$' || true)
     [ -z "$bad" ] || { echo "$exe needs DLLs Windows does not ship: $bad"; exit 1; }
