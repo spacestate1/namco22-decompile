@@ -16,6 +16,9 @@
     Dirt Dash:   dirtdash.zip
                  -> ~/.local/share/namco22/dirtdash/roms/
 
+    If a game says "c71.bin is missing" (Rave Racer, Tokyo Wars, Dirt Dash):
+    also put MAME's namcoc71.zip in that game's roms/ folder (the DSP BIOS).
+
   (Each user has their own folder. Starting a game once creates it
    and opens it for you. Zips already in ~/Downloads are found
    automatically.)  Then start "Prop Cycle", "Rave Racer", "Tokyo Wars" or "Dirt Dash"

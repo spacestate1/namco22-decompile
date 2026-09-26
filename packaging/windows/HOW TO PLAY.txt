@@ -6,6 +6,9 @@ PROP CYCLE, RAVE RACER, TOKYO WARS and DIRT DASH
      Rave Racer   raverace.zip  and  namcoc74.zip
      Tokyo Wars   tokyowar.zip
      Dirt Dash    dirtdash.zip
+   Rave Racer, Tokyo Wars and Dirt Dash also need c71.bin (the DSP BIOS). Usually it
+   is inside the game's zip. If a game says "c71.bin is missing", put MAME's
+   namcoc71.zip in the same folder (still zipped; nothing needs adding to another zip).
 
 2. Double-click PropCycle.exe, RaveRacer.exe, TokyoWars.exe or DirtDash.exe.
 
@@ -61,6 +64,10 @@ PROBLEMS?
                                 (World, RV2 Ver.B) plus "namcoc74", and
                                 "tokyowar" (World, TW2 Ver.A) and
                                 "dirtdash" (World, DT2 Ver.A).
+
+"c71.bin is missing"            Your ROM set keeps the DSP BIOS in a separate MAME
+                                set. Put namcoc71.zip in the roms folder beside
+                                the game's zip and start the game again.
 
 "Windows protected your PC"     Click "More info", then "Run anyway".
                                 (The games are not signed.)

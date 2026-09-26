@@ -307,13 +307,13 @@ int ss22_main(int argc, char **argv, const ss22_game *g)
     if (eng_romzip_missing(rom_dir, g->roms, g->n_roms) && !strcmp(rom_dir, "extracted") && !eng_romzip_missing("roms", g->roms, g->n_roms)) rom_dir = "roms";
     if (eng_romzip_missing(rom_dir, g->roms, g->n_roms)) {
         char err[512], *base = SDL_GetBasePath();
-        const char *zips[] = { g->zip };
-        if (!eng_romzip_autosetup(rom_dir, base, zips, 1, g->roms, g->n_roms, err, sizeof err)) {
+        const char *zips[] = { g->zip, "namcoc71.zip" };      /* namcoc71.zip: c71.bin, the DSP BIOS, in the MAME sets whose game zip does not carry it */
+        if (!eng_romzip_autosetup(rom_dir, base, zips, 2, g->roms, g->n_roms, err, sizeof err)) {
             fprintf(stderr, "%s needs its ROMs: %s\n", g->name, err);
             if (win_scale) {
                 char msg[1024];
                 snprintf(msg, sizeof msg, "%s needs its ROMs.\n\nPut %s (the MAME ROM set) in the \"roms\" "
-                         "folder next to this program, then start it again.\n\n(%s)", g->name, g->zip, err);
+                         "folder next to this program, then start it again. (If it says c71.bin is missing, put MAME's namcoc71.zip there too.)\n\n(%s)", g->name, g->zip, err);
                 SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, g->name, msg, NULL);
             }
             SDL_free(base);

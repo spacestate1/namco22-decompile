@@ -20,6 +20,13 @@ data="${XDG_DATA_HOME:-$HOME/.local/share}/namco22/$dir"
 mkdir -p "$data/roms" || exit 1
 cd "$data" || exit 1
 
+# namcoc71.zip (c71.bin, the DSP BIOS) is only needed when the game's own zip lacks it: copy it when it is lying about, never demand it
+if [ "$dir" != propcycle ]; then
+    for s in "$HOME/Downloads/namcoc71.zip" "$HOME/namcoc71.zip"; do
+        [ -f "roms/namcoc71.zip" ] && break
+        [ -f "$s" ] && cp "$s" roms/ && break
+    done
+fi
 missing=""
 for z in $zips; do
     [ -f "roms/$z" ] && continue

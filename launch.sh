@@ -45,7 +45,7 @@ case "$game" in
         ;;
     rave|raverace)
         if [ ! -f raverace/build/CMakeCache.txt ]; then
-            echo "Rave Racer is not built yet. Run:  raverace/build.sh /path/to/raverace.zip /path/to/namcoc74.zip"; exit 1
+            echo "Rave Racer is not built yet. Run:  raverace/build.sh /path/to/raverace.zip /path/to/namcoc74.zip   (add namcoc71.zip if c71.bin is missing)"; exit 1
         fi
         rebuild raverace rr
         cd raverace

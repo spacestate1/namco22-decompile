@@ -26,7 +26,7 @@ if [ $# -gt 0 ]; then
     python3 tools/setup_roms.py "$@" || exit 1
 elif ! python3 tools/setup_roms.py --check; then
     ZIPS=()
-    for z in tokyowar.zip; do
+    for z in tokyowar.zip namcoc71.zip; do
         for d in . .. roms ../roms "$HOME/Downloads"; do
             if [ -f "$d/$z" ]; then ZIPS+=("$d/$z"); echo "Found ROMs: $d/$z"; break; fi
         done

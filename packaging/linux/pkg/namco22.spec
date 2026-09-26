@@ -19,7 +19,8 @@ NO GAME DATA IS INCLUDED. After installing, put the MAME ROM sets in
 ~/.local/share/namco22/propcycle/roms/ (propcycl.zip) and
 ~/.local/share/namco22/raverace/roms/ (raverace.zip, namcoc74.zip) and
 ~/.local/share/namco22/tokyowar/roms/ (tokyowar.zip) and
-~/.local/share/namco22/dirtdash/roms/ (dirtdash.zip).
+~/.local/share/namco22/dirtdash/roms/ (dirtdash.zip). If a game says c71.bin is
+missing, also put namcoc71.zip in its roms/ folder.
 See /usr/share/doc/namco22/README.txt.
 
 %install

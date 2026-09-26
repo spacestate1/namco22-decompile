@@ -5,8 +5,10 @@
 #   ./build.sh                                               later: just rebuild
 #
 # The ROM sets are MAME's: raverace.zip, and namcoc74.zip (the sound chip's
-# BIOS, c74.bin). If you don't pass paths, this looks for both in this
-# folder, the folder above, roms/ and ~/Downloads.
+# BIOS, c74.bin). If a message says c71.bin (the DSP BIOS) is missing, your
+# set keeps it in a separate namcoc71.zip: add it as a third path. If you don't
+# pass paths, this looks for all three in this folder, the folder above,
+# roms/ and ~/Downloads.
 # Missing tools? Run ../install-deps.sh first.
 set -e
 # Paths you give are relative to where you ran this; resolve them before
@@ -27,7 +29,7 @@ if [ $# -gt 0 ]; then
     python3 tools/setup_roms.py "$@" || exit 1
 elif ! python3 tools/setup_roms.py --check; then
     ZIPS=()
-    for z in raverace.zip namcoc74.zip; do
+    for z in raverace.zip namcoc74.zip namcoc71.zip; do
         for d in . .. roms ../roms "$HOME/Downloads"; do
             if [ -f "$d/$z" ]; then ZIPS+=("$d/$z"); echo "Found ROMs: $d/$z"; break; fi
         done
@@ -36,7 +38,7 @@ elif ! python3 tools/setup_roms.py --check; then
     python3 tools/setup_roms.py --check || fail \
 "No ROMs yet. Run:   ./build.sh /path/to/raverace.zip /path/to/namcoc74.zip
     (MAME's Rave Racer set and the C74 sound BIOS. They are not included:
-     you need your own copy.)"
+     you need your own copy. If it says c71.bin is missing, add MAME's namcoc71.zip.)"
 fi
 
 # The game's program is big generated C; the first build takes a few minutes.

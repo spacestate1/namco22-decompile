@@ -12,6 +12,11 @@ YOUR home folder at exactly these paths:
   Tokyo Wars:   ~/.local/share/namco22/tokyowar/roms/tokyowar.zip
   Dirt Dash:    ~/.local/share/namco22/dirtdash/roms/dirtdash.zip
 
+Rave Racer, Tokyo Wars and Dirt Dash also need c71.bin (the DSP BIOS). Usually it
+is inside the game's zip. If a game says "c71.bin is missing", your ROM sets keep
+it in a separate MAME set: put namcoc71.zip in that game's roms/ folder too
+(still zipped; nothing needs adding to another zip).
+
 Easiest way: start the game once from the applications menu. It creates the
 folder, tells you what is missing and opens the folder; copy the zip(s) in and
 start it again. Zips already in ~/Downloads are picked up automatically.
@@ -22,6 +27,7 @@ From a terminal:
   cp raverace.zip namcoc74.zip ~/.local/share/namco22/raverace/roms/
   cp tokyowar.zip ~/.local/share/namco22/tokyowar/roms/
   cp dirtdash.zip ~/.local/share/namco22/dirtdash/roms/
+  # if a game says c71.bin is missing, copy namcoc71.zip into that game's roms/ folder as well
 
 The first start unpacks the zips into the game folder (extracted/); after that
 the zips may be removed. Settings, high scores and recordings are kept in the

@@ -7,8 +7,17 @@ they are not included here.
 | Game | Year | Status | Game files you need | Linux | Windows |
 |---|---|---|---|---|---|
 | **Prop Cycle** | 1996 | Playable from start to finish, with sound | `propcycl.zip` | yes | yes |
-| **Rave Racer** | 1995 | Playable: races, with sound | `raverace.zip` + `namcoc74.zip` | yes | yes |
-| **Tokyo Wars** | 1996 | Playable: attract, play, sound, widescreen | `tokyowar.zip` | yes | yes |
+| **Rave Racer** | 1995 | Playable: races, with sound | `raverace.zip` + `namcoc74.zip` (+ `namcoc71.zip`, see below) | yes | yes |
+| **Tokyo Wars** | 1996 | Playable: attract, play, sound, widescreen | `tokyowar.zip` (+ `namcoc71.zip`, see below) | yes | yes |
+| **Dirt Dash** | 1995 | Playable: five stages, sound, widescreen | `dirtdash.zip` (+ `namcoc71.zip`, see below) | yes | yes |
+
+**`c71.bin`, the DSP BIOS (Rave Racer, Tokyo Wars and Dirt Dash).** These three
+games need one more file, `c71.bin`. In some MAME sets it is already inside the
+game's own zip. In others it is a separate MAME set, **`namcoc71.zip`**. If a
+game says `c71.bin` is missing, put `namcoc71.zip` in the same place as the
+game's other zips (the `roms` folder on Windows and in the packages), or add it
+to the `build.sh` command. Leave it zipped, and there is no need to copy
+`c71.bin` into another zip. (Prop Cycle does not need it.)
 
 ## How it was made
 
@@ -24,7 +33,10 @@ and checked, piece by piece, against the arcade machine running in
 - **Tokyo Wars**: the program is translated to C by the same tool
   (`tokyowar/gen/tw_lifted.c`); its master DSP and sound programs are
   turned into C when you build, from your own copy of the game files.
-- The sound programs of all three games are turned into C when you build,
+- **Dirt Dash**: the program is translated to C by the same tool
+  (`dirtdash/gen/dd_lifted.c`); its master DSP and sound programs are
+  turned into C when you build, from your own copy of the game files.
+- The sound programs of all four games are turned into C when you build,
   from your own copy of the game files.
 
 This repository has **only the code**. It has no game files and no Ghidra
@@ -48,9 +60,13 @@ somewhere else:
 ./build.sh ~/Downloads/propcycl.zip                                       # Prop Cycle
 raverace/build.sh ~/Downloads/raverace.zip ~/Downloads/namcoc74.zip        # Rave Racer
 tokyowar/build.sh ~/Downloads/tokyowar.zip                                 # Tokyo Wars
+dirtdash/build.sh ~/Downloads/dirtdash.zip                                 # Dirt Dash
 ```
 
-Rave Racer's and Tokyo Wars' first builds take a few minutes.
+If a build says `c71.bin` is missing, add `namcoc71.zip` to that command, for
+example `raverace/build.sh ~/Downloads/raverace.zip ~/Downloads/namcoc74.zip ~/Downloads/namcoc71.zip`.
+
+Rave Racer's, Tokyo Wars' and Dirt Dash's first builds take a few minutes.
 
 Then play:
 
@@ -58,12 +74,13 @@ Then play:
 ./launch.sh prop      # Prop Cycle
 ./launch.sh rave      # Rave Racer
 ./launch.sh tokyo     # Tokyo Wars
+./launch.sh dirt      # Dirt Dash (`./launch.sh dirt jungle` starts in a stage: city, jungle, hill, mountain, snow)
 ./launch.sh           # the list of games and options
 ```
 
 ## Windows
 
-All three games run on Windows. The Windows version is built from Linux. Type:
+All four games run on Windows. The Windows version is built from Linux. Type:
 
 ```bash
 ./build-windows.sh
@@ -72,8 +89,9 @@ All three games run on Windows. The Windows version is built from Linux. Type:
 This makes a `windows-release` folder. Copy it to the Windows computer.
 Put the game files in its `roms` folder: `propcycl.zip` for Prop Cycle,
 `raverace.zip` and `namcoc74.zip` for Rave Racer, `tokyowar.zip` for Tokyo
-Wars. Then double-click **PropCycle.exe**, **RaveRacer.exe** or
-**TokyoWars.exe**.
+Wars, `dirtdash.zip` for Dirt Dash. If a game says `c71.bin` is missing, put
+`namcoc71.zip` in the same folder. Then double-click **PropCycle.exe**,
+**RaveRacer.exe**, **TokyoWars.exe** or **DirtDash.exe**.
 
 ## How to play
 
@@ -121,9 +139,26 @@ Wars. Then double-click **PropCycle.exe**, **RaveRacer.exe** or
 | `F11` | Full screen |
 | `F12` | Take a picture |
 
+**Dirt Dash.** An off-road race against the clock.
+
+| Key | What it does |
+|---|---|
+| `5` | Put in a coin (a game costs two) |
+| Left / Right (or `A` / `D`) | Steer |
+| `X` | Gas |
+| `Z` | Brake |
+| `Q` / `E` | Shift down / up |
+| `C` | Select (change the view, confirm) |
+| `M` | Motion stop |
+| `9` | Service |
+| `Esc` | Menu (screen, sound, keys) |
+| `P` | Pause |
+| `F11` | Full screen |
+| `F12` | Take a picture |
+
 A game controller works in all the games. In Rave Racer the keys can be
-changed in `raverace/rr_controls.cfg`; in Tokyo Wars, in the menu
-(**Controls**) or in `tokyowar/tw_controls.cfg`.
+changed in `raverace/rr_controls.cfg`; in Tokyo Wars and Dirt Dash, in the menu
+(**Controls**) or in `tokyowar/tw_controls.cfg` / `dirtdash/dd_controls.cfg`.
 
 **On a game pad or a Steam Deck** (no keyboard): the menu opens with **R3**
 (click the right stick) or by **holding Start for a second** (a quick tap is
@@ -154,7 +189,7 @@ Tokyo Wars, the title screen:
 
 ![Tokyo Wars: the title screen](docs/images/tokyowar-title.png)
 
-## Screen settings (Prop Cycle and Tokyo Wars)
+## Screen settings (Prop Cycle, Tokyo Wars and Dirt Dash)
 
 Press `Esc` and open **Display**. Your choices are saved by themselves.
 
@@ -172,7 +207,11 @@ Press `Esc` and open **Display**. Your choices are saved by themselves.
 - **"not installed"**: run `./install-deps.sh` again.
 - **"can't be used"**: the zip is the wrong game or version. Prop Cycle
   needs the one called `propcycl`; Rave Racer needs `raverace` and
-  `namcoc74`; Tokyo Wars needs `tokyowar`.
+  `namcoc74`; Tokyo Wars needs `tokyowar`; Dirt Dash needs `dirtdash`.
+- **"c71.bin is missing"** (Rave Racer, Tokyo Wars, Dirt Dash): the DSP BIOS is
+  not inside the game's zip. It is in MAME's separate `namcoc71.zip`: put that
+  zip beside the game's zip (or add it to the `build.sh` command). Do not unzip
+  it. Copying `c71.bin` into `namcoc74.zip` also works, but is no longer needed.
 - **Black or white screen**: update your graphics driver.
 
 More about the game files: [docs/ROM_SETUP.md](docs/ROM_SETUP.md)

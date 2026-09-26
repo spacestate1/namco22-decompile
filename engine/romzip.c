@@ -152,6 +152,8 @@ bool eng_romzip_autosetup(const char *rom_dir, const char *exe_dir, const char *
     const char *miss = eng_romzip_missing(rom_dir, roms, n);
     if (!miss) { printf("ROMs unpacked.\n"); return true; }
     if (!found) snprintf(err, errlen, "no %s found", zips[0]);
+    else if (!strcmp(miss, "c71.bin"))
+        snprintf(err, errlen, "c71.bin (the C71 DSP BIOS) is not in %s -- some MAME sets keep it in namcoc71.zip: put namcoc71.zip in the roms folder too", zips[0]);
     else snprintf(err, errlen, "still missing %s -- the MAME set %s is needed", miss, zips[0]);
     return false;
 }

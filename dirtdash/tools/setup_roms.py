@@ -94,7 +94,7 @@ def from_folder(path):
     if not all(n in found for n in REQUIRED):
         # A folder that holds the zip rather than the chips.
         for entry in sorted(os.listdir(path)):
-            if entry.lower() == "dirtdash.zip":
+            if entry.lower() in ("dirtdash.zip", "namcoc71.zip"):
                 found.update(from_zip(os.path.join(path, entry)))
     return found
 
@@ -138,6 +138,9 @@ def main():
             print(f"  missing:        {n}")
         for n in wrong:
             print(f"  wrong size:     {n} ({len(found[n])} bytes, expected {REQUIRED[n]})")
+        if "c71.bin" in missing:
+            print("  c71.bin is the C71 DSP BIOS. Some MAME sets carry it inside the game's zip; others keep it in a separate")
+            print("  'namcoc71.zip' -- add that zip to this command (it can be listed after the game's zip).")
         print("You need MAME's Dirt Dash set 'dirtdash' (with the World DT2 Ver.A program, 'dirtdasha').")
         return 1
 

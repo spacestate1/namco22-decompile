@@ -316,7 +316,8 @@ int main(int argc, char **argv)
                 snprintf(msg, sizeof msg,
                          "Rave Racer needs its ROMs.\n\n"
                          "Put raverace.zip and namcoc74.zip (the MAME ROM sets) in the \"roms\" "
-                         "folder next to this program, then start it again.\n\n(%s)", err);
+                         "folder next to this program, then start it again. (If it says c71.bin is missing, "
+                         "put MAME's namcoc71.zip there too.)\n\n(%s)", err);
                 SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Rave Racer", msg, NULL);
             }
             SDL_free(base);
