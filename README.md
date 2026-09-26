@@ -134,8 +134,8 @@ Rave Racer:
 
 Prop Cycle:
 
-![The title screen](docs/images/attract-title.png)
 ![Prop Cycle: gameplay, over the river](docs/images/propcycle-gameplay.png)
+![The title screen](docs/images/attract-title.png)
 
 Tokyo Wars, the title screen:
 
