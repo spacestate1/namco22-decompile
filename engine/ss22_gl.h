@@ -36,6 +36,7 @@ typedef struct {
 /* WIDESCREEN: the game's HUD description (engine/hud_edges.h); NULL or no marks = the HUD stays where the game put it. The pointer must
  * outlive the frames drawn. A board host calls it once; a caller that never does (Prop Cycle links this file) gets no HUD move. */
 void ss22_gl_set_hud(const eng_hud_cfg *h);
+void ss22_gl_set_gun_flash(bool on);      /* false: hide a light-gun game's shot flash (an instant full-white screen fade, <= 2 frames) */
 
 /* Once per screen update: latch the state, walk the display list, sort, collect the sprites. The walk decides what the
  * update keeps, so it must happen exactly once per update. */

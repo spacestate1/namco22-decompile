@@ -8,6 +8,8 @@
 #include "eng_ffb.h"
 #include "eng_ui.h"
 #include "ss22_board.h"
+#include "ss22_gl.h"
+#include "eng_display.h"
 
 #define PAD_DEADZONE   4000     /* of 32767: an Xbox pad rests near 3000. 8000 left a quarter of the stick dead, and with the curve below the steering
                                 * all came in the stick's outer half -- easing off a turn dropped it back towards the centre */
@@ -393,8 +395,10 @@ static void axis_label(int kind, char *v, size_t vn)
 
 static int nsw(void) { return (game->test_bit ? 1 : 0) + (game->service_bit ? 1 : 0); }
 static int nffb(void) { return game->wheel_motor ? (game->torque.addr ? 4 : 2) : 0; }   /* Force feedback, FFB direction[, FFB centering, FFB road effects] */
-static int pg_n(void) { return nsw() + nffb() + 2 + game->n; }    /* the switches, the FFB rows, Reset, Stick steering, the actions */
-static bool pg_val(int r) { return (r >= nsw() && r < nsw() + nffb()) || r == nsw() + nffb() + 1; }
+static int gun_flash_on = 1;                                     /* light-gun games: draw the shot flash (gun_flash in the cfg; ss22_gl.c hides it when 0) */
+static int ngun(void) { return game->light_gun ? 2 : 0; }        /* Gun shot flash, Gun border */
+static int pg_n(void) { return nsw() + nffb() + ngun() + 2 + game->n; }    /* the switches, the FFB rows, the gun rows, Reset, Stick steering, the actions */
+static bool pg_val(int r) { return (r >= nsw() && r < nsw() + nffb() + ngun()) || r == nsw() + nffb() + ngun() + 1; }
 
 static void pg_text(int r, char *l, size_t ln, char *v, size_t vn)
 {
@@ -412,6 +416,9 @@ static void pg_text(int r, char *l, size_t ln, char *v, size_t vn)
     if (r == 2 && nffb() > 2) { snprintf(l, ln, "FFB centering"); snprintf(v, vn, "%d%%", ffb_centre); return; }
     if (r == 3 && nffb() > 2) { snprintf(l, ln, "FFB road effects"); snprintf(v, vn, "%d%%", ffb_road); return; }
     r -= nffb();
+    if (r == 0 && ngun()) { snprintf(l, ln, "Gun shot flash"); snprintf(v, vn, "%s", gun_flash_on ? "ON (as the arcade)" : "OFF (no white flash)"); return; }
+    if (r == 1 && ngun()) { snprintf(l, ln, "Gun border"); if (g_eng_disp.gun_border) snprintf(v, vn, "%d%%", g_eng_disp.gun_border); else snprintf(v, vn, "OFF"); return; }
+    r -= ngun();
     if (r == 0) { snprintf(l, ln, "Reset keyboard defaults"); return; }
     if (r == 1) { snprintf(l, ln, "Stick steering"); snprintf(v, vn, "%s", steer_levels[steer_level].name); return; }
     r -= 2;
@@ -438,7 +445,7 @@ static void pg_text(int r, char *l, size_t ln, char *v, size_t vn)
 
 static void pg_change(int r, int dir)
 {
-    if (r == nsw() + nffb() + 1) {                       /* Stick steering: left/right step through the levels, a press moves on (wrapping) */
+    if (r == nsw() + nffb() + ngun() + 1) {              /* Stick steering: left/right step through the levels, a press moves on (wrapping) */
         const int lv = dir < 0 ? steer_level - 1 : dir > 0 ? steer_level + 1 : (steer_level + 1) % STEER_N;
         if (lv >= 0 && lv < STEER_N) steer_set(lv);
         return;
@@ -464,6 +471,12 @@ static void pg_change(int r, int dir)
         return;
     }
     r -= nffb();
+    if (r == 0 && ngun()) { gun_flash_on = !gun_flash_on; ss22_gl_set_gun_flash(gun_flash_on); eng_cfg_set_int("gun_flash", gun_flash_on); return; }
+    if (r == 1 && ngun()) {                                        /* Gun border: off, 1..6 % (F8 too) */
+        if (dir < 0) { for (int k = 0; k < 6; k++) eng_disp_cycle_gun_border(); } else eng_disp_cycle_gun_border();
+        return;
+    }
+    r -= ngun();
     if (r == 0) {
         for (int a = 0; a < game->n; a++) if (bound[a] != game->actions[a].def) binding_set(a, game->actions[a].def);
         if (steer_level != STEER_DEFAULT) steer_set(STEER_DEFAULT);
@@ -512,6 +525,11 @@ void ss22_input_init(const ss22_input_game *g)
             g_ss22_wram_watch_off = g->torque.addr - 0xE00000u;
             g_ss22_wram_watch = torque_write;
         }
+    }
+    if (g->light_gun) {
+        gun_flash_on = eng_cfg_int("gun_flash", 1) != 0;
+        if (getenv("ENG_GUN_FLASH")) gun_flash_on = atoi(getenv("ENG_GUN_FLASH")) != 0;   /* tests: without touching the cfg */
+        ss22_gl_set_gun_flash(gun_flash_on);
     }
     SDL_GameControllerAddMappingsFromFile("gamecontrollerdb.txt");
     pad_scan();
