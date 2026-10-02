@@ -233,8 +233,6 @@ void rr_tick(void)
     { static int nv = -1; static uint32_t vf[16];          /* RR_TEST_VIEW=f1,f2,...: press VIEW CHANGE (active low 0x0040) for 30 frames at each */
       if (nv < 0) { nv = 0; const char *e = getenv("RR_TEST_VIEW"); while (e && *e && nv < 16) { char *q; const unsigned long v = strtoul(e, &q, 0); if (q == e) break; vf[nv++] = (uint32_t)v; e = q; if (*e == ',') e++; else break; } }
       for (int i = 0; i < nv; i++) { if (frame == vf[i]) g_hw.inputs &= (uint16_t)~0x0040; if (frame == vf[i] + 30) g_hw.inputs |= 0x0040; } }
-    { static long vp = -2; if (vp == -2) { const char *e = getenv("RR_TEST_VIEWPOKE"); vp = e ? atol(e) : -1; }   /* test: the view-change EDGE straight into */
-      if (vp >= 0 && frame == (uint32_t)vp) g_rr.wram[0x818] |= 0x10; }    /* the game's input byte 0x818 (-> 0x812 bit 4, rd_1e006) */
     for (int i = 0; i < n_steer; i++) if (frame >= (uint32_t)test_steer[i].at) g_hw.steer = (uint16_t)test_steer[i].value;
     if (windowed) {
         if (frame % 120 == 0) rr_hw_eeprom_save();     /* the test menu's settings and the records, once the game has changed them */
