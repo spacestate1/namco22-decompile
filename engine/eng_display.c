@@ -158,6 +158,8 @@ void eng_disp_load(const char *cfg_path, int scale, bool fullscreen)
     if (scale > 0) d->scale = scale > 4 ? 4 : scale;             /* --window N overrides the saved size */
     if (fullscreen && !d->winmode) d->winmode = 1;
     if (getenv("ENG_WIDESCREEN")) d->wide = atoi(getenv("ENG_WIDESCREEN")) != 0;   /* tests: force it without touching the cfg */
+    { const char *e = getenv("ENG_RESOLUTION"); int w, h;                               /* tests: a render size without touching the cfg */
+      if (e && sscanf(e, "%dx%d", &w, &h) == 2 && w > 0 && h > 0) { d->res_w = w; d->res_h = h; } }
 }
 
 void eng_disp_attach(SDL_Window *w)

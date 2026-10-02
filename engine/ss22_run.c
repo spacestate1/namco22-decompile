@@ -336,6 +336,9 @@ void rr_tick(void)
     if (dump_every && rr_frame % dump_every == 0) dump_state();
     sweep_tick();
     ss22_out_poll(ss22_snd_outputs());                     /* the cabinet's outputs (lamps, the gun solenoid): MAME's network output + pad rumble */
+    { static int every = -1, ms, run = 1;                  /* ENG_SLOWFRAME=every:ms[:run] (tests: a slow machine): `run` frames of +ms, every `every` frames */
+      if (every < 0) { const char *e = getenv("ENG_SLOWFRAME"); every = 0; if (e) sscanf(e, "%d:%d:%d", &every, &ms, &run); if (run < 1) run = 1; }
+      if (every > 0 && ms > 0 && rr_frame % (uint32_t)every < (uint32_t)run) { struct timespec d = { ms / 1000, (long)(ms % 1000) * 1000000L }; nanosleep(&d, NULL); } }
     if (video_on) {
         double t1 = ftime_on ? ft_now() : 0;
         ss22_video_prepare();                              /* the master's finished list, before this vblank starts the next */

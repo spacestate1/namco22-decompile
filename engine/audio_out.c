@@ -10,7 +10,15 @@
 
 #define OUT_HZ 48000
 #define RING 16384                            /* stereo frames, power of two */
-#define TARGET (OUT_HZ * 60 / 1000)           /* 60 ms */
+/* THE CUSHION: the ring aims to hold TARGET of sound. It starts at 60 ms; every time the card runs dry it grows by 20 ms, up to 140 ms, and
+ * the card waits (silent, already faded out) until the ring holds the new amount. A machine whose frames are sometimes slower than the
+ * cushion -- a weak GPU in Dirt Dash's jungle -- used to pop on EVERY such frame; now it pops a few times and then has room. A machine that
+ * never runs dry keeps 60 ms. ENG_AUDIO_MAXMS caps it (60 = the old fixed cushion). */
+#define TARGET_START (OUT_HZ * 60 / 1000)
+#define TARGET_STEP  (OUT_HZ * 20 / 1000)
+static atomic_int g_target = TARGET_START;
+static int target_max = OUT_HZ * 140 / 1000;
+#define TARGET atomic_load_explicit(&g_target, memory_order_relaxed)
 static int16_t ring[RING * 2];
 static atomic_uint r_head, r_tail;
 static SDL_AudioDeviceID dev;
@@ -42,8 +50,13 @@ static void audio_cb(void *u, Uint8 *stream, int len)
     unsigned t = atomic_load_explicit(&r_tail, memory_order_relaxed);
     unsigned h = atomic_load_explicit(&r_head, memory_order_acquire);
     if ((int)(h - t) > 4 * TARGET) { t = h - TARGET; latency_resets++; atomic_fetch_add(&reset_total, 1); }   /* far behind: drop to the target once */
-    if (!atomic_load(&primed)) {
-        if ((int)(h - t) < TARGET) { memset(stream, 0, (size_t)len); return; }
+    if (!atomic_load(&primed) && fade_phase != 1) {       /* waiting for the cushion (start-up, or after a dry spell: the fade-out first) */
+        if ((int)(h - t) < TARGET) {
+            for (int i = 0; i < n; i++) { o[2*i] = o[2*i+1] = 0; }
+            last_out[0] = last_out[1] = 0;
+            if (fade_phase == 0) { fade_phase = 2; fade_step = 0; }         /* the sound fades back in when it resumes */
+            return;
+        }
         atomic_store(&primed, 1);
     }
     unsigned ur_now = 0;
@@ -52,7 +65,11 @@ static void audio_cb(void *u, Uint8 *stream, int len)
      * of the output stays small whatever the length of the gap. */
     for (int i = 0; i < n; i++) {
         int16_t l = 0, r = 0;
-        if (fade_phase == 0 && t == h) { hold[0] = last_out[0]; hold[1] = last_out[1]; fade_phase = 1; fade_step = 0; }
+        if (fade_phase == 0 && t == h) {
+            hold[0] = last_out[0]; hold[1] = last_out[1]; fade_phase = 1; fade_step = 0;
+            const int tg = TARGET;                                    /* ran dry: a bigger cushion, refilled before the sound comes back */
+            if (tg < target_max) { atomic_store(&g_target, tg + TARGET_STEP > target_max ? target_max : tg + TARGET_STEP); atomic_store(&primed, 0); }
+        }
         if (t == h) { underruns++; per_sec_ur++; ur_now++; }
         if (fade_phase == 1) {
             const float k = 1.0f - (float)(fade_step + 1) / FADE;
@@ -73,7 +90,7 @@ static void audio_cb(void *u, Uint8 *stream, int len)
     cb_samples += (uint32_t)n;
     if (cb_samples >= OUT_HZ) {
         static int logon = -1; if (logon < 0) logon = getenv("ENG_AUDIOLOG") != NULL;
-        if (logon) fprintf(stderr, "[AUDIO] second: %u underrun samples, ring %d, latency resets %u\n", per_sec_ur, (int)(h - t), latency_resets);
+        if (logon) fprintf(stderr, "[AUDIO] second: %u underrun samples, ring %d, cushion %d ms, latency resets %u\n", per_sec_ur, (int)(h - t), TARGET * 1000 / OUT_HZ, latency_resets);
         cb_samples -= OUT_HZ; per_sec_ur = 0;
     }
 }
@@ -92,6 +109,7 @@ bool eng_audio_open(void)
     if (getenv("ENG_AUDIO_SAMPLES")) want.samples = (Uint16)atoi(getenv("ENG_AUDIO_SAMPLES"));
     dev = SDL_OpenAudioDevice(NULL, 0, &want, &have, 0);
     if (!dev) { fprintf(stderr, "[AUDIO] no audio device: %s\n", SDL_GetError()); return false; }
+    if (getenv("ENG_AUDIO_MAXMS")) { int ms = atoi(getenv("ENG_AUDIO_MAXMS")); if (ms < 60) ms = 60; if (ms > 300) ms = 300; target_max = OUT_HZ * ms / 1000; }
     if (getenv("ENG_OUTPUT_GAIN")) { g_out_gain = atof(getenv("ENG_OUTPUT_GAIN")); if (g_out_gain < 0) g_out_gain = 0; }
     SDL_PauseAudioDevice(dev, 0);
     fprintf(stderr, "[AUDIO] output %d Hz stereo, %d-sample buffer, gain x%.2f\n", have.freq, have.samples, g_out_gain);

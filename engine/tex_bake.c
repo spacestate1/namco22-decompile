@@ -288,8 +288,30 @@ static int pow2_up(int v, int lo, int hi)
  * re-bake on demand, exactly as a budget eviction). A bake about to overwrite
  * pixels calls the flush hook (quad_gl's pending batch holds texcoords into
  * the pages: those quads must DRAW before the bytes change). */
-#define ATLAS_DIM  2048
-#define ATLAS_MAXP 28                          /* 28 x 16 MB pages = 448 MB, the old byte budget's spirit */
+/* Page size: 4096 by default (2048 before 2026-10-02). In z order consecutive quads alternate between pages, and every change
+ * of page is a new draw: Dirt Dash's jungle broke the batch on 54% of its quads (1,250 draws a frame at 1080p), which is a slow
+ * frame on a weak GPU or driver -- and a slow frame starves the sound. Four times the area per page = far fewer pages in play.
+ * The page count scales so the memory stays 448 MB. ENG_ATLAS_DIM=2048 (or 1024..8192) for A/B; capped by GL_MAX_TEXTURE_SIZE. */
+#define ATLAS_MAXP 28                          /* the array; the pages actually allowed are atlas_maxp (448 MB worth) */
+static int atlas_dim = 0, atlas_maxp = ATLAS_MAXP;
+#define ATLAS_DIM atlas_dim
+static void atlas_size_pick(void)
+{
+    if (atlas_dim) return;
+    int d = 4096;
+    const char *e = getenv("ENG_ATLAS_DIM");
+    if (e && *e) d = atoi(e);
+    if (d < 1024) d = 1024;
+    if (d > 8192) d = 8192;
+    GLint mx = 0; glGetIntegerv(GL_MAX_TEXTURE_SIZE, &mx);
+    while (mx > 0 && d > mx && d > 1024) d /= 2;
+    for (int p = 1024; p <= 8192; p *= 2) if (d <= p) { d = p; break; }        /* a power of two */
+    atlas_dim = d;
+    atlas_maxp = (int)((448ull << 20) / ((unsigned long long)d * d * 4));
+    if (atlas_maxp < 2) atlas_maxp = 2;
+    if (atlas_maxp > ATLAS_MAXP) atlas_maxp = ATLAS_MAXP;
+    fprintf(stderr, "[TEX] atlas pages %dx%d (GL max %d), up to %d pages\n", d, d, (int)mx, atlas_maxp);
+}
 typedef struct { uint16_t x, y, w, h; } arect;
 typedef struct {
     GLuint tex;
@@ -367,6 +389,7 @@ static void page_dirty(int p, int x, int y, int w, int h)
 
 static void atlas_page_init(int i)
 {
+    atlas_size_pick();
     glGenTextures(1, &apages[i].tex);
     glBindTexture(GL_TEXTURE_2D, apages[i].tex);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
@@ -395,7 +418,7 @@ static void atlas_page_reset(int p);
 
 static int atlas_alloc(int w, int h, int *out_page, int *out_x, int *out_y)
 {
-    for (int tries = 0; tries < ATLAS_MAXP + 1; tries++) {
+    for (int tries = 0; tries < atlas_maxp + 1; tries++) {
         for (int i = 0; i < ap_n; i++) {
             apage *p = &apages[i];
             for (int k = 0; k < p->nfr; k++)                     /* first fit among evicted rects */
@@ -415,7 +438,7 @@ static int atlas_alloc(int w, int h, int *out_page, int *out_x, int *out_y)
                 *out_page = i; *out_x = x; *out_y = y; return 1;
             }
         }
-        if (ap_n < ATLAS_MAXP) { atlas_page_init(ap_n++); continue; }
+        if (ap_n < atlas_maxp) { atlas_page_init(ap_n++); continue; }
         atlas_page_reset(ap_reset_hand);                          /* all pages full: take the oldest's space */
         ap_reset_hand = (ap_reset_hand + 1) % ap_n;
     }
@@ -575,10 +598,12 @@ void renderer_texture_init(void) {
     if (atlas_on()) {
         /* 8 pages (128 MB + shadows) by default; the rest grow on demand in
          * atlas_alloc. ENG_ATLAS_PREALLOC=<n> raises it (28 = every page). */
-        int want = 8;
+        atlas_size_pick();
+        int want = (int)(8ull * 2048 * 2048 / ((unsigned long long)atlas_dim * atlas_dim));   /* 128 MB worth: 8 pages of 2048, 2 of 4096 */
+        if (want < 1) want = 1;
         const char *e = getenv("ENG_ATLAS_PREALLOC");
         if (e && *e) want = atoi(e);
-        if (want > ATLAS_MAXP) want = ATLAS_MAXP;
+        if (want > atlas_maxp) want = atlas_maxp;
         while (ap_n < want) atlas_page_init(ap_n++);
     }
 }

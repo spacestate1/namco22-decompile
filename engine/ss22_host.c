@@ -112,7 +112,10 @@ void ss22_host_shot(const char *path)
     /* an offscreen 640x480 draw of the prepared frame, read back exactly as the engine drew it */
     int vw, vh;
     if (win) {
-        rt_begin(win, 640, 480, &vw, &vh);
+        int rw = 640, rh = 480;
+        { static int nat = -1; if (nat < 0) nat = getenv("ENG_SHOT_NATIVE") != NULL;   /* tests: the shot at the window's render size (what the player sees) */
+          if (nat) eng_disp_render_size(&rw, &rh); }
+        rt_begin(win, rw, rh, &vw, &vh);
         ss22_draw(vw, vh);
         eng_gl_write_ppm(path, vw, vh);
     } else {
