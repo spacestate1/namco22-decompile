@@ -112,6 +112,10 @@ static const ss22_input_game input = {
     ss22_snd_inputs,
     IN_TEST, IN_SERVICE,
     true,                                   /* the wheel motor: MAME's "J2 pin 7 /TXD ... to a Motor/Feedback PCB", the MCU's UART0 */
+    /* the torque sum (0x022E2E-0x022E96, work RAM 0xE00148): the wheel's position x a spring, + a lateral term (0xE00136) and a
+     * bump offset (0xE076AC), + the wheel's speed (0xE00144) x a damping, + a surface kick (0xE076AE); per road, a table row of
+     * gains (0x022DB4). Clamped to +-0x200, then /8 with a 4-frame dither (0x022F14) into the motor byte. Terms 0 and 2 centre. */
+    .torque = { 0xE00148u, 4, 0x5, 0x200 },
 };
 
 /* widescreen: the race HUD is up while the TIME / POSITION labels are on screen (text cells row 1: col 2 and col 31). Its digits and the map's

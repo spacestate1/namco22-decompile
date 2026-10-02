@@ -123,11 +123,15 @@ bool eng_ffb_device_from(SDL_Joystick *const *js, int n)
     return false;
 }
 
-void eng_ffb_force(int motor, int strength, bool reverse)
+void eng_ffb_force(int motor, int strength, bool reverse) { eng_ffb_force_f(motor / 63.0, strength, reverse); }
+
+void eng_ffb_force_f(double f, int strength, bool reverse)
 {
     if (effect < 0) return;
     /* a negative command pushes toward the higher A-D side: the axis' positive end unless reversed */
-    int level = motor * 32767 / 63 * strength / 100;
+    if (f > 1.0) f = 1.0;
+    if (f < -1.0) f = -1.0;
+    int level = (int)(f * 32767.0 * strength / 100.0);
     if (reverse) level = -level;
     if (level == applied) return;
     SDL_HapticEffect e = constant(level);

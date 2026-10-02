@@ -37,6 +37,12 @@ typedef struct {
                                               * is test_bit latches. The Controls page has both as rows, so a pad (the Steam Deck) reaches them */
     bool wheel_motor;                        /* the cabinet's steering motor (Dirt Dash): the MCU's UART0 bytes drive a force-feedback wheel */
     bool light_gun;                          /* a LIGHT GUN cabinet: the mouse pointer (or the right stick, or the arrow keys) aims -> g_ss22_gun_x/_y (engine/ss22_board.h) */
+    /* the steering torque as the 68K builds it (0 = use the motor byte alone): a work-RAM word written once a frame as a running
+     * sum of `parts` terms -- the first write the first term, each later one adding the next -- clamped to +-`limit` and then
+     * quantised (with a dither) into the motor byte. `centre` has a bit set for each term that is centring (a spring on the
+     * wheel's position, damping on its speed); the others are the road. Tapping the sum gives the force in full resolution,
+     * and the two groups their own gains (the Controls page's FFB centering / FFB road effects). */
+    struct { uint32_t addr; int parts; unsigned centre; int limit; } torque;
 } ss22_input_game;
 
 void ss22_input_init(const ss22_input_game *g);         /* after the settings file is loaded: the key bindings, the pads */

@@ -91,6 +91,11 @@ void ss22_hw_keycus_force(uint32_t v);              /* trace oracle: the next ke
 uint32_t rr_read(uint32_t a, int size);           /* the lifted-code ABI: size 1, 2 or 4 */
 void     rr_write(uint32_t a, int size, uint32_t v);
 
+/* one work-RAM word watched for writes (the input layer's wheel-torque tap): each 68K write to work RAM offset
+ * g_ss22_wram_watch_off also calls g_ss22_wram_watch(value); ~0u = none */
+extern uint32_t g_ss22_wram_watch_off;
+extern void (*g_ss22_wram_watch)(uint32_t v, int size);
+
 /* syscon 0x1C and 0x16 reach the game's DSP and sound board through these (set by them at init) */
 extern void (*g_ss22_dsp_control)(uint8_t v);
 extern void (*g_ss22_snd_set_run)(bool run);

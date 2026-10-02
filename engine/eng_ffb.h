@@ -35,5 +35,6 @@ void eng_ffb_forget(SDL_JoystickID id);
 /* play a decoded command: strength 0-100 %, reverse = push the other way (an inverted steering axis
  * XOR the user's FFB direction setting) */
 void eng_ffb_force(int motor, int strength, bool reverse);
+void eng_ffb_force_f(double f, int strength, bool reverse);   /* the same in full resolution: f = motor / 63, -1..1 */
 void eng_ffb_close(void);                       /* stop the force and let go of the device (also run at exit) */
 #endif

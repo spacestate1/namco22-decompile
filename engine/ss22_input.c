@@ -7,12 +7,14 @@
 #include "eng_cfg.h"
 #include "eng_ffb.h"
 #include "eng_ui.h"
+#include "ss22_board.h"
 
 #define PAD_DEADZONE   4000     /* of 32767: an Xbox pad rests near 3000. 8000 left a quarter of the stick dead, and with the curve below the steering
                                 * all came in the stick's outer half -- easing off a turn dropped it back towards the centre */
 #define STICK_RATE     0x50     /* the most the stick moves the wheel in a frame (centre to full lock ~0.1 s): a stick flicked or let go
                                 * jumped the wheel the whole way in one frame, and the car jerked */
-#define WHEEL_DEADZONE 1000
+#define WHEEL_DEADZONE 32      /* of 32767 (0.1% of the lock): a wheel's sensor noise. 1000 left +-4 degrees of the cabinet's 270 with no
+                                * steering and no centring, the spring catching the wheel at its edge -- a notch at the centre in play */
 #define MAX_ACTIONS    16
 #define MAX_DEV        8
 #define MAX_CAP_AXES   16
@@ -173,10 +175,35 @@ static bool key_held(const uint8_t *k, int a)
  * The cabinet's Motor/Feedback PCB turns each UART0 byte of the MCU into a
  * steering torque (ss22_input_motor), played on the device the steering axis
  * is bound to (engine/eng_ffb.c). Settings: ffb_strength 0-100 (0 = off) and
- * ffb_invert for a wheel whose driver pushes the other way. */
-static int ffb_strength = 100;
+ * ffb_invert for a wheel whose driver pushes the other way.
+ *
+ * With the game's torque word (ss22_input_game.torque) the force is taken from
+ * the sum the 68K builds instead of the byte: the byte is that sum clamped,
+ * cut to 64 steps and dithered by a 4-frame pattern, which the cabinet's motor
+ * smoothed away but a modern wheel plays as a notch where the sign flips at the
+ * centre. The terms also split into centring and road, each with its own gain
+ * (ffb_centering / ffb_road, 0-200 %). */
+static int ffb_strength = 100, ffb_centre = 100, ffb_road = 100;
 static bool ffb_invert;
-static int motor;                                /* the last command, -63..63: negative pushes toward the higher A-D side */
+static double force;                             /* the last command, -1..1: negative pushes toward the higher A-D side */
+
+/* the torque word's writes this frame: the running sum, term by term */
+static int tq_sum[8], tq_n, tq_centre, tq_roadv;
+static uint32_t tq_frame, tq_seen = ~0u;
+extern uint32_t rr_frame;
+static void torque_write(uint32_t v, int size)
+{
+    if (size != 2) return;
+    if (rr_frame != tq_frame || tq_n >= (int)(sizeof tq_sum / sizeof *tq_sum)) { tq_frame = rr_frame; tq_n = 0; }
+    tq_sum[tq_n++] = (int16_t)v;
+    if (tq_n == game->torque.parts) {            /* the whole sum: split it into its terms */
+        tq_centre = 0;
+        for (int i = 0; i < tq_n; i++)
+            if (game->torque.centre >> i & 1) tq_centre += tq_sum[i] - (i ? tq_sum[i - 1] : 0);
+        tq_roadv = tq_sum[tq_n - 1] - tq_centre;
+    } else { tq_centre = tq_sum[tq_n - 1]; tq_roadv = 0; }      /* a one-write path (the game's own centring mode) */
+    tq_seen = rr_frame;
+}
 
 void ss22_input_close(void) { eng_ffb_close(); }
 
@@ -281,13 +308,19 @@ static bool ffb_device(void)
 
 static void ffb_apply(void)
 {
-    if (game->wheel_motor && ffb_device()) eng_ffb_force(motor, ffb_strength, joy_steer.invert != ffb_invert);
+    if (game->wheel_motor && ffb_device()) eng_ffb_force_f(force, ffb_strength, joy_steer.invert != ffb_invert);
 }
 
 void ss22_input_motor(uint8_t b)
 {
     if (!game || !game->wheel_motor) return;
-    motor = eng_ffb_decode(b);
+    /* the torque sum while the game builds it (this frame or the last); the byte when it does not (menus, attract) */
+    if (game->torque.addr && tq_seen != ~0u && rr_frame - tq_seen <= 1) {
+        double t = (tq_centre * ffb_centre + tq_roadv * ffb_road) / 100.0;
+        if (t > game->torque.limit) t = game->torque.limit;
+        if (t < -game->torque.limit) t = -game->torque.limit;
+        force = t / game->torque.limit;
+    } else force = eng_ffb_decode(b) / 63.0;
     ffb_apply();
 }
 
@@ -359,7 +392,7 @@ static void axis_label(int kind, char *v, size_t vn)
 }
 
 static int nsw(void) { return (game->test_bit ? 1 : 0) + (game->service_bit ? 1 : 0); }
-static int nffb(void) { return game->wheel_motor ? 2 : 0; }      /* Force feedback, FFB direction */
+static int nffb(void) { return game->wheel_motor ? (game->torque.addr ? 4 : 2) : 0; }   /* Force feedback, FFB direction[, FFB centering, FFB road effects] */
 static int pg_n(void) { return nsw() + nffb() + 2 + game->n; }    /* the switches, the FFB rows, Reset, Stick steering, the actions */
 static bool pg_val(int r) { return (r >= nsw() && r < nsw() + nffb()) || r == nsw() + nffb() + 1; }
 
@@ -376,6 +409,8 @@ static void pg_text(int r, char *l, size_t ln, char *v, size_t vn)
         return;
     }
     if (r == 1 && nffb()) { snprintf(l, ln, "FFB direction"); snprintf(v, vn, "%s", ffb_invert ? "reversed" : "normal"); return; }
+    if (r == 2 && nffb() > 2) { snprintf(l, ln, "FFB centering"); snprintf(v, vn, "%d%%", ffb_centre); return; }
+    if (r == 3 && nffb() > 2) { snprintf(l, ln, "FFB road effects"); snprintf(v, vn, "%d%%", ffb_road); return; }
     r -= nffb();
     if (r == 0) { snprintf(l, ln, "Reset keyboard defaults"); return; }
     if (r == 1) { snprintf(l, ln, "Stick steering"); snprintf(v, vn, "%s", steer_levels[steer_level].name); return; }
@@ -420,6 +455,14 @@ static void pg_change(int r, int dir)
         return;
     }
     if (r == 1 && nffb()) { ffb_invert = !ffb_invert; eng_cfg_set_int("ffb_invert", ffb_invert); return; }
+    if ((r == 2 || r == 3) && nffb() > 2) {                      /* 0-200 %: Left/Right 10% steps, Enter cycles */
+        int *g = r == 2 ? &ffb_centre : &ffb_road;
+        *g = dir ? *g + 10 * dir : (*g + 10) % 210;
+        if (*g < 0) *g = 0;
+        if (*g > 200) *g = 200;
+        eng_cfg_set_int(r == 2 ? "ffb_centering" : "ffb_road", *g);
+        return;
+    }
     r -= nffb();
     if (r == 0) {
         for (int a = 0; a < game->n; a++) if (bound[a] != game->actions[a].def) binding_set(a, game->actions[a].def);
@@ -459,6 +502,16 @@ void ss22_input_init(const ss22_input_game *g)
         if (ffb_strength < 0) ffb_strength = 0;
         if (ffb_strength > 100) ffb_strength = 100;
         ffb_invert = eng_cfg_int("ffb_invert", 0) != 0;
+        ffb_centre = eng_cfg_int("ffb_centering", 100);
+        ffb_road = eng_cfg_int("ffb_road", 100);
+        if (ffb_centre < 0) ffb_centre = 0;
+        if (ffb_centre > 200) ffb_centre = 200;
+        if (ffb_road < 0) ffb_road = 0;
+        if (ffb_road > 200) ffb_road = 200;
+        if (g->torque.addr && g->torque.parts > 0) {          /* tap the torque sum as the 68K writes it */
+            g_ss22_wram_watch_off = g->torque.addr - 0xE00000u;
+            g_ss22_wram_watch = torque_write;
+        }
     }
     SDL_GameControllerAddMappingsFromFile("gamecontrollerdb.txt");
     pad_scan();
@@ -738,6 +791,6 @@ void ss22_input_neutral(void)
 {
     const unsigned centre = (unsigned)((game->wheel_min + game->wheel_max) / 2);
     wheel = centre; pedal[0] = pedal[1] = 0;
-    motor = 0; ffb_apply();                                  /* the next byte from the game restores the force */
+    force = 0; ffb_apply();                                  /* the next byte from the game restores the force */
     game->send(game->test_bit && test_latch ? game->test_bit : 0, wheel, pedal[0], pedal[1]);
 }

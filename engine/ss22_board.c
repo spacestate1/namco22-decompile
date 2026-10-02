@@ -37,6 +37,8 @@ int             g_ss22_mbox;
 static void     ss22_mbox_log(uint32_t off, int size, uint32_t v);
 void (*g_ss22_dsp_control)(uint8_t v);
 void (*g_ss22_snd_set_run)(bool run);
+uint32_t g_ss22_wram_watch_off = ~0u;
+void (*g_ss22_wram_watch)(uint32_t v, int size);
 
 ss22_sys_t g_ss22;
 #ifdef RR_TRACE
@@ -268,6 +270,7 @@ void rr_write(uint32_t a, int size, uint32_t v)
     a &= 0xFFFFFFu;
     if (a < SS22_ROM_SIZE) { g_ss22.n_romwrite++; complain("ROM write", a, size); return; }
     if (a >= 0xE00000u) {
+        if (a - 0xE00000u == g_ss22_wram_watch_off && g_ss22_wram_watch) g_ss22_wram_watch(v, size);
         if (a - 0xE00000u + (uint32_t)size <= SS22_WRAM_SIZE) { be_wr(g_ss22.wram, a - 0xE00000u, size, v); return; }
     } else switch (a >> 16) {
     case 0x40: if (IN(0x400000u, 0x20)) return; break;                              /* keycus_w: ignored */
