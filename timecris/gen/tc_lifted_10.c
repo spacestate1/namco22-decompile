@@ -7,6 +7,50 @@ int rd_hook(uint32_t ep);
 extern int rd_stop_on;
 int rd_jump_stop(uint32_t t, uint32_t at);   /* src/rd: stop a checked run at its tail jump */
 
+/* ---- FUN_00079e56 @ 0x079E56 ---- */
+void L_79E56_at(uint32_t pc_)
+{
+  uint64_t uf200 = 0;
+  uint64_t uf300 = 0;
+  uint64_t u10400 = 0;
+  uint64_t u10500 = 0;
+  uint64_t u49b00 = 0;
+  uint64_t u49c00 = 0;
+  if (pc_ == 0x79E56U && rd_on && rd_hook(0x79E56U)) return;
+resume_:
+  switch (pc_) {
+  case 0x79E56U: goto A_79E56;
+  case 0x79E5CU: goto A_79E5C;
+  case 0x79E64U: goto A_79E64;
+  default: rr_jump(pc_, pc_); return;   /* another function owns it */
+  }
+A_79E56: RR_INS(0x79E56U); /* move.w #0x19,(0x48,A5) */
+  P_79E56_0: u49b00 = (0x19ULL) & 0xFFFFULL;
+  P_79E56_1: u10400 = (RG4(0x34) + 0x48ULL) & 0xFFFFFFFFULL;
+  P_79E56_2: u10500 = ((u49b00 & 0xFFFFULL)) & 0xFFFFULL;
+  P_79E56_3: MWR2((uint32_t)(u10400 & 0xFFFFFFFFULL), (u10500 & 0xFFFFULL));
+  P_79E56_4: RS1(0x44, (SX2((u49b00 & 0xFFFFULL)) < SX2(0x0ULL)));
+  P_79E56_5: RS1(0x45, ((u49b00 & 0xFFFFULL) == 0x0ULL));
+  P_79E56_6: RS1(0x46, 0x0ULL);
+  P_79E56_7: RS1(0x47, 0x0ULL);
+  A_END_79E56: ;
+A_79E5C: RR_INS(0x79E5CU); /* move.l #0x79e6a,(0xb0,A5) */
+  P_79E5C_0: u49c00 = (0x79E6AULL) & 0xFFFFFFFFULL;
+  P_79E5C_1: uf200 = (RG4(0x34) + 0xB0ULL) & 0xFFFFFFFFULL;
+  P_79E5C_2: uf300 = ((u49c00 & 0xFFFFFFFFULL)) & 0xFFFFFFFFULL;
+  P_79E5C_3: MWR4((uint32_t)(uf200 & 0xFFFFFFFFULL), (uf300 & 0xFFFFFFFFULL));
+  P_79E5C_4: RS1(0x44, (SX4((u49c00 & 0xFFFFFFFFULL)) < SX4(0x0ULL)));
+  P_79E5C_5: RS1(0x45, ((u49c00 & 0xFFFFFFFFULL) == 0x0ULL));
+  P_79E5C_6: RS1(0x46, 0x0ULL);
+  P_79E5C_7: RS1(0x47, 0x0ULL);
+  A_END_79E5C: ;
+A_79E64: RR_INS(0x79E64U); /* bra.l 0x0000450e */
+  P_79E64_0: { RR_POLL(); if (rd_stop_on && rd_jump_stop(0x450EU, 0x79E64U)) return; L_450E(); return; }
+  A_END_79E64: ;
+  if (rd_stop_on && rd_jump_stop(0x79E6AU, 0x79E64U)) return;
+  L_79E6A(); return;
+}
+
 /* ---- FUN_00079e6a @ 0x079E6A ---- */
 void L_79E6A_at(uint32_t pc_)
 {

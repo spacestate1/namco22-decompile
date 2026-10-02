@@ -203,6 +203,8 @@ void L_2966_at(uint32_t pc);   /* FUN_00002966 */
 static inline void L_2966(void) { L_2966_at(0x2966U); }
 void L_2AAA_at(uint32_t pc);   /* FUN_00002aaa */
 static inline void L_2AAA(void) { L_2AAA_at(0x2AAAU); }
+void L_2AD6_at(uint32_t pc);   /* FUN_00002ad6 */
+static inline void L_2AD6(void) { L_2AD6_at(0x2AD6U); }
 void L_2B10_at(uint32_t pc);   /* FUN_00002b10 */
 static inline void L_2B10(void) { L_2B10_at(0x2B10U); }
 void L_2BB8_at(uint32_t pc);   /* FUN_00002bb8 */

@@ -230,6 +230,11 @@ void rr_tick(void)
         if (frame == (uint32_t)test_coin + 6) g_hw.inputs |= 0x1000;
     }
     if (test_gas >= 0 && frame >= (uint32_t)test_gas) g_hw.gas = 0x610;
+    { static int nv = -1; static uint32_t vf[16];          /* RR_TEST_VIEW=f1,f2,...: press VIEW CHANGE (active low 0x0040) for 30 frames at each */
+      if (nv < 0) { nv = 0; const char *e = getenv("RR_TEST_VIEW"); while (e && *e && nv < 16) { char *q; const unsigned long v = strtoul(e, &q, 0); if (q == e) break; vf[nv++] = (uint32_t)v; e = q; if (*e == ',') e++; else break; } }
+      for (int i = 0; i < nv; i++) { if (frame == vf[i]) g_hw.inputs &= (uint16_t)~0x0040; if (frame == vf[i] + 30) g_hw.inputs |= 0x0040; } }
+    { static long vp = -2; if (vp == -2) { const char *e = getenv("RR_TEST_VIEWPOKE"); vp = e ? atol(e) : -1; }   /* test: the view-change EDGE straight into */
+      if (vp >= 0 && frame == (uint32_t)vp) g_rr.wram[0x818] |= 0x10; }    /* the game's input byte 0x818 (-> 0x812 bit 4, rd_1e006) */
     for (int i = 0; i < n_steer; i++) if (frame >= (uint32_t)test_steer[i].at) g_hw.steer = (uint16_t)test_steer[i].value;
     if (windowed) {
         if (frame % 120 == 0) rr_hw_eeprom_save();     /* the test menu's settings and the records, once the game has changed them */
@@ -237,9 +242,20 @@ void rr_tick(void)
             if (!rr_host_frame()) { perf_report(); rr_hw_eeprom_save(); rr_audio_close(); rr_host_close(); fprintf(stderr, "[RR] window closed at frame %u\n", frame); exit(0); }
             /* the Online menu lives in this loop: the built-in host and the lobby (HELLO/WELCOME, ROSTER, READY,
              * START) must keep running while it is open, or "Host a LAN game" never gets its own HELLO.
-             * Not during a race session: send_frame() would stage link packets for a frozen game. */
-            if (rr_host_paused() && !rr_net_session_active()) rr_net_poll();
+             * In a race session too, as a keepalive (pings, and the built-in host keeps relaying for the
+             * others): without it the server dropped a player whose menu was open for 5 s */
+            if (rr_host_paused()) rr_net_poll_paused();
         } while (rr_host_paused());
+    }
+    if (!windowed) {                               /* RR_PACE=1: a headless run at the real 59.9 Hz (network tests: jitter in ms means frames) */
+        static int pace = -1; static uint32_t t0;
+        if (pace < 0) { const char *e = getenv("RR_PACE"); pace = e && *e == '1'; t0 = SDL_GetTicks(); }
+        if (pace) {
+            const uint32_t t = SDL_GetTicks();
+            uint32_t due = t0 + (uint32_t)((double)frame * 1000.0 / 59.9);
+            if ((int32_t)(t - due) > 50) { t0 = t - (uint32_t)((double)frame * 1000.0 / 59.9); due = t; }   /* fell behind (a stall): carry on at 60 Hz, no catch-up burst */
+            if ((int32_t)(due - t) > 0) SDL_Delay(due - t);
+        }
     }
     rr_net_apply_inputs();                         /* online: the automatic gas that starts every machine together */
     rr_input_frame(frame);                         /* replay overrides, recorder logs */
@@ -256,7 +272,15 @@ void rr_tick(void)
     if (!rr_env_active()) rr_hw_vblank();      /* (a trace oracle refreshes at MAME's own vblank interrupt: rr_env.c) */
     rr_net_poll();                       /* online play: peer FRAMEs into the link queue before the poll injects one */
     rr_link_poll();                      /* a received link packet's SCI IRQ lands at this frame edge */
-    if (!rr_env_active()) rr_deliver_irqs(rr_hw_irq_level);   /* a trace oracle lands the interrupts itself */
+    if (!rr_env_active()) {                  /* a trace oracle lands the interrupts itself */
+        rr_deliver_irqs(rr_hw_irq_level);
+        /* online: the other pending rivals' packets, each through the game's own SCI handler (offline nothing is pending) */
+        for (int k = 0; k < 7; k++) {
+            if (g_hw.irq_state & ~(1u << 2)) break;      /* only while the SCI is all that is pending: never re-run another, unacknowledged handler */
+            if (!rr_link_inject_next()) break;
+            rr_deliver_irqs(rr_hw_irq_level);
+        }
+    }
     if (dump_dir) {             /* RR_DUMP_EVERY=n (default 60), RR_DUMP_FROM=f: dump cadence */
         static unsigned every, from; static int init;
         if (!init) { const char *e = getenv("RR_DUMP_EVERY"), *f = getenv("RR_DUMP_FROM");

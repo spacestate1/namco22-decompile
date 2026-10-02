@@ -60,6 +60,7 @@ void rr_net_delete_room(int id);             /* delete an EMPTY room that is not
 bool rr_net_switching(void);                 /* a room change is in flight (the lobby window stays up) */
 
 void rr_net_apply_inputs(void);              /* once per simulated frame, after the host input: the automatic gas at GO */
+void rr_net_poll_paused(void);               /* the same while the game is paused (menu): keepalive only, no link FRAMEs */
 void rr_net_poll(void);                      /* once per frame, before rr_link_poll */
 
 #endif

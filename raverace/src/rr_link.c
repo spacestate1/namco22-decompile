@@ -48,7 +48,11 @@ static rr_link_pkt_t txq[4]; static int txq_r, txq_w;   /* our transmissions (st
  * robin. A FIFO went stale with 3+ players (N-1 peers send a frame each per
  * frame, one is injected): it filled, then dropped the NEWEST. Here a newer
  * packet replaces an older one from the same cabinet, so each rival is seen at
- * most ~N frames late and never behind a backlog. */
+ * most ~N frames late and never behind a backlog. Online, rr_main then calls
+ * rr_link_inject_next + the game's IRQ until every pending cabinet is in (the
+ * real link delivers up to 7 frames a frame), so each rival is seen every frame:
+ * with one per frame, 4+ players left the game's 8-frame peer timeout only a few
+ * frames of slack and Wi-Fi jitter made rivals vanish. */
 static rr_link_pkt_t rxl[8]; static unsigned rx_pending; static int rx_hand = -1;
 
 static uint32_t n_tx, n_kick, n_rx, n_irq, n_bad;
@@ -134,6 +138,13 @@ bool rr_link_tx_pop(rr_link_pkt_t *out)
     return true;
 }
 
+bool rr_link_tx_pop_latest(rr_link_pkt_t *out)
+{
+    bool got = false;
+    while (rr_link_tx_pop(out)) got = true;
+    return got;
+}
+
 void rr_link_rx_push(const rr_link_pkt_t *p)
 {
     int id = p->id & 7;
@@ -157,6 +168,33 @@ static void inject(const rr_link_pkt_t *p)
     n_rx++; n_irq++;
 }
 
+static void inject_one(void)
+{
+    int id = rx_hand;
+    for (int k = 0; k < 8; k++) {                        /* next pending cabinet after the last one served */
+        id = (id + 1) & 7;
+        if (rx_pending & (1u << id)) break;
+    }
+    rx_hand = id;
+    rx_pending &= ~(1u << id);
+    inject(&rxl[id]);
+}
+
+bool rr_link_net_legacy(void)
+{
+    static int legacy = -1;
+    if (legacy < 0) { const char *e = getenv("RR_NET_LEGACY"); legacy = e && *e == '1'; }
+    return legacy != 0;
+}
+
+bool rr_link_inject_next(void)
+{
+    if (rr_link_net_legacy()) return false;                            /* RR_NET_LEGACY=1: one peer per frame, as before (A/B) */
+    if (!rx_pending || rx_frame) return false;           /* nothing waiting, or the game has not taken the last one */
+    inject_one();
+    return true;
+}
+
 void rr_link_poll(void)
 {
     if (loopback < 0) { const char *e = getenv("RR_LINK_LOOPBACK"); loopback = e && *e == '1'; }
@@ -172,16 +210,7 @@ void rr_link_poll(void)
             rr_link_rx_push(&p);
         }
     }
-    if (rx_pending) {
-        int id = rx_hand;
-        for (int k = 0; k < 8; k++) {                    /* next pending cabinet after the last one served */
-            id = (id + 1) & 7;
-            if (rx_pending & (1u << id)) break;
-        }
-        rx_hand = id;
-        rx_pending &= ~(1u << id);
-        inject(&rxl[id]);                                /* the handler's ring scan finds one frame per IRQ */
-    }
+    if (rx_pending) inject_one();                        /* the handler's ring scan finds one frame per IRQ */
     if (tx_done || rx_frame) rr_hw_sci_irq();            /* status still set (the ack raced us): re-assert */
     if (debug == 1) {
         static uint32_t last, last_live;

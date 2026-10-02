@@ -36,6 +36,12 @@ void rr_link_poll(void);                 /* once per frame, before IRQ delivery 
  * frame and send to the peers), and a packet a peer sent (push; injected into
  * the RX ring at the next rr_link_poll, one per frame). */
 bool rr_link_tx_pop(rr_link_pkt_t *out);
+bool rr_link_tx_pop_latest(rr_link_pkt_t *out);   /* the NEWEST staged packet, the older ones dropped (online: no backlog delay) */
+/* online: inject the next pending peer packet if the game has taken the last one (its SCI handler cleared
+ * the frame bit); false = nothing pending, or the last one not taken yet. rr_main runs the game's IRQ after
+ * each, so every peer's newest packet reaches the game every frame instead of one peer per frame. */
+bool rr_link_inject_next(void);
+bool rr_link_net_legacy(void);           /* RR_NET_LEGACY=1: the old link path (one peer a frame, oldest packet sent), for A/B */
 void rr_link_rx_push(const rr_link_pkt_t *p);
 void rr_link_net_active(bool on);        /* a net session owns the TX queue: RR_LINK_LOOPBACK yields */
 

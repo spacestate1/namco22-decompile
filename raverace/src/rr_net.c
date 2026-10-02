@@ -7,9 +7,10 @@
  * cabinet's link number, and the game's C139 link packets -- rr_link.c --
  * are exchanged as FRAMEs at 60 Hz). The game itself never knows the
  * difference from a wired 8-cabinet link: peer FRAMEs are injected through
- * rr_link_rx_push, one per frame at the frame edge (rr_link_poll), so with
- * N peers the injection cycles -- the game's own 8-frame peer timeout
- * tolerates that.
+ * rr_link_rx_push; at the frame edge every peer's newest packet goes into the
+ * game, each through its own SCI interrupt (rr_main.c, rr_link_inject_next).
+ * We send our NEWEST staged packet each frame (no backlog). RR_NET_SIM=loss%,
+ * spike_ms[,burst] imitates a bad Wi-Fi link on the receive side, for tests.
  *
  * Inert by default: no server configured -> OFFLINE -> rr_net_poll is one
  * branch. Debug counters with RR_NET_DEBUG=1; headless bootstrap with
@@ -183,8 +184,10 @@ static void send_hello(void)
  * so without this anyone who can reach the port could send GO/ROSTER/FRAME */
 static int from_server(const struct sockaddr_storage *a) { return rr_addr_eq(a, &srv); }
 
+static void sim_reset(void);
 static void sock_open(void)
 {
+    sim_reset();                                     /* RR_NET_SIM: nothing held from an old connection reaches the new one */
     rr_sock_init();
     sock = socket(srv.ss_family, SOCK_DGRAM, 0);
     if (sock == RR_SOCK_BAD) return;
@@ -457,6 +460,7 @@ static void on_go(uint16_t seq, const uint8_t *p, int len)
     if (!found) { fail("not in the GO roster"); return; }
     session_id = sid;
     frame_seq = 0;
+    if (!rr_link_net_legacy()) { rr_link_pkt_t junk; rr_link_tx_pop_latest(&junk); }   /* packets staged before the race: never sent */
     for (int i = 0; i < 8; i++) last_fseq[i] = 0xFFFFFFFFu;
     pend_start = pend_ready = 0;
     /* the lobby slot IS the cabinet number; the EEPROM patch wins only after the
@@ -571,7 +575,7 @@ static void on_message(int type, uint16_t seq, const uint8_t *p, int len)
 static void send_frame(void)
 {
     rr_link_pkt_t p;
-    if (!rr_link_tx_pop(&p)) return;
+    if (!(rr_link_net_legacy() ? rr_link_tx_pop(&p) : rr_link_tx_pop_latest(&p))) return;   /* RR_NET_LEGACY=1: the oldest, as before (A/B) */              /* the newest: a backlog was a constant ~50 ms of delay */
     uint8_t pl[49];
     pl[0] = (uint8_t)session_id; pl[1] = (uint8_t)(session_id >> 8);
     pl[2] = (uint8_t)(session_id >> 16); pl[3] = (uint8_t)(session_id >> 24);
@@ -585,6 +589,15 @@ static void send_frame(void)
     send_msg(T_FRAME, 0, pl, 49);
     last_frame_tx = now_ms();
     n_ftx++;
+}
+
+static void handle_raw(const uint8_t *b, int n, uint32_t now)
+{
+    if (n < 10 || memcmp(b, "RRN1", 4)) return;
+    int len = b[8] | b[9] << 8;
+    if (len != n - 10) return;                             /* bad length: drop (the contract) */
+    last_rx = now;
+    on_message(b[4], (uint16_t)(b[6] | b[7] << 8), b + 10, len);
 }
 
 static void send_ping(uint32_t now)
@@ -698,6 +711,36 @@ bool rr_net_host_start(void)
 void rr_net_host_stop(void) { rr_net_disconnect(); rr_netd_stop(); }
 bool rr_net_hosting(void) { return rr_netd_running(); }
 
+static int poll_paused;                          /* rr_net_poll_paused: the game is frozen (menu) */
+void rr_net_poll_paused(void) { poll_paused = 1; rr_net_poll(); poll_paused = 0; }
+
+/* ---- RR_NET_SIM=loss%,spike_ms[,burst]: a bad Wi-Fi link, on the receive side (tests only) ----
+ * each received message is dropped with probability loss% (after a drop the next burst-1 are dropped too);
+ * and about every 2 s (at random) the link STALLS for spike_ms/2..spike_ms: everything received meanwhile is
+ * held and then arrives at once, in order -- what a Wi-Fi retry storm, a background scan or a power-save wake
+ * looks like from the game. Independent random delays per packet would mostly reorder them instead, which
+ * is not what Wi-Fi does. Off unless the variable is set. */
+static int sim_loss = -1, sim_jit, sim_burst, sim_left;
+static uint32_t sim_rng = 12345, sim_hold_until, sim_last;
+#define SIM_Q 256
+static struct { uint32_t at; int n; uint8_t b[512]; } simq[SIM_Q];
+static int simq_n;
+static void sim_reset(void) { simq_n = 0; sim_left = 0; }
+static uint32_t sim_rand(void) { sim_rng = sim_rng * 1103515245u + 12345u; return sim_rng >> 8; }
+static void sim_init(void)
+{
+    sim_loss = 0;
+    const char *e = getenv("RR_NET_SIM");
+    if (!e || !*e) return;
+    sim_burst = 1;
+    if (sscanf(e, "%d,%d,%d", &sim_loss, &sim_jit, &sim_burst) < 1) sim_loss = 0;
+    if (sim_burst < 1) sim_burst = 1;
+    const char *s = getenv("RR_NET_SIM_SEED"); if (s) sim_rng = (uint32_t)strtoul(s, NULL, 0);
+    fprintf(stderr, "[NET] RR_NET_SIM: loss %d%%, stalls of %d ms (~1 per 2 s), burst %d\n", sim_loss, sim_jit, sim_burst);
+}
+static bool sim_on(void) { if (sim_loss < 0) sim_init(); return sim_loss > 0 || sim_jit > 0; }
+static void handle_raw(const uint8_t *b, int n, uint32_t now);
+
 void rr_net_poll(void)
 {
     if (debug < 0) { const char *e = getenv("RR_NET_DEBUG"); debug = e && *e == '1'; }
@@ -733,11 +776,24 @@ void rr_net_poll(void)
             break;
         }
         if (!from_server(&from)) continue;                 /* not the server: drop */
-        if (n < 10 || memcmp(b, "RRN1", 4)) continue;
-        int len = b[8] | b[9] << 8;
-        if (len != n - 10) continue;                       /* bad length: drop (the contract) */
-        last_rx = now;
-        on_message(b[4], (uint16_t)(b[6] | b[7] << 8), b + 10, len);
+        if (sim_on()) {                                    /* RR_NET_SIM: lose it, or hold it a while */
+            if (sim_left > 0) { sim_left--; continue; }
+            if ((int)(sim_rand() % 100) < sim_loss) { sim_left = sim_burst - 1; continue; }
+            if (sim_jit && (int32_t)(now - sim_hold_until) >= 0 && now != sim_last && sim_rand() % 2000 < (now - sim_last > 100 ? 100 : now - sim_last))
+                sim_hold_until = now + (uint32_t)sim_jit / 2 + sim_rand() % ((uint32_t)sim_jit / 2 + 1);   /* a stall starts (~1 per 2 s) */
+            sim_last = now;
+            if (simq_n < SIM_Q && n <= (int)sizeof simq[0].b) {
+                simq[simq_n].at = (int32_t)(sim_hold_until - now) > 0 ? sim_hold_until : now;
+                simq[simq_n].n = n; memcpy(simq[simq_n].b, b, (size_t)n); simq_n++;
+            }
+            continue;
+        }
+        handle_raw(b, n, now);
+    }
+    while (simq_n > 0 && (int32_t)(now - simq[0].at) >= 0 && sock != RR_SOCK_BAD) {   /* RR_NET_SIM: the held messages, in order */
+        uint8_t t[512]; const int n = simq[0].n; memcpy(t, simq[0].b, (size_t)n);
+        memmove(&simq[0], &simq[1], (size_t)(--simq_n) * sizeof simq[0]);
+        handle_raw(t, n, now);
     }
 
     switch (st) {
@@ -759,8 +815,10 @@ void rr_net_poll(void)
         }
         break;
     case ST_SESSION:
-        if (cab_reapply > 0) { rr_hw_set_link_cabinet(my_slot); cab_reapply--; }
-        send_frame();                                      /* one staged link packet per frame */
+        if (!poll_paused) {                                /* the game is running: our car's packet */
+            if (cab_reapply > 0) { rr_hw_set_link_cabinet(my_slot); cab_reapply--; }
+            send_frame();                                  /* the newest staged link packet, once per frame */
+        }
         if (now - last_ping_tx >= PING_MS)
             send_ping(now);                                /* no car to report: PING is the liveness fallback */
         /* a dead server mid-race is NOT fatal: the game's own 8-frame peer

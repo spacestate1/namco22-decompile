@@ -49,6 +49,8 @@ void L_55C8_at(uint32_t pc);   /* FUN_000055c8 */
 static inline void L_55C8(void) { L_55C8_at(0x55C8U); }
 void L_57A8_at(uint32_t pc);   /* FUN_000057a8 */
 static inline void L_57A8(void) { L_57A8_at(0x57A8U); }
+void L_584A_at(uint32_t pc);   /* FUN_0000584a */
+static inline void L_584A(void) { L_584A_at(0x584AU); }
 void L_5D64_at(uint32_t pc);   /* FUN_00005d64 */
 static inline void L_5D64(void) { L_5D64_at(0x5D64U); }
 void L_5DD8_at(uint32_t pc);   /* FUN_00005dd8 */
@@ -91,6 +93,8 @@ void L_6F8E_at(uint32_t pc);   /* FUN_00006f8e */
 static inline void L_6F8E(void) { L_6F8E_at(0x6F8EU); }
 void L_6FAE_at(uint32_t pc);   /* FUN_00006fae */
 static inline void L_6FAE(void) { L_6FAE_at(0x6FAEU); }
+void L_7000_at(uint32_t pc);   /* FUN_00007000 */
+static inline void L_7000(void) { L_7000_at(0x7000U); }
 void L_7008_at(uint32_t pc);   /* FUN_00007008 */
 static inline void L_7008(void) { L_7008_at(0x7008U); }
 void L_70E2_at(uint32_t pc);   /* FUN_000070e2 */
@@ -107,6 +111,10 @@ void L_717A_at(uint32_t pc);   /* FUN_0000717a */
 static inline void L_717A(void) { L_717A_at(0x717AU); }
 void L_7194_at(uint32_t pc);   /* FUN_00007194 */
 static inline void L_7194(void) { L_7194_at(0x7194U); }
+void L_71BA_at(uint32_t pc);   /* FUN_000071ba */
+static inline void L_71BA(void) { L_71BA_at(0x71BAU); }
+void L_7202_at(uint32_t pc);   /* FUN_00007202 */
+static inline void L_7202(void) { L_7202_at(0x7202U); }
 void L_73C0_at(uint32_t pc);   /* FUN_000073c0 */
 static inline void L_73C0(void) { L_73C0_at(0x73C0U); }
 void L_748C_at(uint32_t pc);   /* FUN_0000748c */
@@ -1239,6 +1247,8 @@ void L_200AE_at(uint32_t pc);   /* FUN_000200ae */
 static inline void L_200AE(void) { L_200AE_at(0x200AEU); }
 void L_2011C_at(uint32_t pc);   /* FUN_0002011c */
 static inline void L_2011C(void) { L_2011C_at(0x2011CU); }
+void L_20130_at(uint32_t pc);   /* FUN_00020130 */
+static inline void L_20130(void) { L_20130_at(0x20130U); }
 void L_201B4_at(uint32_t pc);   /* FUN_000201b4 */
 static inline void L_201B4(void) { L_201B4_at(0x201B4U); }
 void L_201DA_at(uint32_t pc);   /* FUN_000201da */
