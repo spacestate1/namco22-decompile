@@ -40,8 +40,18 @@ void rr_div0(const char *what)
     }
 }
 
+char rr_last_trap[160];                           /* the latest trap, for the fatal message (rr_fatal_hook) */
+void (*rr_fatal_hook)(const char *why);          /* a host's last word before the lifted program stops: save, tell the player; NULL = none */
+static void rr_fatal(int code, const char *why)
+{
+    fprintf(stderr, "[RR] %s -- stopping\n", why);
+    if (rr_fatal_hook) { void (*h)(const char *) = rr_fatal_hook; rr_fatal_hook = NULL; h(why); }   /* once, even if the hook itself fails */
+    exit(code);
+}
+
 void rr_trap(uint32_t at, uint32_t target, const char *what)
 {
+    snprintf(rr_last_trap, sizeof rr_last_trap, "frame %u: 0x%06X -> 0x%08X: %s", rr_frame, at, target, what);
     rd_budget_out();                                 /* a probe's mutated state trapped: abandon the probe */
     { extern int rd_quiet; if (rd_quiet) return; }   /* a fuzz probe's mutated state (src/rd), not the game */
     rr_n_traps++;
@@ -128,7 +138,7 @@ long rr_ncalls;             /* calls made (bsr/jsr/IRQ): the checker's fuzz skip
 
 int rr_call_push(uint32_t ret)
 {
-    if (sh_n >= SHADOW_MAX) { fprintf(stderr, "[RR] shadow stack overflow at %08X\n", ret); exit(4); }
+    if (sh_n >= SHADOW_MAX) { char w[96]; snprintf(w, sizeof w, "shadow stack overflow at %08X", ret); rr_fatal(4, w); }
     sh_ret[sh_n] = ret; sh_sp[sh_n] = (uint32_t)RG4(RR_REG_SP);   /* SP after the push */
     rr_ncalls++;
     return sh_n++;
@@ -139,7 +149,7 @@ int rr_after_call(int j)
 {
     if (sh_target < 0) {                   /* callee came back with a plain C return (trap) */
         rd_budget_out();                   /* inside a checker probe: abandon the probe, not the run */
-        fprintf(stderr, "[RR] call frame %d returned without rts -- stopping\n", j); exit(5);
+        char w[256]; snprintf(w, sizeof w, "call frame %d returned without rts (last trap: %s)", j, rr_last_trap[0] ? rr_last_trap : "none"); rr_fatal(5, w);
     }
     if (sh_target < j) return 1;           /* unwinding further up */
     sh_target = -1;                        /* this call site: resume at rr_ret_to */
@@ -165,7 +175,7 @@ void rr_rte(void)
 {
     for (int k = sh_n - 1; k >= 0; k--)
         if (sh_ret[k] == SH_IRQ) { sh_n = k; sh_target = k; rr_ret_to = SH_IRQ; return; }
-    fprintf(stderr, "[RR] rte with no interrupt on the shadow stack\n"); exit(6);
+    rr_fatal(6, "rte with no interrupt on the shadow stack");
 }
 
 
@@ -189,7 +199,7 @@ void rr_irq_enter(int lvl)
 #endif
     int j = rr_irq_push();
     rr_jump(handler, 0xFFFFFFFFu);
-    if (sh_target != j) { fprintf(stderr, "[RR] irq handler %08X ended without rte\n", handler); exit(6); }
+    if (sh_target != j) { char w[256]; snprintf(w, sizeof w, "irq handler %08X ended without rte (last trap: %s)", handler, rr_last_trap[0] ? rr_last_trap : "none"); rr_fatal(6, w); }
     sh_target = -1;
 #ifdef RR_TRACE
     { void rr_trace_mark(const char *); rr_trace_mark("RTE"); }

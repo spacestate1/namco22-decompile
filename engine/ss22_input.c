@@ -678,12 +678,22 @@ static void aim_update(const uint8_t *k)
     float dx = 0, dy = 0;                               /* the stick and the arrow keys move the crosshair (a full deflection crosses the picture in ~1 s) */
     for (int i = 0; i < MAX_DEV; i++) {
         SDL_GameController *c = pads[i].gc; if (!c) continue;
-        const int rx = SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_RIGHTX), ry = SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_RIGHTY);
-        if (abs(rx) > PAD_DEADZONE) dx += rx / 32767.0f;
-        if (abs(ry) > PAD_DEADZONE) dy += ry / 32767.0f;
+        /* EITHER stick aims (GitHub #28: the console ports aim with the left stick / D-pad, the trigger is on the right hand) */
+        static const SDL_GameControllerAxis ax[2][2] = { { SDL_CONTROLLER_AXIS_RIGHTX, SDL_CONTROLLER_AXIS_RIGHTY },
+                                                         { SDL_CONTROLLER_AXIS_LEFTX,  SDL_CONTROLLER_AXIS_LEFTY } };
+        for (int s = 0; s < 2; s++) {
+            const int x = SDL_GameControllerGetAxis(c, ax[s][0]), y = SDL_GameControllerGetAxis(c, ax[s][1]);
+            if (abs(x) > PAD_DEADZONE) dx += x / 32767.0f;
+            if (abs(y) > PAD_DEADZONE) dy += y / 32767.0f;
+        }
+        if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_DPAD_LEFT))  dx -= 1;     /* and the D-pad */
+        if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_DPAD_RIGHT)) dx += 1;
+        if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_DPAD_UP))    dy -= 1;
+        if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_DPAD_DOWN))  dy += 1;
     }
     if (k[SDL_SCANCODE_LEFT])  dx -= 1; if (k[SDL_SCANCODE_RIGHT]) dx += 1;
     if (k[SDL_SCANCODE_UP])    dy -= 1; if (k[SDL_SCANCODE_DOWN])  dy += 1;
+    if (dx > 1) dx = 1; if (dx < -1) dx = -1; if (dy > 1) dy = 1; if (dy < -1) dy = -1;   /* two sticks (or a stick and a key) do not aim twice as fast */
     if (dx != 0 || dy != 0) {
         if (aim_src == 1 && have) { aim_x = clamp01(px); aim_y = clamp01(py); }   /* start from where the mouse was */
         aim_src = 2; aim_on = true;
@@ -699,6 +709,9 @@ static void aim_update(const uint8_t *k)
     { static int dbg = -1, n; if (dbg < 0) dbg = getenv("SS22_AIMDBG") != NULL;       /* SS22_AIMDBG=1: the aim, once a second */
       if (dbg && ++n % 60 == 0) fprintf(stderr, "[AIM] src %d on %d  norm %.3f,%.3f  port %u,%u  buttons 0x%X\n", aim_src, aim_on, aim_x, aim_y, g_ss22_gun_x, g_ss22_gun_y, SDL_GetMouseState(NULL, NULL)); } 
 }
+
+static uint16_t swallow;                 /* buttons held since the menu closed: masked until released */
+static bool swallow_arm;
 
 void ss22_input_update(void)
 {
@@ -800,6 +813,10 @@ void ss22_input_update(void)
     if ((int)wheel < game->wheel_min) wheel = (unsigned)game->wheel_min;
     if ((int)wheel > game->wheel_max) wheel = (unsigned)game->wheel_max;
     for (int i = 0; i < 2; i++) if ((int)pedal[i] > game->pedal_max[i]) pedal[i] = (unsigned)game->pedal_max[i];
+    /* The press that closed the menu (a click on Service / Test mode, pad A or B) must not reach the game as a shot or a pedal: after the
+     * menu, every button still held is masked until it is released. */
+    if (swallow_arm) { swallow = p; swallow_arm = false; }
+    swallow &= p; p &= (uint16_t)~swallow;
     if (game->test_bit && test_latch) p |= game->test_bit;
     if (game->service_bit && service_frames > 0) { p |= game->service_bit; service_frames--; }
     game->send(p, wheel, pedal[0], pedal[1]);
@@ -807,6 +824,7 @@ void ss22_input_update(void)
 
 void ss22_input_neutral(void)
 {
+    swallow_arm = true;                                      /* the buttons held when the menu closes are ignored until released */
     const unsigned centre = (unsigned)((game->wheel_min + game->wheel_max) / 2);
     wheel = centre; pedal[0] = pedal[1] = 0;
     force = 0; ffb_apply();                                  /* the next byte from the game restores the force */

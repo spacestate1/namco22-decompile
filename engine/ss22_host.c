@@ -250,11 +250,15 @@ static bool pump(void)
 
 static void pace(void)
 {
-    if (vsync && vs_frames < 60) {                   /* trust vsync only if it blocks: an unmapped or occluded window (Wayland, NVIDIA) swaps at once */
-        if (vs_frames++ == 10) vs_t0 = now_ns();
-        if (vs_frames == 60 && (now_ns() - vs_t0) / 50 < 12000000ull) {
-            vsync = false; SDL_GL_SetSwapInterval(0); next_ns = now_ns();
-            fprintf(stderr, "[HOST] vsync does not block here (%.1f ms a frame): timer-paced at 59.906 Hz\n", (double)((now_ns() - vs_t0) / 50) / 1e6);
+    if (vsync) {                                     /* trust vsync only while it blocks: an unmapped or occluded window (Wayland, NVIDIA), or a window */
+        if (vs_frames++ == 10) vs_t0 = now_ns();     /* minimised later (Windows), swaps at once -- so every 50 frames are measured, not only the first */
+        if (vs_frames == 60) {
+            const uint64_t per = (now_ns() - vs_t0) / 50;
+            vs_frames = 10; vs_t0 = now_ns();
+            if (per < 12000000ull) {
+                vsync = false; SDL_GL_SetSwapInterval(0); next_ns = now_ns();
+                fprintf(stderr, "[HOST] vsync does not block here (%.1f ms a frame): timer-paced at 59.906 Hz\n", (double)per / 1e6);
+            }
         }
     }
     if (!vsync) {                                    /* sleep to the board's 59.906 Hz, the last millisecond spun for precision */

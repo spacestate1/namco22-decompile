@@ -112,6 +112,7 @@ static void rec_hook(uint16_t p, unsigned w, unsigned p1, unsigned p2)
     if (!memcmp(v, rec_last, sizeof v)) return;
     memcpy(rec_last, v, sizeof v);
     fprintf(rec_f, "%u %X %X %X %X %X %X %X\n", rr_frame, v[0], v[1], v[2], v[3], v[4], v[5], v[6]);
+    fflush(rec_f);                                     /* a crash still leaves the inputs up to it on disk (_IOLBF is full buffering on Windows) */
 }
 static void rec_open(const char *path)
 {
@@ -120,10 +121,25 @@ static void rec_open(const char *path)
     fprintf(rec_f, "SS22REC 1 %s ", g_ss22_game->tag);
     for (unsigned i = 0; i < SS22_EEPROM_SIZE; i++) fprintf(rec_f, "%02X", g_ss22.eeprom[i]);
     fprintf(rec_f, "\n");
-    setvbuf(rec_f, NULL, _IOLBF, 0);                       /* a crash still leaves the inputs up to it on disk */
+    fflush(rec_f);
     extern void (*ss22_input_rec_hook)(uint16_t, unsigned, unsigned, unsigned);
     ss22_input_rec_hook = rec_hook;
     fprintf(stderr, "[%s] recording the session's inputs to %s\n", g_ss22_game->tag, path);
+}
+/* THE LAST WORD (rr_fatal_hook): the lifted program reached code it does not have (an untranslated address, a broken call frame) and must
+ * stop. Keep what the player needs -- the session's recording (the way to replay this crash) and the EEPROM -- and, in a window, say so
+ * instead of vanishing. */
+static const char *fatal_rec;
+static void on_fatal(const char *why)
+{
+    if (rec_f) { fflush(rec_f); fclose(rec_f); rec_f = NULL; }
+    ss22_eeprom_save();
+    if (!win_scale) return;
+    char msg[1024];
+    snprintf(msg, sizeof msg, "%s stopped: the game reached code that has not been translated yet.\n\n%s\n\n"
+             "Please report it with %s%s%s -- that file replays this session up to the crash.",
+             g_ss22_game->name, why, g_ss22_game->logname, fatal_rec ? " and " : "", fatal_rec ? fatal_rec : "");
+    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, g_ss22_game->name, msg, NULL);
 }
 static void rep_read(void) { rep_have = rep_f && fscanf(rep_f, "%u %X %X %X %X %X %X %X", &rep_ev.f, &rep_ev.p, &rep_ev.w, &rep_ev.p1, &rep_ev.p2, &rep_ev.gx, &rep_ev.gy, &rep_ev.goff) == 8; }
 static bool rep_open(const char *path)
@@ -494,11 +510,13 @@ int ss22_main(int argc, char **argv, const ss22_game *g)
     ss22_board_use(g->board);
     if (!ss22_load_program(rom_dir)) return 2;
     ss22_hw_init(rom_dir);
-    if (win_scale) ss22_eeprom_persist(nvfile);         /* a player's session keeps its options and records; headless runs (the gates) never do */
+    if (win_scale && !rep_path) ss22_eeprom_persist(nvfile);   /* a player's session keeps its options and records; headless runs (the gates) and
+                                                         * replays never do: a replay plays from the recording's EEPROM and must not save it over the player's */
     if (rep_path && !rep_open(rep_path)) return 2;       /* the recording's EEPROM replaces whatever was loaded */
     static char last_rec[80];                            /* a played session always keeps its latest recording: a crash can be replayed afterwards */
     if (win_scale && !rec_path && !rep_path) { snprintf(last_rec, sizeof last_rec, "%s_last.rec", g->lname); rec_path = last_rec; }
-    if (rec_path) rec_open(rec_path);
+    if (rec_path) { rec_open(rec_path); if (rec_f) fatal_rec = rec_path; }
+    rr_fatal_hook = on_fatal;
     if (!ss22_dsp_init(rom_dir)) return 2;
     if (!ss22_snd_init(rom_dir)) fprintf(stderr, "[%s] no sound MCU: the game will read no inputs\n", g->tag);
     ss22_env_init(getenv(envname));                     /* dev trace build only */

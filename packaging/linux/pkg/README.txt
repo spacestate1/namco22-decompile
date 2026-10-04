@@ -29,6 +29,12 @@ The first start unpacks the zips into the game folder (extracted/); after that
 the zips may be removed. Settings, high scores and recordings are kept in the
 same folder.
 
+APPIMAGES: zips placed next to the .AppImage file (or in a roms/ folder beside
+it) are found too. PORTABLE MODE: make a folder named namco22-data next to the
+AppImages, and each game keeps everything in namco22-data/<game>/ instead of
+~/.local/share/namco22 -- one disk then works on a Steam Deck and another PC.
+The AppImage names have no version number: to update, overwrite the file.
+
 PLAYING
 -------
 Prop Cycle:  5 coin, Enter start, arrow keys steer, Space pedal, P pause,

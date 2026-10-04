@@ -55,7 +55,7 @@ Each release on the [Releases page](https://github.com/spacestate1/namco22-decom
 |---|---|---|
 | `namco22_VERSION_amd64.deb` | Ubuntu 22.04 or newer, Linux Mint 21 or newer, LMDE 6, Debian 12 or newer | `sudo apt install ./namco22_*_amd64.deb` |
 | `namco22-VERSION-1.fc40.x86_64.rpm` | Fedora 40 or newer | `sudo dnf install ./namco22-*.x86_64.rpm` |
-| `PropCycle-VERSION-x86_64.AppImage`, `RaveRacer-...`, `TokyoWars-...`, `DirtDash-...` | **The Steam Deck**, and any 64-bit Linux without installing anything | `chmod +x` the file and run it (on a Deck: Desktop Mode, right-click it > Add to Steam) |
+| `PropCycle-x86_64.AppImage`, `RaveRacer-...`, `TokyoWars-...`, `DirtDash-...`, `TimeCrisis-...` | **The Steam Deck**, and any 64-bit Linux without installing anything | `chmod +x` the file and run it (on a Deck: Desktop Mode, right-click it > Add to Steam) |
 | `windows-release-VERSION.zip` | Windows 10 or 11, 64-bit | Unzip it anywhere, put the game zips in its `roms` folder, double-click the game's `.exe` |
 
 On Linux, start a game from the applications menu (or type `propcycle`, `raveracer`, `tokyowars`, `dirtdash` or `timecrisis`). The first time, it makes the folder
@@ -66,7 +66,12 @@ On Linux, start a game from the applications menu (or type `propcycle`, `raverac
 hidden `.local` folder; zips in `~/Downloads` are found automatically), then in Desktop Mode right-click the AppImage > *Add to Steam* (or Steam >
 *Add a Non-Steam Game*) and start it from Game Mode. The AppImages use the Deck's own SDL2, so Steam Input works: the menu opens with **R3** or by holding
 **Start** for a second. Each AppImage uses the same folders as the `.deb`, so the ROMs and settings are shared. If an AppImage will not start, run it from a
-terminal (`./DirtDash-*.AppImage`) and read the message; on a system without FUSE, `--appimage-extract-and-run` works.
+terminal (`./DirtDash-x86_64.AppImage`) and read the message; on a system without FUSE, `--appimage-extract-and-run` works.
+
+The AppImage names carry no version number, so **updating is overwriting the file** and a Steam shortcut keeps working. ROM zips placed **next to the
+AppImage** (or in a `roms` folder beside it) are found too. **Portable mode:** make a folder named `namco22-data` next to the AppImages and each game
+keeps everything there (`namco22-data/<game>/`: its roms, the unpacked chips, settings, scores and recordings) instead of `~/.local/share/namco22` --
+one disk, e.g. a microSD card, then works the same on a Steam Deck and another PC. The Windows zip is portable already (everything lives in its folder).
 
 ## How it was made
 
@@ -264,9 +269,9 @@ changed in `raverace/rr_controls.cfg`; in Tokyo Wars and Dirt Dash, in the menu
 To **reload**, aim a little OFF the screen and shoot (the pointer sits on the window's edge, which the game reads as "off screen"), or hold `R` or the
 gun's side button. The widescreen picture keeps the game's 4:3 aiming area in the middle. Guns with their own calibration need it done once in their own software. Not tested here: any real light gun hardware.
 
-**Choosing a stage.** *Esc > Stages* starts the game's own **Timed Game** at stage 1, 2 or 3 (unlimited lives, a best time per stage):
+**Choosing a stage.** `--stage 1`, `--stage 2` or `--stage 3` on the command line starts the game's own **Timed Game** at stage 1, 2 or 3 (unlimited lives, a best time per stage):
 the coins are put in and the choices made for you, then the gun is yours. It works from the attract screens, not during a game.
-From a terminal: `--stage 1`, `--stage 2` or `--stage 3`. **No crosshair:** *Esc > Display > Crosshair* turns the red aiming
+**No crosshair:** *Esc > Display > Crosshair* turns the red aiming
 cross off (a real light gun needs none).
 
 **For testing** (environment variables, set before starting the game): `TC_INF_TIME=1` keeps the clock from running out and

@@ -12,6 +12,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>                      /* MoveFileExA (the EEPROM save) */
+#undef IN                                 /* windows.h defines IN empty; this file has its own IN(base, len) */
+#endif
 #include "ss22_board.h"
 #include "ss22_game.h"
 
@@ -265,9 +270,25 @@ uint32_t rr_read(uint32_t a, int size)
     return 0;
 }
 
+#ifdef RR_TRACE
+/* SS22_WATCH=<addr>: every write covering that byte, with the writing PC (trace build only, like Rave Racer's RR_WATCH) */
+extern uint32_t rr_trace_pc;
+static void watch(uint32_t a, int size, uint32_t v)
+{
+    static long w = -2;
+    if (w == -2) { const char *e = getenv("SS22_WATCH"); w = e ? strtol(e, NULL, 0) : -1; }
+    if (w >= 0 && (uint32_t)w >= a && (uint32_t)w < a + (uint32_t)size)
+        fprintf(stderr, "[WATCH] %06X <- %0*X (size %d) at PC %06X\n", (unsigned)a, size * 2, (unsigned)v, size,
+                (unsigned)rr_trace_pc);
+}
+#endif
+
 void rr_write(uint32_t a, int size, uint32_t v)
 {
     a &= 0xFFFFFFu;
+#ifdef RR_TRACE
+    watch(a, size, v);
+#endif
     if (a < SS22_ROM_SIZE) { g_ss22.n_romwrite++; complain("ROM write", a, size); return; }
     if (a >= 0xE00000u) {
         if (a - 0xE00000u == g_ss22_wram_watch_off && g_ss22_wram_watch) g_ss22_wram_watch(v, size);
@@ -436,13 +457,17 @@ void ss22_eeprom_save(void)
     if (!nv_on || !memcmp(nv_saved, g_ss22.eeprom, SS22_EEPROM_SIZE)) return;
     char tmp[sizeof nv_path + 8];
     snprintf(tmp, sizeof tmp, "%s.tmp", nv_path);
+    static bool warned;                              /* a folder that cannot be written: say so once (it is retried every 120 frames) */
     FILE *f = fopen(tmp, "wb");
-    if (!f) return;
+    if (!f) { if (!warned) fprintf(stderr, "[EEPROM] cannot write %s: options and records will not be saved\n", tmp); warned = true; return; }
     bool ok = fwrite(g_ss22.eeprom, 1, SS22_EEPROM_SIZE, f) == SS22_EEPROM_SIZE;
     ok = (fclose(f) == 0) && ok;
-    if (!ok) { remove(tmp); return; }
+    if (!ok) { remove(tmp); if (!warned) fprintf(stderr, "[EEPROM] writing %s failed: options and records not saved\n", tmp); warned = true; return; }
 #ifdef _WIN32
-    remove(nv_path);
+    const bool moved = MoveFileExA(tmp, nv_path, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;   /* one step: never no file at all */
+#else
+    const bool moved = rename(tmp, nv_path) == 0;
 #endif
-    if (rename(tmp, nv_path) == 0) memcpy(nv_saved, g_ss22.eeprom, SS22_EEPROM_SIZE);
+    if (moved) { memcpy(nv_saved, g_ss22.eeprom, SS22_EEPROM_SIZE); warned = false; }
+    else if (!warned) { fprintf(stderr, "[EEPROM] cannot replace %s: options and records not saved\n", nv_path); warned = true; }
 }

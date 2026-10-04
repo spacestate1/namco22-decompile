@@ -12,7 +12,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include "ss22_game.h"
-#include "eng_ui.h"
 #include "lift_cpu.h"
 #include "tc_lifted.h"
 
@@ -80,7 +79,7 @@ static const ss22_input_game input = {
     actions, (int)(sizeof actions / sizeof *actions),
     0x001, 0x3FF, 0x1FF, 12,
     { 0, 0 }, 0,
-    { "Enter, then press the new key (Esc cancels)", "Mouse / absolute-mouse gun aims: left = trigger, right/middle = pedal; screen edge, R or side button = off-screen (reload). F8 = gun border", "Pad: right stick aims, A/RB trigger, B/LB pedal, Back coin. Arrow keys aim too" },
+    { "Enter, then press the new key (Esc cancels)", "Mouse / absolute-mouse gun aims: left = trigger, right/middle = pedal; screen edge, R or side button = off-screen (reload). F8 = gun border", "Pad: either stick or the D-pad aims, A/RB trigger, B/LB pedal, Back coin. Arrow keys aim too; 5 = coin" },
     ss22_snd_inputs,
     IN_TEST, IN_SERVICE,
     false,                                  /* no steering motor (the gun recoil is the aux PCB: not emulated) */
@@ -158,7 +157,13 @@ static void wram16_set(uint32_t a, uint16_t v) { g_ss22.wram[a] = (uint8_t)(v >>
 static void tc_frame(long n)
 {
     static int inf_time = -1, inf_life, most_lives;
+    static int lives_log = -1, last_mode = -1, last_lives = -1;
     if (inf_time < 0) { inf_time = getenv("TC_INF_TIME") != NULL; inf_life = getenv("TC_INF_LIFE") != NULL; }
+    if (lives_log < 0) lives_log = getenv("TC_LIVESLOG") != NULL;            /* TC_LIVESLOG=1: the mode and lives byte on every change */
+    if (lives_log && n >= 600 && (g_ss22.wram[TC_W_MODE] != last_mode || g_ss22.wram[TC_W_LIVES] != last_lives)) {
+        last_mode = g_ss22.wram[TC_W_MODE]; last_lives = g_ss22.wram[TC_W_LIVES];
+        fprintf(stderr, "[LIVES] frame %ld mode %d lives %d\n", n, last_mode, last_lives);
+    }
     if (n < 600 || g_ss22.wram[TC_W_MODE] != 3) { most_lives = 0; return; }
     if (inf_time) { const uint16_t t = wram16(TC_W_TIMER); if (t > 0 && t < 600) wram16_set(TC_W_TIMER, 3600); }
     if (inf_life) {
@@ -168,7 +173,7 @@ static void tc_frame(long n)
     }
 }
 
-/* THE STAGE SELECT (--stage 1|2|3, and the Esc menu's Stages page): the game's own TIMED GAME, where the player picks a stage and has
+/* THE STAGE SELECT (--stage 1|2|3): the game's own TIMED GAME, where the player picks a stage and has
  * unlimited lives, chosen on the cabinet's inputs -- three coins (a game costs three), a shot at TIMED GAME on SELECT GAME MODE, a shot at
  * the stage's box on the stage screen -- then the gun is the player's. Frame n counts from the script's start; from power-on it waits for the
  * boot first. The aim points are the boxes' centres, in the gun ports' units (X 68..694, Y 43..284 across the screen). */
@@ -196,21 +201,6 @@ static bool start(const char *name, long n, uint16_t *p, unsigned *wheel, unsign
     return true;
 }
 
-static const char *const stage_names[3] = { "1", "2", "3" };
-static const char *const stage_labels[3] = { "Stage 1 (easy)", "Stage 2 (medium)", "Stage 3 (hard)" };
-static int  st_n(void) { return 3; }
-static bool st_enabled(int r) { (void)r; return g_ss22.wram[TC_W_MODE] != 3; }      /* not during a game: it starts one */
-static void st_text(int r, char *l, size_t ln, char *v, size_t vn) { snprintf(l, ln, "Timed Game"); snprintf(v, vn, "%s", stage_labels[r]); }
-static void st_change(int r, int dir) { if (dir == 0 && st_enabled(r)) { ss22_start_script(stage_names[r]); eng_ui_set_open(false); } }
-static void st_notes(void (*line)(const char *fmt, ...))
-{
-    line("Starts the game's TIMED GAME at that stage: unlimited lives,");
-    line("a best time per stage. The coins and choices are made for you.");
-    line("From the attract screens (not during a game). Or: --stage 1|2|3");
-}
-static const eng_ui_page stages_page = { "Stages", 380, 110, 26, st_n, NULL, st_enabled, st_text, st_change, st_notes };
-static const eng_ui_page *menu_page(void) { return &stages_page; }
-
 static const eng_hud_mark hud_marks_none[] = { { 0, 0, 0 } };
 
 static const ss22_game game = {
@@ -236,7 +226,6 @@ static const ss22_game game = {
     .autoplay = autoplay,
     .start = start, .start_names = "1, 2, 3",
     .frame = tc_frame,
-    .menu_page = menu_page,
 };
 
 int main(int argc, char **argv) { return ss22_main(argc, argv, &game); }

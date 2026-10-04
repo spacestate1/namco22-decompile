@@ -7,6 +7,32 @@ int rd_hook(uint32_t ep);
 extern int rd_stop_on;
 int rd_jump_stop(uint32_t t, uint32_t at);   /* src/rd: stop a checked run at its tail jump */
 
+/* ---- FUN_000a2a88 @ 0x0A2A88 ---- */
+void L_A2A88_at(uint32_t pc_)
+{
+  uint64_t u49b00 = 0;
+  if (pc_ == 0xA2A88U && rd_on && rd_hook(0xA2A88U)) return;
+resume_:
+  switch (pc_) {
+  case 0xA2A88U: goto A_A2A88;
+  case 0xA2A8CU: goto A_A2A8C;
+  default: rr_jump(pc_, pc_); return;   /* another function owns it */
+  }
+A_A2A88: RR_INS(0xA2A88U); /* move.w #0x30,D2w */
+  P_A2A88_0: u49b00 = (0x30ULL) & 0xFFFFULL;
+  P_A2A88_1: RS2(0xA, (u49b00 & 0xFFFFULL));
+  P_A2A88_2: RS1(0x44, (SX2((u49b00 & 0xFFFFULL)) < SX2(0x0ULL)));
+  P_A2A88_3: RS1(0x45, ((u49b00 & 0xFFFFULL) == 0x0ULL));
+  P_A2A88_4: RS1(0x46, 0x0ULL);
+  P_A2A88_5: RS1(0x47, 0x0ULL);
+  A_END_A2A88: ;
+A_A2A8C: RR_INS(0xA2A8CU); /* jmp 0x00013844.l */
+  P_A2A8C_0: { RR_POLL(); if (rd_stop_on && rd_jump_stop(0x13844U, 0xA2A8CU)) return; L_13844(); return; }
+  A_END_A2A8C: ;
+  if (rd_stop_on && rd_jump_stop(0xA2A92U, 0xA2A8CU)) return;
+  L_A2A92(); return;
+}
+
 /* ---- FUN_000a2a92 @ 0x0A2A92 ---- */
 void L_A2A92_at(uint32_t pc_)
 {

@@ -36,6 +36,6 @@ fi
 exec "\$HERE/usr/lib/namco22/namco22-launch" $KEY "\$@"
 RUN
     chmod 755 "$AD/AppRun"
-    ARCH=x86_64 "$TOOL" --appimage-extract-and-run --no-appstream "$AD" "$OUT/$NAME-$VER-x86_64.AppImage"
+    ARCH=x86_64 "$TOOL" --appimage-extract-and-run --no-appstream "$AD" "$OUT/$NAME-x86_64.AppImage"   # no version in the name: an update overwrites the file (Steam shortcuts keep working)
 done
 ls -la "$OUT"/*.AppImage

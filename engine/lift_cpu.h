@@ -11,6 +11,10 @@ extern uint32_t rr_frame;          /* the host's frame counter: traps and traces
 extern uint32_t rr_n_traps;
 extern int      rr_in_irq;         /* > 0 while a host-delivered interrupt handler runs */
 extern uint32_t rr_n_irq[8];       /* interrupts delivered, per level */
+extern char     rr_last_trap[160]; /* the latest trap ("frame N: 0xAT -> 0xTARGET: what"), empty if none */
+/* Called once just before the lifted program stops (an untranslated address, a broken call frame): the host saves what it can and
+ * tells the player. NULL = just the log line and exit (the default). */
+extern void   (*rr_fatal_hook)(const char *why);
 
 /* generated (<base>_lifted.c): run whichever lifted function owns `target` */
 void rr_jump(uint32_t target, uint32_t at);
