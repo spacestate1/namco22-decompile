@@ -21,6 +21,7 @@ __pycache__/
 /raverace/build/
 /raverace/extracted/
 /raverace/gen/snd_driver.c
+/raverace/gen/rr_c25.c
 /raverace/rr_controls.cfg
 /raverace/screenshots/
 /raverace/recordings/

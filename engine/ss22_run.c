@@ -139,8 +139,11 @@ static bool rep_open(const char *path)
 static const char *rec_path, *rep_path;
 static const char *start_name;                       /* --stage NAME (the game's start script, ss22_game.start) */
 static bool start_on;                                /* the start script owns the cabinet this frame: the window's keys stay out of it */
+static long start_base;                              /* the frame the script started at (0: --stage, from power-on) */
+void ss22_start_script(const char *name) { if (g_ss22_game->start) { start_name = name; start_base = (long)rr_frame; } }
 static void update_inputs(void)
 {
+    if (g_ss22_game->frame) g_ss22_game->frame((long)rr_frame);
     if (rep_f) {                                         /* --replay: the recorded values, at the recorded frames */
         while (rep_have && rep_ev.f <= rr_frame) {
             g_ss22_gun_x = (uint16_t)rep_ev.gx; g_ss22_gun_y = (uint16_t)rep_ev.gy; g_ss22_gun_off = rep_ev.goff != 0;
@@ -151,8 +154,9 @@ static void update_inputs(void)
     }
     if (start_name && g_ss22_game->start) {
         uint16_t p = 0; unsigned wheel = 0x200, pedal1 = 0, pedal2 = 0;
-        start_on = g_ss22_game->start(start_name, (long)rr_frame, &p, &wheel, &pedal1, &pedal2);
+        start_on = g_ss22_game->start(start_name, (long)rr_frame - start_base, &p, &wheel, &pedal1, &pedal2);
         if (start_on) { ss22_snd_inputs(p, wheel, pedal1, pedal2); return; }
+        start_name = NULL;                               /* over: the player has the cabinet */
     }
     if (ss22_host_active() && !autoplay && !npress && pedal_from < 0) return;      /* the window's keys drive the cabinet (ss22_host_frame) */
     long n = (long)rr_frame - input_offset;
@@ -427,7 +431,7 @@ int ss22_main(int argc, char **argv, const ss22_game *g)
     extern bool ss22_input_aim(float *, float *);
     host_game = (ss22_host_game){ g->name, cfgfile, g->tag, g->lname, in_init, ss22_input_page, ss22_input_event, in_update,
                                   ss22_input_neutral, ss22_snd_set_output, g->out_gain,
-                                  g->input && g->input->light_gun ? ss22_input_aim : NULL };
+                                  g->input && g->input->light_gun ? ss22_input_aim : NULL, g->menu_page };
     const char *rom_dir = "extracted";
     const char *rd_dir = NULL, *rd_out = NULL; int rd_frame = 0, frames_given = 0;
     if (argc == 1) win_scale = -1;                      /* started with no arguments (a double-click, the Windows how-to): play, in a window */

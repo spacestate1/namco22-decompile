@@ -12,6 +12,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include "ss22_game.h"
+#include "eng_ui.h"
+#include "lift_cpu.h"
 #include "tc_lifted.h"
 
 bool tc_c25_exec(c71_t *d, int pc);          /* gen/tc_c25.c */
@@ -140,6 +142,75 @@ static void autoplay(long n, uint16_t *p, unsigned *wheel, unsigned *pedal1, uns
     }
 }
 
+/* TEST SWITCHES, to reach the later levels (environment variables, read once). Work RAM, found by dumping it every second
+ * through a played session (--dump-every 60):
+ *   0xE00796  the area timer, in frames (TIME 26.83 on screen = 1609); 0 = time over
+ *   0xE00733  the mode: 0 booting, 2 the attract demo (which runs on the same timer), 3 a game
+ *   0xE00791  lives left (the LIFE icons: set to 1, the HUD shows one)
+ * TC_INF_TIME=1: in a game, the timer is topped up to 60 s whenever it falls under 10 s.
+ * TC_INF_LIFE=1: in a game, a life lost is given back (up to the most this game has had, so an operator's 5 stays 5).
+ * Never before frame 600: the power-on RAM test checks this memory, and a write during it fails the boot (WORK RAM NG). */
+#define TC_W_TIMER 0x0796
+#define TC_W_MODE  0x0733
+#define TC_W_LIVES 0x0791
+static uint16_t wram16(uint32_t a) { return (uint16_t)(g_ss22.wram[a] << 8 | g_ss22.wram[a + 1]); }
+static void wram16_set(uint32_t a, uint16_t v) { g_ss22.wram[a] = (uint8_t)(v >> 8); g_ss22.wram[a + 1] = (uint8_t)v; }
+static void tc_frame(long n)
+{
+    static int inf_time = -1, inf_life, most_lives;
+    if (inf_time < 0) { inf_time = getenv("TC_INF_TIME") != NULL; inf_life = getenv("TC_INF_LIFE") != NULL; }
+    if (n < 600 || g_ss22.wram[TC_W_MODE] != 3) { most_lives = 0; return; }
+    if (inf_time) { const uint16_t t = wram16(TC_W_TIMER); if (t > 0 && t < 600) wram16_set(TC_W_TIMER, 3600); }
+    if (inf_life) {
+        const int l = g_ss22.wram[TC_W_LIVES];
+        if (l > most_lives && l <= 9) most_lives = l;
+        if (l < most_lives) g_ss22.wram[TC_W_LIVES] = (uint8_t)most_lives;
+    }
+}
+
+/* THE STAGE SELECT (--stage 1|2|3, and the Esc menu's Stages page): the game's own TIMED GAME, where the player picks a stage and has
+ * unlimited lives, chosen on the cabinet's inputs -- three coins (a game costs three), a shot at TIMED GAME on SELECT GAME MODE, a shot at
+ * the stage's box on the stage screen -- then the gun is the player's. Frame n counts from the script's start; from power-on it waits for the
+ * boot first. The aim points are the boxes' centres, in the gun ports' units (X 68..694, Y 43..284 across the screen). */
+#define AIM_TIMED_X 381
+#define AIM_TIMED_Y 213
+#define AIM_STAGE_Y 147
+static const uint16_t aim_stage_x[3] = { 193, 382, 569 };
+static bool start(const char *name, long n, uint16_t *p, unsigned *wheel, unsigned *pedal1, unsigned *pedal2)
+{
+    (void)wheel; (void)pedal1; (void)pedal2;
+    const int st = name[0] >= '1' && name[0] <= '3' && !name[1] ? name[0] - '1' : -1;
+    if (st < 0) return false;
+    if (n < 0) return true;                                                  /* the name is good */
+    static long t0, last = -1;
+    if (last < 0 || n < last) t0 = n + (rr_frame < 300 ? 300 - (long)rr_frame : 0);   /* a new run; from power-on, after the boot (by frame ~180) */
+    last = n;
+    const long t = n - t0;
+    if (t < 0) return true;
+    if (t >= 900) return false;
+    g_ss22_gun_off = false;
+    if ((t < 6) || (t >= 40 && t < 46) || (t >= 80 && t < 86)) *p |= IN_COIN;
+    if (t < 330) { g_ss22_gun_x = AIM_TIMED_X; g_ss22_gun_y = AIM_TIMED_Y; }  /* SELECT GAME MODE comes up ~120 frames after the first coin */
+    else { g_ss22_gun_x = aim_stage_x[st]; g_ss22_gun_y = AIM_STAGE_Y; }     /* the stage screen, ~240 frames after that */
+    if (t >= 140 && t % 40 < 4) *p |= IN_TRIGGER;                             /* a shot between the boxes hits nothing */
+    return true;
+}
+
+static const char *const stage_names[3] = { "1", "2", "3" };
+static const char *const stage_labels[3] = { "Stage 1 (easy)", "Stage 2 (medium)", "Stage 3 (hard)" };
+static int  st_n(void) { return 3; }
+static bool st_enabled(int r) { (void)r; return g_ss22.wram[TC_W_MODE] != 3; }      /* not during a game: it starts one */
+static void st_text(int r, char *l, size_t ln, char *v, size_t vn) { snprintf(l, ln, "Timed Game"); snprintf(v, vn, "%s", stage_labels[r]); }
+static void st_change(int r, int dir) { if (dir == 0 && st_enabled(r)) { ss22_start_script(stage_names[r]); eng_ui_set_open(false); } }
+static void st_notes(void (*line)(const char *fmt, ...))
+{
+    line("Starts the game's TIMED GAME at that stage: unlimited lives,");
+    line("a best time per stage. The coins and choices are made for you.");
+    line("From the attract screens (not during a game). Or: --stage 1|2|3");
+}
+static const eng_ui_page stages_page = { "Stages", 380, 110, 26, st_n, NULL, st_enabled, st_text, st_change, st_notes };
+static const eng_ui_page *menu_page(void) { return &stages_page; }
+
 static const eng_hud_mark hud_marks_none[] = { { 0, 0, 0 } };
 
 static const ss22_game game = {
@@ -163,6 +234,9 @@ static const ss22_game game = {
     .polls_per_frame = 67000,               /* measured on MAME's register trace at T3 */
     .presses = presses, .n_presses = (int)(sizeof presses / sizeof *presses),
     .autoplay = autoplay,
+    .start = start, .start_names = "1, 2, 3",
+    .frame = tc_frame,
+    .menu_page = menu_page,
 };
 
 int main(int argc, char **argv) { return ss22_main(argc, argv, &game); }

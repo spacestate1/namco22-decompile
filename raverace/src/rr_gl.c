@@ -446,8 +446,10 @@ static SDL_GLContext hl_ctx;
 
 bool rr_gl_open_headless(int w, int h)
 {
+#ifndef _WIN32                                          /* Windows: SDL's offscreen driver makes OpenGL only through EGL, which Windows lacks -- the hidden window below does */
     SDL_SetHint("SDL_VIDEODRIVER", "offscreen");
     setenv("SDL_VIDEODRIVER", "offscreen", 1);         /* SDL < 2.0.22 reads only the environment */
+#endif
     if (SDL_InitSubSystem(SDL_INIT_VIDEO) != 0) {
         SDL_SetHint("SDL_VIDEODRIVER", ""); setenv("SDL_VIDEODRIVER", "", 1);
         if (SDL_InitSubSystem(SDL_INIT_VIDEO) != 0) { fprintf(stderr, "[GL] no video: %s\n", SDL_GetError()); return false; }

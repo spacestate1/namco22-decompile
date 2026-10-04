@@ -78,7 +78,12 @@ typedef struct ss22_game {
     bool (*start)(const char *name, long n, uint16_t *pressed, unsigned *wheel, unsigned *pedal1, unsigned *pedal2);
     const char *start_names;                 /* what --stage takes, for the help and the error: "city, jungle, ..." */
     unsigned    pedal_full[2];               /* what --pedal F holds the first pedal at */
+    void (*frame)(long n);                   /* once a frame at the frame boundary, in every mode (the game's test switches); NULL = none */
+    const struct eng_ui_page *(*menu_page)(void);   /* the game's own page in the Esc menu (Time Crisis: Stages); NULL = none */
 } ss22_game;
+
+/* Run the game's start script NAME (ss22_game.start) from now: its frame n counts from this call. The Esc menu's way to --stage. */
+void ss22_start_script(const char *name);
 
 int ss22_main(int argc, char **argv, const ss22_game *g);            /* engine/ss22_run.c */
 extern const ss22_game *g_ss22_game;

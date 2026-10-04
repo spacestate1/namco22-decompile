@@ -264,6 +264,14 @@ changed in `raverace/rr_controls.cfg`; in Tokyo Wars and Dirt Dash, in the menu
 To **reload**, aim a little OFF the screen and shoot (the pointer sits on the window's edge, which the game reads as "off screen"), or hold `R` or the
 gun's side button. The widescreen picture keeps the game's 4:3 aiming area in the middle. Guns with their own calibration need it done once in their own software. Not tested here: any real light gun hardware.
 
+**Choosing a stage.** *Esc > Stages* starts the game's own **Timed Game** at stage 1, 2 or 3 (unlimited lives, a best time per stage):
+the coins are put in and the choices made for you, then the gun is yours. It works from the attract screens, not during a game.
+From a terminal: `--stage 1`, `--stage 2` or `--stage 3`. **No crosshair:** *Esc > Display > Crosshair* turns the red aiming
+cross off (a real light gun needs none).
+
+**For testing** (environment variables, set before starting the game): `TC_INF_TIME=1` keeps the clock from running out and
+`TC_INF_LIFE=1` gives back every life lost, so a test can reach the later scenes of any stage. They act only during a game.
+
 **Steering with the stick** (Tokyo Wars and Dirt Dash): *Esc > Controls > Stick steering* sets how the stick turns
 the wheel. **Medium** (the default) is gentle near the centre and still reaches full lock at the edge; **Smooth** and
 **Very smooth** are gentler still; **Linear** turns the wheel in step with the stick.

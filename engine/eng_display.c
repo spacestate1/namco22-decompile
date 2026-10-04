@@ -152,6 +152,7 @@ void eng_disp_load(const char *cfg_path, int scale, bool fullscreen)
     { extern int g_eng_hud_edges_on; g_eng_hud_edges_on = d->hud_edges; }
     d->gun_border = eng_cfg_int("gun_border", 0);
     if (d->gun_border < 0 || d->gun_border > 6) d->gun_border = 0;
+    d->crosshair = eng_cfg_int("crosshair", 1) != 0;
     d->volume = eng_cfg_int("volume", 100);
     if (d->volume < 0) d->volume = 0;
     if (d->volume > 100) d->volume = 100;
@@ -201,6 +202,13 @@ void eng_disp_set_hud_edges(int on)
     g_eng_disp.hud_edges = on != 0;
     { extern int g_eng_hud_edges_on; g_eng_hud_edges_on = g_eng_disp.hud_edges; }
     eng_cfg_set("wide_hud", g_eng_disp.hud_edges ? "1" : "0");
+}
+
+bool g_eng_disp_light_gun;
+void eng_disp_set_crosshair(int on)
+{
+    g_eng_disp.crosshair = on != 0;
+    eng_cfg_set("crosshair", g_eng_disp.crosshair ? "1" : "0");
 }
 
 void eng_disp_cycle_gun_border(void)

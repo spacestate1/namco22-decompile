@@ -63,6 +63,7 @@ bool ss22_host_open(const ss22_host_game *g, int scale, bool fs)      /* scale <
     eng_gl_context_attributes();
     eng_disp_load(game->cfg_file, scale, fs);                /* the saved display choices; --window N / --fullscreen override */
     if (game->aim) SDL_SetHint(SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH, "1");      /* a light gun: the click that focuses the window is still a shot */
+    g_eng_disp_light_gun = game->aim != NULL;
     win = SDL_CreateWindow(game->title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                            eng_disp_win_w(g_eng_disp.scale), eng_disp_win_h(g_eng_disp.scale),
                            SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI |
@@ -86,6 +87,7 @@ bool ss22_host_open(const ss22_host_game *g, int scale, bool fs)      /* scale <
     SDL_SetWindowMinimumSize(win, 320, 240);
     game->input_init();                            /* after the cfg: the key bindings */
     eng_ui_add_page(game->input_page());
+    if (game->extra_page) eng_ui_add_page(game->extra_page());
     if (!eng_ui_init(win, game->title)) fprintf(stderr, "[HOST] menu: Nuklear init failed\n");
     else if (eng_pad_present()) eng_ui_set_hint(ENG_PAD_MENU_HINT, 60 * 8);         /* a pad has no Esc: say how to reach the menu */
     tex_bake_window_defaults();                    /* a per-frame budget for cold texture bakes (engine/tex_bake.c; ENG_TEX_BUDGET) */
@@ -170,7 +172,7 @@ static void present(void)
         glEnd();
         glPopMatrix(); glMatrixMode(GL_PROJECTION); glPopMatrix(); glMatrixMode(GL_MODELVIEW);
     }
-    if (game->aim && !eng_ui_is_open()) {
+    if (game->aim && g_eng_disp.crosshair && !eng_ui_is_open()) {
         float ax, ay;
         if (game->aim(&ax, &ay)) {                   /* the crosshair, over the picture */
             int dw, dh; SDL_GL_GetDrawableSize(win, &dw, &dh);

@@ -54,4 +54,10 @@ The log beside the `.exe` has a `[PACE]` line every 600 frames (Prop Cycle: run 
 `[FPS]` line). `interval mean 16.7 ms` with few frames over 20 ms is a steady 60 fps. The `work` figure is not
 reliable on NVIDIA: the driver queues frames, so the wait for vsync is counted in it.
 
-The headless `--shots` mode uses SDL's `offscreen` driver, which has no OpenGL on Windows, so it only works on Linux.
+## Testing without a window
+
+The headless `--shots DIR N` mode (a picture every N frames, no window, as fast as the machine runs) works on Windows too:
+SDL's `offscreen` driver makes OpenGL only through EGL, which Windows lacks, so there it draws into a hidden window instead.
+With `--autoplay` (the game plays itself) or `--replay FILE` (a player's session: Tokyo Wars, Dirt Dash and Time Crisis
+record every windowed session to `<game>_last.rec`) it re-runs a session exactly, for tracking down a crash. Time Crisis also takes `--stage 1|2|3` and the
+`TC_INF_TIME=1` / `TC_INF_LIFE=1` switches (README), to reach any stage's later scenes.

@@ -22,6 +22,7 @@ typedef struct {
     void (*snd_set_output)(bool live);       /* the sound board's output goes to the sound card */
     double out_gain;                         /* the game's speaker gain (engine/audio_out.h); 0 = the shared default */
     bool (*aim)(float *nx, float *ny);       /* a LIGHT GUN game: where the gun points in the 4:3 picture (false = off-screen); the host draws the crosshair and hides the pointer */
+    const eng_ui_page *(*extra_page)(void);  /* the game's own menu page after Controls (Time Crisis: Stages); NULL = none */
 } ss22_host_game;
 
 bool ss22_host_open(const ss22_host_game *g, int scale, bool fullscreen);   /* a real window; scale <= 0 = the saved window size */
