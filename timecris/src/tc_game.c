@@ -212,7 +212,7 @@ static const ss22_game game = {
     .dsp = { { {"ts1ptrl0.18k", "ts1ptrl1.16k", "ts1ptrl2.15k"},
                {"ts1ptrm0.18j", "ts1ptrm1.16j", "ts1ptrm2.15j"},
                {"ts1ptru0.18f", "ts1ptru1.16f", "ts1ptru2.15f"} }, 3, tc_c25_exec },        /* three planes of three chips (Prop Cycle's shape); no busy-wait poll measured yet */
-    .snd = { "ts1data.8k", { "ts1wavea.2l", "ts1waveb.1l" }, { 0, 0x800000 }, 0x1000000, 0xFFFF, { 1, 2 } },   /* MAME's c352 region: ts1wavea.2l at 0, ts1waveb.1l at 0x800000 */
+    .snd = { "ts1data.8k", { "ts1wavea.2l", "ts1waveb.1l" }, { 0, 0x800000 }, 0x1000000, 0xFFFF, { 1, 2 }, { true, false } },   /* MAME's c352 region: ts1wavea.2l at 0 (ROM_LOAD16_WORD_SWAP), ts1waveb.1l at 0x800000 */
     .video = { { "ts1cg0.8d", "ts1cg1.10d", "ts1cg2.12d", "ts1cg3.13d", "ts1cg4.14d", "ts1cg5.16d", "ts1cg6.18d", NULL },
                "ts1ccrl.3d", "ts1ccrh.1d",
                { "ts1scg0.12f", "ts1scg1.10f", "ts1scg2.8f", "ts1scg3.7f", "ts1scg4.5f", "ts1scg5.3f" }, 6, 0x1000000, 0xFF,

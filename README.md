@@ -6,13 +6,13 @@ they are not included here. A ROM set from **MAME 0.271 or later** is
 supported; the chip unpacker also accepts a few older chip-name spellings
 where a MAME set has since renamed one (see [docs/ROM_CHECKSUMS.md](docs/ROM_CHECKSUMS.md)).
 
-| Game | Year | Status | Game files you need | Linux | Windows |
-|---|---|---|---|---|---|
-| **Prop Cycle** | 1996 | Playable from start to finish, with sound | `propcycl.zip` | yes | yes |
-| **Rave Racer** | 1995 | Playable: races, with sound, online play (LAN and internet) | `raverace.zip` + `namcoc74.zip` | yes | yes |
-| **Tokyo Wars** | 1996 | Playable: attract, play, sound, widescreen | `tokyowar.zip` | yes | yes |
-| **Dirt Dash** | 1995 | Playable: five stages, sound, widescreen | `dirtdash.zip` | yes | yes |
-| **Time Crisis** | 1995 | Playable: attract, three-coin play through the stages, the operator's test mode, sound, widescreen; **the mouse is the gun**, and light guns work (see below) | `timecris.zip` | yes | yes |
+| Game | Year | Status | Online play | Game files you need | Linux | Windows |
+|---|---|---|---|---|---|---|
+| **Prop Cycle** | 1996 | Playable from start to finish, with sound | no | `propcycl.zip` | yes | yes |
+| **Rave Racer** | 1995 | Playable: races, with sound | **yes**: up to 8 players, LAN and internet ([how](#playing-online)) | `raverace.zip` + `namcoc74.zip` | yes | yes |
+| **Tokyo Wars** | 1996 | Playable: attract, play, sound, widescreen | no | `tokyowar.zip` | yes | yes |
+| **Dirt Dash** | 1995 | Playable: five stages, sound, widescreen | no | `dirtdash.zip` | yes | yes |
+| **Time Crisis** | 1995 | Playable: attract, three-coin play through the stages, the operator's test mode, sound, widescreen; **the mouse is the gun**, and light guns work (see below) | no | `timecris.zip` | yes | yes |
 
 **Are you running the same ROMs as the authors?** The checksums of every ROM file the games use are in
 [docs/ROM_CHECKSUMS.md](docs/ROM_CHECKSUMS.md), with a list in `md5sum` format for each game.
@@ -196,7 +196,7 @@ Building on Windows itself, and what in the code is there for Windows only:
 | `Esc` | Menu |
 | `F12` | Take a picture |
 
-**Playing online (Rave Racer).** Up to eight players can race together, each on
+<a id="playing-online"></a>**Playing online (Rave Racer).** Up to eight players can race together, each on
 their own computer. Open the menu with `Esc` and go to the **Online** page,
 then **Host / join a game...**:
 

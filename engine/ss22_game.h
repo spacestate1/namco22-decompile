@@ -31,6 +31,8 @@ typedef struct {
     uint32_t    wave_size;                   /* the chip's region */
     uint16_t    inputs_idle;                 /* the INPUTS word with nothing pressed (IP_ACTIVE_LOW; bit 9 = the cabinet switch on Dirt Dash) */
     int         adc_pedal[2];                /* the A-D channels of the two pedals (channel 0 is the wheel) */
+    bool        wave_swap[2];                /* swap each pair of bytes of that wave ROM as loaded (MAME's ROM_LOAD16_WORD_SWAP: Time Crisis's
+                                              * ts1wavea.2l, fixed in MAME 0.190; Armadillo Racing swaps both) */
 } ss22_snd_cfg;
 
 /* the picture: where the ROM chips are and what they are called (the RAM is the board's) */

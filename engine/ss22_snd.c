@@ -197,6 +197,12 @@ bool ss22_snd_init(const char *dir)
     if (!rom || !wave || !slurp(dir, c->rom, rom, 0x80000)) return false;
     chip_ok = slurp_part(dir, c->wave[0], wave + c->wave_off[0], 0x400000, true);
     if (chip_ok && c->wave[1]) chip_ok = slurp_part(dir, c->wave[1], wave + c->wave_off[1], 0x400000, true);
+    for (int i = 0; chip_ok && i < 2; i++)               /* a chip MAME loads ROM_LOAD16_WORD_SWAP: the samples' bytes come in pairs, swapped */
+        if (c->wave[i] && c->wave_swap[i]) {
+            uint8_t *w = wave + c->wave_off[i];
+            const uint32_t n = (c->wave_size - c->wave_off[i] < 0x400000u ? c->wave_size - c->wave_off[i] : 0x400000u) & ~1u;
+            for (uint32_t k = 0; k < n; k += 2) { const uint8_t t = w[k]; w[k] = w[k + 1]; w[k + 1] = t; }
+        }
     if (chip_ok) { c352_init(&chip, wave, c->wave_size); c352_reset(&chip); }
     m37710_init(&cpu, bus_r, bus_w, NULL);
     cpu.port_r = port_r; cpu.port_w = port_w;
