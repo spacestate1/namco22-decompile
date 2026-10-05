@@ -22,19 +22,18 @@
 #include "eng_ui.h"
 #include "eng_pad.h"
 #include "eng_pace.h"
+#include "eng_vsync.h"
 #include "tex_bake.h"
 #include "ss22_host.h"
 #include "eng_ffb.h"
 #include "gl_warn.h"
 
-#define FRAME_NS 16693000ull                      /* 1 / 59.906 Hz, 25.6 MHz / 814 / 525 */
 
 static const ss22_host_game *game;
 static SDL_Window *win;
 static SDL_GLContext glc;
-static bool vsync, paused, shot_pending, headless_open, restart_req;
-static uint64_t next_ns, vs_t0;
-static int vs_frames;
+static bool paused, shot_pending, headless_open, restart_req;
+static eng_vsync vs;                               /* the frame pacer (engine/eng_vsync.h) */
 
 static uint64_t now_ns(void)                     /* split the scaling: counter * 1e9 overflows 64 bits (and this works on Windows too) */
 {
@@ -69,10 +68,6 @@ bool ss22_host_open(const ss22_host_game *g, int scale, bool fs)      /* scale <
                            SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI |
                            (g_eng_disp.winmode ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0));
     if (!win) { fprintf(stderr, "[HOST] window: %s\n", SDL_GetError()); return false; }
-    SDL_DisplayMode dm;
-    const int hz = SDL_GetCurrentDisplayMode(SDL_GetWindowDisplayIndex(win), &dm) == 0 ? dm.refresh_rate : 0;
-    vsync = hz >= 59 && hz <= 61;                 /* vsync only on a ~60 Hz display: elsewhere it would run the game at the display's rate */
-    if (genv("VSYNC")) vsync = atoi(genv("VSYNC")) != 0;
 #ifdef _WIN32
     { extern SDL_GLContext eng_gl_create_win(SDL_Window **, const char **); const char *miss = NULL; glc = eng_gl_create_win(&win, &miss); }
 #else
@@ -80,9 +75,8 @@ bool ss22_host_open(const ss22_host_game *g, int scale, bool fs)      /* scale <
 #endif
     if (!glc) { fprintf(stderr, "[HOST] OpenGL context: %s\n", SDL_GetError()); return false; }
     SDL_GL_MakeCurrent(win, glc);
-    if (vsync && SDL_GL_SetSwapInterval(1) != 0) vsync = false;
-    if (!vsync) SDL_GL_SetSwapInterval(0);
-    fprintf(stderr, "[HOST] OpenGL: %s; display %d Hz, %s\n", (const char *)glGetString(GL_RENDERER), hz, vsync ? "vsync" : "timer-paced at 59.906 Hz");
+    eng_vsync_init(&vs, win, genv("VSYNC"));      /* vsync only on a ~60 Hz display and only while it blocks; <TAG>_VSYNC=0/1 forces it */
+    fprintf(stderr, "[HOST] OpenGL: %s; display %d Hz, %s\n", (const char *)glGetString(GL_RENDERER), vs.hz, eng_vsync_mode(&vs));
     eng_gl_warn_software((const char *)glGetString(GL_RENDERER));
     SDL_SetWindowMinimumSize(win, 320, 240);
     game->input_init();                            /* after the cfg: the key bindings */
@@ -96,7 +90,7 @@ bool ss22_host_open(const ss22_host_game *g, int scale, bool fs)      /* scale <
     const bool audio = eng_audio_open();
     eng_disp_attach(win);                          /* exclusive fullscreen, a size too big for this display; the volume */
     if (audio) game->snd_set_output(true);
-    next_ns = now_ns();
+    eng_vsync_resync(&vs);
     return true;
 }
 
@@ -216,6 +210,7 @@ static void present(void)
           }
       } }
     if (pace_log) eng_pace_before_swap(pace_log);
+    eng_vsync_capture(&vs, win);                     /* the picture, kept for a frame-rate lock above 60 */
     SDL_GL_SwapWindow(win);
 }
 static void present_with(eng_pace *p) { pace_log = p; present(); pace_log = NULL; }
@@ -248,29 +243,7 @@ static bool pump(void)
     return !quit;
 }
 
-static void pace(void)
-{
-    if (vsync) {                                     /* trust vsync only while it blocks: an unmapped or occluded window (Wayland, NVIDIA), or a window */
-        if (vs_frames++ == 10) vs_t0 = now_ns();     /* minimised later (Windows), swaps at once -- so every 50 frames are measured, not only the first */
-        if (vs_frames == 60) {
-            const uint64_t per = (now_ns() - vs_t0) / 50;
-            vs_frames = 10; vs_t0 = now_ns();
-            if (per < 12000000ull) {
-                vsync = false; SDL_GL_SetSwapInterval(0); next_ns = now_ns();
-                fprintf(stderr, "[HOST] vsync does not block here (%.1f ms a frame): timer-paced at 59.906 Hz\n", (double)per / 1e6);
-            }
-        }
-    }
-    if (!vsync) {                                    /* sleep to the board's 59.906 Hz, the last millisecond spun for precision */
-        next_ns += FRAME_NS;
-        uint64_t now = now_ns();
-        if (next_ns > now) {
-            const uint64_t left = next_ns - now;
-            if (left > 2000000ull) SDL_Delay((Uint32)((left - 1500000ull) / 1000000ull));
-            while (now_ns() < next_ns) ;
-        } else if (now - next_ns > 100000000ull) next_ns = now;   /* fell behind: resync, no catch-up burst */
-    }
-}
+static void pace(void) { eng_vsync_after_frame(&vs, win); }
 
 bool ss22_host_pointer(float *nx, float *ny, bool *inside)
 {
@@ -306,7 +279,8 @@ bool ss22_host_frame(void)
            if (SDL_ShowCursor(SDL_QUERY) != want) SDL_ShowCursor(want); }
     if (!paused && !eng_ui_is_open()) game->input_update();
     if (ftm) clock_gettime(CLOCK_MONOTONIC, &a1);
-    present_with(&pl);
+    eng_vsync_want(&vs, g_eng_disp.fps);            /* Display > Frame rate */
+    if (eng_vsync_show(&vs)) present_with(&pl);     /* a lock below 60 shows only some frames */
     if (ftm) clock_gettime(CLOCK_MONOTONIC, &a2);
     pace();
     if (ftm) {                                       /* which part of a slow host frame: events / draw+swap / pacing wait */
@@ -320,10 +294,10 @@ bool ss22_host_frame(void)
         eng_pace_reset(&pl);
         if (!pump()) return false;
         if (paused || eng_ui_is_open()) {
-            if (eng_ui_is_open()) { present(); if (!vsync) SDL_Delay(12); }
+            if (eng_ui_is_open()) { present(); if (!vs.vsync) SDL_Delay(12); }
             else SDL_Delay(10);
         }
-        if (!paused && !eng_ui_is_open()) next_ns = now_ns();
+        if (!paused && !eng_ui_is_open()) eng_vsync_resync(&vs);
     }
     return true;
 }

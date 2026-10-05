@@ -12,7 +12,7 @@
 static bool push(c71_t *d, uint16_t v)
 {
     if (d->sp >= 8) { for (int i = 1; i < 8; i++) d->stack[i - 1] = d->stack[i]; d->sp = 7; }   /* 8 levels, the oldest is lost (see c25_sem.h push) */
-    d->stack[d->sp++] = v; return true;
+    d->stack[d->sp++] = v; c25_mpush(d, v); return true;
 }
 
 bool c71_step(c71_t *d)
@@ -147,7 +147,7 @@ void c71_reset(c71_t *d)
     d->sxm = 1; d->ovm = 0; d->intm = 0; d->c = 0; d->tc = 0; d->cnf = 0;
     d->imr = 9; d->prd = 0xFFFF; d->tim = 0xFFFF; d->tint_pend = 0;
     d->idle = 0; d->ifr = 0;
-    d->sp = 0; d->rpt = 0; d->steps = 0; d->error[0] = 0;
+    d->sp = 0; d->rpt = 0; d->steps = 0; d->error[0] = 0; memset(d->mstk, 0, sizeof d->mstk);
     memset(d->written, 0, sizeof d->written); d->n_written = 0;
 }
 

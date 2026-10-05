@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include "eng_vsync.h"
 #include "eng_display.h"
 #include "eng_cfg.h"
 
@@ -153,6 +154,7 @@ void eng_disp_load(const char *cfg_path, int scale, bool fullscreen)
     d->gun_border = eng_cfg_int("gun_border", 0);
     if (d->gun_border < 0 || d->gun_border > 6) d->gun_border = 0;
     d->crosshair = eng_cfg_int("crosshair", 1) != 0;
+    d->fps = eng_vsync_rate_valid(eng_cfg_int("frame_rate", ENG_VSYNC_DEFAULT));
     d->volume = eng_cfg_int("volume", 100);
     if (d->volume < 0) d->volume = 0;
     if (d->volume > 100) d->volume = 100;
@@ -209,6 +211,12 @@ void eng_disp_set_crosshair(int on)
 {
     g_eng_disp.crosshair = on != 0;
     eng_cfg_set("crosshair", g_eng_disp.crosshair ? "1" : "0");
+}
+
+void eng_disp_set_fps(int fps)
+{
+    g_eng_disp.fps = eng_vsync_rate_valid(fps);
+    eng_cfg_set_int("frame_rate", g_eng_disp.fps);
 }
 
 void eng_disp_cycle_gun_border(void)

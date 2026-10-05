@@ -495,6 +495,8 @@ void game_init(void) {
     { extern int object_display_init(void); object_display_init(); }
     wsync_pin(0x3FFA, 2);   /* W[0x3FFA] play-time setting index */
     wsync_pin(0x3FFE, 2);   /* W[0x3FFE] ranking enable */
+    wsync_pin(0x3FE2, 2);   /* the sound settings at 2-mod-4 offsets, whole slots (settings_audio_defaults; the SOUND TEST sets them) */
+    wsync_pin(0x3FE6, 2);
 
     /* Credit counters + the credit-display countdown. Also never called;
      * the counters happened to read 0 from clear_work_ram(), but
@@ -947,6 +949,18 @@ void game_frame(void) {
     /* Wait for vblank (already signaled by main loop) */
     if (!g_sys.vblank_pending) return;
     g_sys.vblank_pending = false;
+
+    /* THE RESTART entry_reset (0x00BC4C) asked for: the boot initialisation again, the EEPROM mirror kept (see entry_reset) */
+    { extern int g_entry_reset_pending;
+      if (g_entry_reset_pending) {
+          enum { EE = 0x3F30, EEN = 0x240 };
+          static intptr_t ws[EEN]; static uint8_t wb[EEN];
+          g_entry_reset_pending = 0;
+          memcpy(ws, &_W[EE], sizeof ws); memcpy(wb, &g_sys.work_ram[EE], sizeof wb);
+          game_init();
+          memcpy(&_W[EE], ws, sizeof ws); memcpy(&g_sys.work_ram[EE], wb, sizeof wb);
+          fprintf(stderr, "[RESET] the program restarted (entry_reset 0x00BC4C), settings kept\n");
+      } }
 
     /* Run VBlank handler: initializes DSP command pointer (W[0x0CA4]),
      * toggles double buffer, updates sprite/VICS state */

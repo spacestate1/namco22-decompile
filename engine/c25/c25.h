@@ -68,6 +68,11 @@ typedef struct c71 {
     void (*port3_r)(void);            /* dsp_unk_port3_r: upload state back to READY */        /* port 7: slave upload / enable commands */
     uint16_t stack[64];
     int sp;
+    /* THE CHIP'S OWN STACK: 8 cells that shift, never empty (MAME tms32025 PUSH_STACK / POP_STACK: a push shifts down and writes cell 7,
+     * a pop reads cell 7 and shifts up, duplicating cell 0). stack[]/sp above keep the program's view; mstk mirrors the chip so that a
+     * pop with sp == 0 -- a board-test program does RET on an empty stack (Time Crisis and Tokyo Wars test mode, 0x400B) -- returns
+     * what the chip returns instead of stopping the master. Whenever sp > 0, mstk[7] == stack[sp - 1]. */
+    uint16_t mstk[8];
     int rpt;
 
     /* ---- bookkeeping ----------------------------------------------------- */
@@ -136,4 +141,9 @@ void     c25_port_out(c71_t *d, int pa, uint16_t v);
 /* raise an interrupt (HOLD_LINE: stays pending until taken) */
 static inline void c71_irq(c71_t *d, uint16_t bit) { d->ifr |= bit; }
 
+/* the chip's 8-cell stack (see mstk): one push, one pop */
+static inline void c25_mpush(c71_t *d, uint16_t v) { for (int i = 0; i < 7; i++) d->mstk[i] = d->mstk[i + 1]; d->mstk[7] = v; }
+static inline uint16_t c25_mpop(c71_t *d) { const uint16_t v = d->mstk[7]; for (int i = 7; i > 0; i--) d->mstk[i] = d->mstk[i - 1]; return v; }
+/* a pop: the program's stack while it has entries, the chip's otherwise (both always shifted) */
+static inline uint16_t c25_pop(c71_t *d) { const uint16_t m = c25_mpop(d); return d->sp > 0 ? d->stack[--d->sp] : m; }
 #endif

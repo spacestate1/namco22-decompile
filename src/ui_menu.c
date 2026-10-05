@@ -76,6 +76,9 @@ void ui_controls_defaults(void) {
 
 #define CFG_PATH "propcycl_controls.cfg"
 
+#include "eng_vsync.h"
+int g_ui_fps = ENG_VSYNC_DEFAULT;          /* Display > Frame rate: pictures a second, 0 = Auto, the default (engine/eng_vsync.h; main.c applies it) */
+
 int ui_controls_save(void) {
     FILE *f = fopen(CFG_PATH, "w");
     if (!f) return 0;
@@ -89,6 +92,7 @@ int ui_controls_save(void) {
     fprintf(f, "aspect=%d\n", cur_aspect);
     fprintf(f, "window_mode=%d\n", win_mode);
     fprintf(f, "resolution=%dx%d\n", want_w, want_h);
+    fprintf(f, "frame_rate=%d\n", g_ui_fps);
     { extern void input_joy_cfg_save(FILE *); input_joy_cfg_save(f); }
     fclose(f);
     return 1;
@@ -110,6 +114,7 @@ int ui_controls_load(void) {
         if (!strcmp(line, "aspect")) { int a = atoi(eq + 1); if (a >= 0 && a < naspect()) cur_aspect = a;
                                        else if (a == naspect()) widescreen = 1;   /* the old list's last entry */
                                        display_cfg = 1; continue; }
+        if (!strcmp(line, "frame_rate")) { g_ui_fps = eng_vsync_rate_valid(atoi(eq + 1)); continue; }
         if (!strcmp(line, "window_mode")) { int m = atoi(eq + 1); if (m >= 0 && m <= 2) win_mode = m; display_cfg = 1; continue; }
         if (!strcmp(line, "resolution")) { int w, h; if (sscanf(eq + 1, "%dx%d", &w, &h) == 2 &&
                                                           ((w >= 320 && h >= 240) || (w == 0 && h == 0))) { want_w = w; want_h = h; }
@@ -473,7 +478,7 @@ void ui_draw(SDL_Window *win, bool *quit) {
 
         /* ---- Display ---- */
         nk_layout_row_push(ctx, 90);
-        if (nk_menu_begin_label(ctx, "Display", NK_TEXT_LEFT, nk_vec2(330, 520))) {
+        if (nk_menu_begin_label(ctx, "Display", NK_TEXT_LEFT, nk_vec2(330, 590))) {
             bool changed = false;
             nk_layout_row_dynamic(ctx, 24, 1);
             /* The one most people are looking for, first and on its own. */
@@ -546,6 +551,18 @@ void ui_draw(SDL_Window *win, bool *quit) {
             for (int i = 0; i < NASPECT; i++)
                 if (nk_option_label(ctx, aspects[i].label, cur_aspect == i) && cur_aspect != i) { cur_aspect = i; changed = true; }
             if (widescreen) nk_widget_disable_end(ctx);
+
+            /* Frame rate: how many pictures a second; the game itself always runs at the arcade's 59.906 Hz */
+            nk_layout_row_dynamic(ctx, 20, 1);
+            nk_label(ctx, "Frame rate (the game always runs at 60)", NK_TEXT_LEFT);
+            nk_layout_row_begin(ctx, NK_STATIC, 24, 3);
+            nk_layout_row_push(ctx, 30);
+            if (nk_button_label(ctx, "<")) { g_ui_fps = eng_vsync_rate_step(g_ui_fps, -1); changed = true; }
+            nk_layout_row_push(ctx, 230);
+            nk_label(ctx, eng_vsync_rate_name(g_ui_fps), NK_TEXT_CENTERED);
+            nk_layout_row_push(ctx, 30);
+            if (nk_button_label(ctx, ">")) { g_ui_fps = eng_vsync_rate_step(g_ui_fps, +1); changed = true; }
+            nk_layout_row_end(ctx);
             if (changed) ui_controls_save();          /* display choices stick without a Save button */
             nk_menu_end(ctx);
         }

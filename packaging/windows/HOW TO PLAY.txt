@@ -37,7 +37,7 @@ KEYS -- TOKYO WARS
   5             insert a coin           Enter      start
   Left / Right  steer (or A / D)        Up / Down  forward / backward pedal (or W / S)
   X / Z         right / left trigger    9          service
-  Esc           menu: Display (widescreen, window mode, resolution ...),
+  Esc           menu: Display (widescreen, window mode, resolution, frame rate ...),
                 Audio (volume), Controls (rebind the keys)
   F11           fullscreen              F12        screenshot
 
@@ -56,7 +56,7 @@ KEYS -- DIRT DASH
   Left / Right  steer (or A / D)                     X          gas (throttle)
   Z             brake                                Q / E      shift down / up
   M             motion stop                          9          service
-  Esc           menu: Display (widescreen, window mode, resolution ...),
+  Esc           menu: Display (widescreen, window mode, resolution, frame rate ...),
                 Audio (volume), Controls (rebind the keys)
   F11           fullscreen                           F12        screenshot
 

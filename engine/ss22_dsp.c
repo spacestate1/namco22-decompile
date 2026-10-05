@@ -165,6 +165,7 @@ static const char *compare(const c71_t *a, const c71_t *b)
 #undef F
     if (memcmp(a->ar, b->ar, sizeof a->ar)) return "ar";
     if (memcmp(a->stack, b->stack, sizeof a->stack)) return "stack";
+    if (memcmp(a->mstk, b->mstk, sizeof a->mstk)) return "mstk";
     if (memcmp(a->ram, b->ram, sizeof a->ram)) return "data RAM";
     if (memcmp(a->prog, b->prog, sizeof a->prog)) return "program RAM";
     if (memcmp(a->ptram, b->ptram, sizeof a->ptram)) return "point RAM";

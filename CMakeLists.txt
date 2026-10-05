@@ -127,6 +127,9 @@ set(PROPCYCL_ENGINE_SRC
     src/game_system.c
     src/game_terrain.c
     src/game_title.c
+    src/test_mode.c
+    src/test_mode_io.c
+    src/test_mode_misc.c
     src/game_core.c
     src/game_stubs.c
     src/rom_decode.c

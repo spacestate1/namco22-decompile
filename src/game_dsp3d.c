@@ -3265,16 +3265,14 @@ void scene_animation_update(int *param_1,undefined4 param_2)
 int scene_get_max_priority(void)
 
 {
-  int iVar1;
-  undefined2 *puVar2;
-  
-  iVar1 = 0;
-  for (puVar2 = &R[0x355A4]; -1 < (short)puVar2[1]; puVar2 = puVar2 + 6) {
-    if (iVar1 < (short)puVar2[1]) {
-      iVar1 = (int)(short)puVar2[1];
-    }
-  }
-  return iVar1;
+  /* ROM 0x00F36E: the highest sound id (word +2 of the 12-byte entries at 0x355A4, up to the first negative one) -- the SOUND
+   * TEST's upper bound (test_mode_misc.c). Read BIG-ENDIAN: the transpile walked the table through a host-native short *, so every
+   * id came back byte-swapped (GitHub #26). */
+  int m = 0;
+  uint32_t a;
+  for (a = 0x355A4; vrd16s(a + 2) >= 0; a += 12)
+    if (m < vrd16s(a + 2)) m = vrd16s(a + 2);
+  return m;
 }
 
 /* ---- scene_init ---- */

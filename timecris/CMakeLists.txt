@@ -26,9 +26,13 @@ set_source_files_properties(${TC_LIFTED} PROPERTIES COMPILE_OPTIONS "-O1;-w")
 
 # The MASTER DSP program (block at ROM 0xABA8C), translated from the ROM by ../tools/gen/c25_translate.py --game tc. tools/gen/c25.cov is EMPTY until
 # the oracle build has run the game: every address is then a static one and anything the oracle would need traps.
+# --block: the game's program (0xABA8C) and the TEST-MODE master programs the operator menu's DSP tests upload, listed by the 68K's
+# table at ROM 0xB91C4 (12 entries; GitHub #30 follow-up, 2026-10-05: without them test mode stopped the translated master at 0x400B..0x413E).
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 add_custom_command(OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/gen/tc_c25.c
   COMMAND ${Python3_EXECUTABLE} ../tools/gen/c25_translate.py --game tc --roms extracted --main-rom timecris_main.bin
+          --block ABA8C --block B91F4 --block B91F8 --block B9212 --block B93AE --block B9536 --block B9626 --block B9804
+          --block B9CAE --block B9D3C --block BA11A --block BA580 --block BAE16
           --cov tools/gen/c25.cov --out gen/tc_c25.c --func tc_c25_exec
   DEPENDS ../tools/gen/c25_translate.py tools/gen/c25.cov ../engine/c25/c71_bios.inc
   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}

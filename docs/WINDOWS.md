@@ -51,7 +51,9 @@ What remains is mostly the first frame of a new scene, when several hundred text
 ## Measuring
 
 The log beside the `.exe` has a `[PACE]` line every 600 frames (Prop Cycle: run with `PROPCYCL_EXIT_AT=3600` for an
-`[FPS]` line). `interval mean 16.7 ms` with few frames over 20 ms is a steady 60 fps. The `work` figure is not
+`[FPS]` line). With Esc > Display > Frame rate set to a fixed number (or `ENG_FPSLOG=1` in the environment) every game also
+writes `[FPS] ... pictures/s (... game frames, 59.91/s)`: what was shown and how fast the game ran. The game runs at 59.906 Hz
+whatever the frame rate setting and the driver's vsync setting. `interval mean 16.7 ms` with few frames over 20 ms is a steady 60 fps. The `work` figure is not
 reliable on NVIDIA: the driver queues frames, so the wait for vsync is counted in it.
 
 ## Testing without a window

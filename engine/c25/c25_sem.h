@@ -125,7 +125,7 @@ static inline bool push(c71_t *d, uint16_t v)
      * idle loop's PC) and calls down without ever returning -- which the chip absorbs silently: a 64-deep stack that faulted on overflow
      * killed the DSP at frame ~1500. */
     if (d->sp >= 8) { for (int i = 1; i < 8; i++) d->stack[i - 1] = d->stack[i]; d->sp = 7; }
-    d->stack[d->sp++] = v; return true;
+    d->stack[d->sp++] = v; c25_mpush(d, v); return true;
 }
 
 /* ------------------------------------------------------------ execute ---- */
@@ -151,8 +151,7 @@ static inline bool misc(c71_t *d, int op, int pc)
     else if (lo == 0x0E || lo == 0x0F || lo == 0x20 || lo == 0x21 || lo == 0x36 || lo == 0x37) { /* FORT/RTXM/STXM/RFSM/SFSM */ }
     else if (lo == 0x1C) { if (!push(d, (uint16_t)d->acc)) return false; }           /* PUSH */
     else if (lo == 0x1D) {                                                               /* POP */
-        if (d->sp == 0) { snprintf(d->error, sizeof d->error, "POP on empty stack at %04X", pc); return false; }
-        d->acc = d->stack[--d->sp];
+        d->acc = c25_pop(d);                         /* empty: the chip's bottom cell (see c71_t mstk) */
     }
     else if (lo == 0x1E) { if (!push(d, d->pc)) return false; d->pc = 0x001E; }          /* TRAP */
     else if (lo == 0x27) d->acc = (int32_t)~(uint32_t)d->acc;                            /* CMPL */
@@ -186,8 +185,7 @@ static inline bool misc(c71_t *d, int op, int pc)
     }
     else if (lo == 0x25) d->pc = (uint16_t)d->acc;           /* BACC */
     else if (lo == 0x26) {                                  /* RET */
-        if (d->sp == 0) { snprintf(d->error, sizeof d->error, "RET on empty stack at %04X", pc); return false; }
-        d->pc = d->stack[--d->sp];
+        d->pc = c25_pop(d);                          /* empty: the chip's bottom cell -- a board-test program returns past its caller */
     }
     else if (lo >= 0x50 && lo <= 0x57) {                    /* CMPR */
         uint16_t x = d->ar[d->arp], y = d->ar[0];
@@ -293,8 +291,7 @@ static inline bool c25_exec(c71_t *d, int pc, int op, int it)
     else if (hi == 0x4E)   d->acc = (int32_t)((uint32_t)d->acc & c25_dr(d, dma(d, lo)));   /* AND */
     else if (hi == 0x54) { if (!push(d, c25_dr(d, dma(d, lo)))) return false; }         /* PSHD */
     else if (hi == 0x7A) {                                                          /* POPD */
-        if (d->sp == 0) { snprintf(d->error, sizeof d->error, "POPD on empty stack at %04X", pc); return false; }
-        c25_dw(d, dma(d, lo), d->stack[--d->sp]);
+        c25_dw(d, dma(d, lo), c25_pop(d));
     }
     else if (hi == 0x57)   d->tc = (c25_dr(d, dma(d, lo)) >> (15 - (d->t & 0xF))) & 1;    /* BITT */
     else if (hi == 0x5B) { v = c25_dr(d, dma(d, lo)); d->t = v; sub_c(d, pshift(d)); }  /* LTS */

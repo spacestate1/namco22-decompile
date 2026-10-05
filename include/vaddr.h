@@ -149,6 +149,14 @@ static inline void *vptr(vaddr_t a) { return mem_ptr(a); }
 #define W16(off)          W_A16((off), 0)
 #define W16_SET(off, v)   W_A16_SET((off), 0, (v))
 
+/* ONE BYTE of work RAM at byte offset OFF, inside its 4-aligned slot (the slot holds the big-endian 32-bit word, so byte 0 is bits
+ * 31..24). For byte fields that share a slot with other fields -- the operator menu's per-page cursor bytes at 0xE03FB6.. sit in the
+ * low half of the page word's slot 0xE03FB4 (src/test_mode.c). */
+#define W8_SHIFT(off)     ((3u - ((unsigned)(off) & 3u)) * 8u)
+#define W8(off)           ((uint8_t)((uint32_t)_W[(unsigned)(off) & ~3u] >> W8_SHIFT(off)))
+#define W8_SET(off, v)    (W[(unsigned)(off) & ~3u] = (intptr_t)(int32_t)(((uint32_t)W[(unsigned)(off) & ~3u] & ~(0xffu << W8_SHIFT(off))) \
+                                                                 | ((uint32_t)(uint8_t)(v) << W8_SHIFT(off))))
+
 /* ---- text tilemap (g_sys.textram / cgram tail) -----------------------------
  * A tile word is a BIG-ENDIAN u16: [15:12] palette [11] flipy [10] flipx
  * [9:0] tile code (text_hw.c reads it that way, and so does the hardware).

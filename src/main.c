@@ -65,6 +65,7 @@ void framedump_render(geo_quad_cb cb, void *user);
 #include <GL/gl.h>
 #include <stdlib.h>
 #include <signal.h>
+#include "eng_vsync.h"
 
 static SDL_Window* window;
 static SDL_GLContext glctx;
@@ -240,6 +241,7 @@ static void save_screenshot(const char* path) {
  * records, the scenery LOD tier and the per-cell zone list. "It disappears in
  * the second part of the stage" becomes a cell number with this. */
 static bool g_paused;
+static eng_vsync g_vsync;                 /* the frame pacer (engine/eng_vsync.h) */
 
 static void report_player_position(void)
 {
@@ -412,7 +414,13 @@ static bool init_sdl(void) {
         return false;
     }
 
-    if (!headless) SDL_GL_SetSwapInterval(1);
+    /* frame pacing: vsync only on a ~60 Hz display and only while it blocks, else a 59.906 Hz timer (engine/eng_vsync.h --
+     * GitHub #26: on a 144 Hz display, or with vsync off in the driver, the game ran at the display's rate / unthrottled).
+     * PROPCYCL_VSYNC=0/1 forces it. */
+    if (!headless) {
+        eng_vsync_init(&g_vsync, window, getenv("PROPCYCL_VSYNC"));
+        fprintf(stderr, "[HOST] display %d Hz, %s\n", g_vsync.hz, eng_vsync_mode(&g_vsync));
+    }
 
     {   /* Which OpenGL did we get? Logged, because "white window" on
          * Windows is often the built-in software GL 1.1 ("GDI Generic"),
@@ -1848,7 +1856,13 @@ int main(int argc, char* argv[]) {
               }
           } }
 
-        if (!headless) SDL_GL_SwapWindow(window);
+        if (!headless) {                     /* Display > Frame rate (engine/eng_vsync.h): the game frame always ran; the picture is shown
+                                              * if a tick is due, kept for the extra ticks of a lock above 60 */
+            extern int g_ui_fps;
+            eng_vsync_want(&g_vsync, g_ui_fps);
+            if (eng_vsync_show(&g_vsync)) { eng_vsync_capture(&g_vsync, window); SDL_GL_SwapWindow(window); }
+            eng_vsync_after_frame(&g_vsync, window);
+        }
         else if (headless)
             glFinish();  /* ensure rendering completes */
 

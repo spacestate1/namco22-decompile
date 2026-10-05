@@ -388,6 +388,8 @@ int g_attract_log = 0;
 void state_title_init(void)
 
 {
+  { static int old = -1; if (old < 0) old = getenv("PROPCYCL_OLD_TESTMODE") != NULL;
+    if (!old) { extern void tm_state_title_init(void); tm_state_title_init(); return; } }
   sync_reset();
   set_background_color(0,0,0);
   W[0x3FB4] = W[0x3FB4] & 0xfffe;
@@ -544,7 +546,7 @@ static void title_sub06_init(void)
 }
 
 /* ---- 0x01AD02 (slot 0x08) ---- */
-static void title_sub08_init(void)
+void title_sub08_init(void)
 {
   sync_post();
   title_substate_dispatch(2);
@@ -553,7 +555,7 @@ static void title_sub08_init(void)
 }
 
 /* ---- 0x01AECE (slot 0x0A) ---- */
-static void title_sub0a_init(void)
+void title_sub0a_init(void)
 {
   sync_post();
   title_substate_dispatch(2);
@@ -563,7 +565,7 @@ static void title_sub0a_init(void)
 }
 
 /* ---- 0x01B150 (slot 0x0C) ---- */
-static void title_sub0c_init(void)
+void title_sub0c_init(void)
 {
   sync_post();
   title_substate_dispatch(0);
@@ -572,7 +574,7 @@ static void title_sub0c_init(void)
 }
 
 /* ---- 0x01B23E (slot 0x0E) ---- */
-static void title_sub0e_init(void)
+void title_sub0e_init(void)
 {
   sync_post();
   title_substate_dispatch(0);
@@ -581,7 +583,7 @@ static void title_sub0e_init(void)
 }
 
 /* ---- 0x01B328 (slot 0x10) ---- */
-static void title_sub10_init(void)
+void title_sub10_init(void)
 {
   (void)attract_gfx_init();         /* jsr $1c0b0 */
   mem_write8(0x82401b, 0x7f);       /* move.b #$7f,$82401b */
@@ -591,14 +593,14 @@ static void title_sub10_init(void)
 }
 
 /* ---- 0x01BB2A (slot 0x16) ---- */
-static void title_sub16_init(void)
+void title_sub16_init(void)
 {
   sync_post();
   W[0x3FB4] = 0x17;
 }
 
 /* ---- 0x01BC66 (slot 0x18) ---- */
-static void title_sub18_init(void)
+void title_sub18_init(void)
 {
   int i;
   sync_post();
@@ -612,7 +614,7 @@ static void title_sub18_init(void)
 }
 
 /* ---- 0x01BDCE (slot 0x1A) ---- */
-static void title_sub1a_init(void)
+void title_sub1a_init(void)
 {
   sync_post();
   title_substate_dispatch(0);
@@ -621,7 +623,7 @@ static void title_sub1a_init(void)
 }
 
 /* ---- 0x01BE36 (slot 0x1C) ---- */
-static void title_sub1c_init(void)
+void title_sub1c_init(void)
 {
   sync_post();
   title_substate_dispatch(0);
@@ -630,7 +632,7 @@ static void title_sub1c_init(void)
 }
 
 /* ---- 0x01C030 (slot 0x20) ---- */
-static void title_sub20_init(void)
+void title_sub20_init(void)
 {
   sync_post();
   eeprom_init_with_calibration();   /* jsr $1a0be */
@@ -651,9 +653,9 @@ static void title_sub_unported(const char *what)
   if (n < 8) said[n++] = what;
   printf("[TITLE] sub-state handler not yet transcribed: %s\n", what);
 }
-static void title_sub0d_run(void) { title_sub_unported("service_screen_flip_run @0x01B16E"); }
-static void title_sub0f_run(void) { title_sub_unported("service_stereo_toggle_run @0x01B25C"); }
-static void title_sub21_run(void) { title_sub_unported("slot 0x21 @0x01C058"); }
+void title_sub0d_run(void) { title_sub_unported("service_screen_flip_run @0x01B16E"); }
+void title_sub0f_run(void) { title_sub_unported("service_stereo_toggle_run @0x01B25C"); }
+void title_sub21_run(void) { title_sub_unported("slot 0x21 @0x01C058"); }
 
 /* The ROM's own table at 0x36548, in order. */
 static void (* const title_dispatch[0x22])(void) = {
@@ -696,6 +698,10 @@ static void (* const title_dispatch[0x22])(void) = {
 uint16_t state_title_run(void)
 
 {
+  /* THE TEST MODE IS src/test_mode.c (GitHub #26, ported from 0x01A15E..0x01C0B0); this body is the old one, kept for
+   * PROPCYCL_OLD_TESTMODE=1 A/B only. */
+  { static int old = -1; if (old < 0) old = getenv("PROPCYCL_OLD_TESTMODE") != NULL;
+    if (!old) { extern void tm_state_title_run(void); tm_state_title_run(); return 0; } }
   uint16_t uVar1;
 
   /* The `arcade_menu` RECREATION used to intercept here and own the frame,

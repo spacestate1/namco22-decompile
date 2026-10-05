@@ -303,6 +303,13 @@ Press `Esc` and open **Display**. Your choices are saved by themselves.
   window, so a smaller number runs faster on a slow computer.
 - **Aspect ratio** (when widescreen is off): 4:3 like the arcade screen, or
   stretched to fill the window.
+- **Frame rate** (all five games, Rave Racer included): how many pictures a
+  second are shown. **Auto** (the default) follows your display -- 60 on a
+  60 Hz screen, with vsync -- or pick a fixed 24, 30, 50, 60, 75, 90, 120,
+  144, 165 or 240. The game itself always runs at the arcade's speed (just
+  under 60 frames a second), whatever you pick and whatever your graphics
+  driver's vsync setting is: a lower number shows fewer pictures, a higher one
+  shows each picture more than once for a smoother picture on a fast monitor.
 
 ## If it does not work
 

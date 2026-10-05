@@ -182,7 +182,7 @@ static void frame_on(bool primary)
     if (!g_parked) {
         /* INT0 at the idle loop: return past the IDLE, vector 0x0002 */
         if (g_m->sp >= 64) { fprintf(stderr, "[MASTER] stack full\n"); g_active = false; return; }
-        g_m->stack[g_m->sp++] = (uint16_t)(g_m->pc + (g_m->prog[g_m->pc] == IDLE_OP ? 1 : 0));
+        g_m->stack[g_m->sp++] = (uint16_t)(g_m->pc + (g_m->prog[g_m->pc] == IDLE_OP ? 1 : 0)); c25_mpush(g_m, g_m->stack[g_m->sp - 1]);
         g_m->pc = 0x0002; g_m->intm = 1;
     }                            /* else: resume at the doorbell wait, which now falls through */
 

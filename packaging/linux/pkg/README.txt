@@ -42,7 +42,7 @@ Prop Cycle:  5 coin, Enter start, arrow keys steer, Space pedal, P pause,
 Rave Racer:  5 coin, X gas, Z brake, arrow keys steer, A/S shift, V view,
              P pause, Esc menu, F12 picture.   `raveracer 2` = window scale 2.
 Tokyo Wars:  5 coin, Enter start, arrow keys (or A/D) steer, Up/W forward, Down/S backward,
-             X / Z triggers, P pause, Esc menu (Display: widescreen ...), F12 picture.
+             X / Z triggers, P pause, Esc menu (Display: widescreen, frame rate ...), F12 picture.
              `tokyowars 2` = window scale 2.
 Dirt Dash:   5 coin (a game costs two), Z brake, X gas (throttle), C select (view change / confirm), Left/Right
              (A/D) steer, Q / E shift down / up, M motion stop, P pause, Esc menu, F12 picture.   `dirtdash 2` = window scale 2.

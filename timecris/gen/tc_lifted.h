@@ -2015,13 +2015,13 @@ void L_194D4_at(uint32_t pc);   /* caseD_0 */
 static inline void L_194D4(void) { L_194D4_at(0x194D4U); }
 void L_19502_at(uint32_t pc);   /* caseD_0 */
 static inline void L_19502(void) { L_19502_at(0x19502U); }
-void L_19530_at(uint32_t pc);   /* caseD_2 */
+void L_19530_at(uint32_t pc);   /* caseD_3 */
 static inline void L_19530(void) { L_19530_at(0x19530U); }
 void L_19542_at(uint32_t pc);   /* caseD_1 */
 static inline void L_19542(void) { L_19542_at(0x19542U); }
 void L_19554_at(uint32_t pc);   /* caseD_1 */
 static inline void L_19554(void) { L_19554_at(0x19554U); }
-void L_19570_at(uint32_t pc);   /* caseD_4 */
+void L_19570_at(uint32_t pc);   /* caseD_5 */
 static inline void L_19570(void) { L_19570_at(0x19570U); }
 void L_19582_at(uint32_t pc);   /* caseD_3 */
 static inline void L_19582(void) { L_19582_at(0x19582U); }
@@ -10913,6 +10913,8 @@ void L_5F758_at(uint32_t pc);   /* FUN_0005f758 */
 static inline void L_5F758(void) { L_5F758_at(0x5F758U); }
 void L_5F76C_at(uint32_t pc);   /* FUN_0005f76c */
 static inline void L_5F76C(void) { L_5F76C_at(0x5F76CU); }
+void L_5F780_at(uint32_t pc);   /* thunk_FUN_0005f76c */
+static inline void L_5F780(void) { L_5F780_at(0x5F780U); }
 void L_5F782_at(uint32_t pc);   /* FUN_0005f782 */
 static inline void L_5F782(void) { L_5F782_at(0x5F782U); }
 void L_5F7A4_at(uint32_t pc);   /* FUN_0005f7a4 */
@@ -13199,6 +13201,8 @@ void L_6AA80_at(uint32_t pc);   /* FUN_0006aa80 */
 static inline void L_6AA80(void) { L_6AA80_at(0x6AA80U); }
 void L_6AAAC_at(uint32_t pc);   /* FUN_0006aaac */
 static inline void L_6AAAC(void) { L_6AAAC_at(0x6AAACU); }
+void L_6AAC0_at(uint32_t pc);   /* thunk_FUN_0006aaac */
+static inline void L_6AAC0(void) { L_6AAC0_at(0x6AAC0U); }
 void L_6AAC2_at(uint32_t pc);   /* FUN_0006aac2 */
 static inline void L_6AAC2(void) { L_6AAC2_at(0x6AAC2U); }
 void L_6ABD6_at(uint32_t pc);   /* FUN_0006abd6 */
@@ -14585,6 +14589,8 @@ void L_71498_at(uint32_t pc);   /* FUN_00071498 */
 static inline void L_71498(void) { L_71498_at(0x71498U); }
 void L_714AC_at(uint32_t pc);   /* FUN_000714ac */
 static inline void L_714AC(void) { L_714AC_at(0x714ACU); }
+void L_714C0_at(uint32_t pc);   /* thunk_FUN_000714ac */
+static inline void L_714C0(void) { L_714C0_at(0x714C0U); }
 void L_714C2_at(uint32_t pc);   /* FUN_000714c2 */
 static inline void L_714C2(void) { L_714C2_at(0x714C2U); }
 void L_714E4_at(uint32_t pc);   /* FUN_000714e4 */
@@ -16207,6 +16213,8 @@ void L_78A18_at(uint32_t pc);   /* FUN_00078a18 */
 static inline void L_78A18(void) { L_78A18_at(0x78A18U); }
 void L_78A2C_at(uint32_t pc);   /* FUN_00078a2c */
 static inline void L_78A2C(void) { L_78A2C_at(0x78A2CU); }
+void L_78A40_at(uint32_t pc);   /* thunk_FUN_00078a2c */
+static inline void L_78A40(void) { L_78A40_at(0x78A40U); }
 void L_78A42_at(uint32_t pc);   /* FUN_00078a42 */
 static inline void L_78A42(void) { L_78A42_at(0x78A42U); }
 void L_78A64_at(uint32_t pc);   /* FUN_00078a64 */
@@ -22685,9 +22693,9 @@ void L_986D8_at(uint32_t pc);   /* FUN_000986d8 */
 static inline void L_986D8(void) { L_986D8_at(0x986D8U); }
 void L_986EC_at(uint32_t pc);   /* FUN_000986ec */
 static inline void L_986EC(void) { L_986EC_at(0x986ECU); }
-void L_98706_at(uint32_t pc);   /* FUN_00098706 */
-static inline void L_98706(void) { L_98706_at(0x98706U); }
-void L_9871A_at(uint32_t pc);   /* thunk_FUN_00098706 */
+void L_98700_at(uint32_t pc);   /* FUN_00098700 */
+static inline void L_98700(void) { L_98700_at(0x98700U); }
+void L_9871A_at(uint32_t pc);   /* FUN_0009871a */
 static inline void L_9871A(void) { L_9871A_at(0x9871AU); }
 void L_9871C_at(uint32_t pc);   /* FUN_0009871c */
 static inline void L_9871C(void) { L_9871C_at(0x9871CU); }

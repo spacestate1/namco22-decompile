@@ -44,13 +44,14 @@ char * eeprom_write_verify_block();
 
 /* ---- entry_reset ---- */
 
+int g_entry_reset_pending;
 void entry_reset(void) {
-    /* On real hardware, entry_reset is the CPU reset vector — full restart.
-     * In our reimplementation, stay in current mode to avoid wiping state. */
-    if (W[0x0CBC] == 7 || W[0x0CBC] == 1) {
-        return;  /* already in title/attract, don't reset */
-    }
-    W[0x0CBC] = 0;  /* go to attract_init */
+    /* ROM 0x00BC4C: the program's restart -- what leaving the operator's TEST MODE does (0x01A15E). On the machine the work RAM
+     * is cleared and set up again and the EEPROM keeps the settings. The old stand-in RETURNED when the game was in state 7 (test
+     * mode), so turning the Test switch off left a black screen for good ("you can't return to the home screen", GitHub #26).
+     * It now asks game_frame() to run the boot initialisation at the start of the next frame, outside this call stack, keeping
+     * the EEPROM mirror (0xE03F30, 0x240 bytes: the coin and game options just set in test mode, the rankings). */
+    g_entry_reset_pending = 1;
 }
 
 /* Named work RAM variables */
@@ -431,46 +432,19 @@ void boot_hardware_init(void)
 void game_stats_reset(void)
 
 {
-  short sVar1;
-  short sVar2;
-  
-  W[0x4014] = 0;
-  W[0x4010] = 0;
-  W[0x401C] = 0;
-  W[0x4018] = 0;
-  W[0x4024] = 0;
-  W[0x4022] = 0;
-  W[0x4020] = 0;
-  sVar1 = 0;
-  do {
-    W[0x4150 + (sVar1)] = 0;
-    sVar1 = sVar1 + 1;
-  } while (sVar1 < 4);
-  sVar1 = 0;
-  do {
-    sVar2 = 0;
-    do {
-      W[0x411E + (sVar1 * 8 + (int)sVar2)] = 0;
-      sVar2 = sVar2 + 1;
-    } while (sVar2 < 8);
-    sVar1 = sVar1 + 1;
-  } while (sVar1 < 3);
-  sVar1 = 0;
-  do {
-    sVar2 = 0;
-    do {
-      W[0x40B0 + (sVar1 * 5 + (int)sVar2)] = 0;
-      sVar2 = sVar2 + 1;
-    } while (sVar2 < 5);
-    sVar2 = 0;
-    do {
-      W[0x40EC + (sVar2 * 10 + (int)sVar1)] = 0;
-      W[0x40E2 + (sVar2 * 10 + (int)sVar1)] = 0;
-      sVar2 = sVar2 + 1;
-    } while (sVar2 < 3);
-    sVar1 = sVar1 + 1;
-  } while (sVar1 < 5);
-  return;
+  /* ROM 0x020C9C, a0 = 0xE03F30 -- the ADS audit statistics, in the layout game_stats_accumulate (0x020E96) adds to: the longs
+   * 0xE04010/14/18/1C, the words 0xE04020/22/24, four longs at 0xE04150, 3 x 8 words at 0xE0411E (stride 16), 5 x 5 words at
+   * 0xE040B0 (stride 10) and 3 x 5 words each at 0xE040E2 / 0xE040EC (stride 20). The transpile stored whole slots at single-
+   * byte strides, so most of the tables were never cleared (the ADS DATA reset in the test mode, GitHub #26). */
+  int i, j;
+  W[0x4014] = 0; W[0x4010] = 0; W[0x401C] = 0; W[0x4018] = 0;
+  W16_SET(0x4024, 0); W16_SET(0x4022, 0); W16_SET(0x4020, 0);
+  for (i = 0; i < 4; i++) W[0x4150 + i * 4] = 0;
+  for (i = 0; i < 3; i++) for (j = 0; j < 8; j++) W16_SET(0x411E + i * 16 + j * 2, 0);
+  for (i = 0; i < 5; i++) {
+    for (j = 0; j < 5; j++) W16_SET(0x40B0 + i * 10 + j * 2, 0);
+    for (j = 0; j < 3; j++) { W16_SET(0x40EC + j * 20 + i * 2, 0); W16_SET(0x40E2 + j * 20 + i * 2, 0); }
+  }
 }
 
 /* ---- input_decode_buttons ---- */

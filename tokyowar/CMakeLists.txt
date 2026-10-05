@@ -42,9 +42,14 @@ set_source_files_properties(${TW_LIFTED} PROPERTIES COMPILE_OPTIONS "-O1;-w")
 # the ROM files by the shared tool ../tools/gen/c25_translate.py. tools/gen/c25.cov: the addresses
 # the interpreter oracle executed (addresses only, no ROM data; committed). The game has no C25
 # fetch/decode loop. Block 0x127816 is the master program (FUN_0012ED28 uploads it as block 1).
+# --block: also the TEST-MODE master programs (2026-10-05, GitHub #26): the 68K's table at ROM 0x125250 (12 entries; the same
+# Namco board tests as Time Crisis's 0xB91C4, 7 of them word for word) and 0x12C070 (uploaded by 0x124C52). Without them the
+# translated master stopped in test mode (no translation at 400B..413E).
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 add_custom_command(OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/gen/tw_c25.c
   COMMAND ${Python3_EXECUTABLE} ../tools/gen/c25_translate.py --game tw --roms extracted
+          --block 127816 --block 125280 --block 125284 --block 12529E --block 12543A --block 1255C2 --block 1256B2
+          --block 1258B4 --block 125D5E --block 125DEC --block 1261CA --block 126630 --block 126EC2 --block 12C070
           --cov tools/gen/c25.cov --out gen/tw_c25.c --func tw_c25_exec
   DEPENDS ../tools/gen/c25_translate.py tools/gen/c25.cov ../engine/c25/c71_bios.inc
   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
