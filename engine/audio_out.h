@@ -16,6 +16,9 @@
 
 bool eng_audio_open(void);                          /* SDL audio device, stereo 48 kHz; false = silent */
 void eng_audio_push(const int16_t *in4, int n);     /* n frames of the chip's four outputs (0/1 = the front pair) */
+/* how the four outputs reach the stereo pair: out[s] = sum of m[s][c] * in[c]. The default is the front pair alone (1 0 0 0 / 0 1 0 0);
+ * a cabinet with a speaker of its own on output 2 or 3 (Dirt Dash's road speaker) mixes it in (engine/ss22_snd.c) */
+void eng_audio_set_mix(const float m[2][4]);
 void eng_audio_set_volume(int percent);             /* 0..100 */
 void eng_audio_set_gain(double gain);               /* this game's speaker gain (before eng_audio_open); <= 0 keeps the default; ENG_OUTPUT_GAIN wins */
 void eng_audio_close(void);

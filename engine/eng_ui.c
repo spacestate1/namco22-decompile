@@ -139,14 +139,21 @@ static void disp_notes(void (*line)(const char *fmt, ...))
 static const eng_ui_page page_display = { "Display", 440, 120, 26, disp_n, NULL, disp_enabled, disp_text, disp_change, disp_notes };
 
 /* ---- Audio ------------------------------------------------------------------- */
-static int aud_n(void) { return 1; }
+static const eng_ui_mixer *mixer;                              /* the game's speakers under the Volume row (eng_ui_set_mixer) */
+void eng_ui_set_mixer(const eng_ui_mixer *m) { mixer = m; }
+static int aud_n(void) { return 1 + (mixer ? mixer->rows() : 0); }
 static void aud_text(int r, char *l, size_t ln, char *v, size_t vn)
 {
-    (void)r; snprintf(l, ln, "Volume"); snprintf(v, vn, "%d%%", g_eng_disp.volume);
+    if (r > 0) { snprintf(l, ln, "%s", mixer->name(r - 1)); snprintf(v, vn, "%d%%", mixer->get(r - 1)); return; }
+    snprintf(l, ln, "Volume"); snprintf(v, vn, "%d%%", g_eng_disp.volume);
 }
 static void aud_change(int r, int dir)
 {
-    (void)r;
+    if (r > 0) {                                             /* a mixer row: 5% steps, Enter back to 100% */
+        const int m = mixer->get(r - 1) + dir * 5;
+        mixer->set(r - 1, dir == 0 ? 100 : m < 0 ? 0 : m > mixer->max ? mixer->max : m);
+        return;
+    }
     int v = g_eng_disp.volume + (dir ? dir * 5 : 10);
     if (v > 100) v = dir ? 100 : 0;                          /* Enter wraps 100 -> mute */
     if (v < 0) v = 0;
@@ -393,7 +400,10 @@ void eng_ui_draw(bool *quit)
             }
             if (nk_select_label(ctx, label, NK_TEXT_LEFT, i == row)) row = i;
             if (val && nk_button_symbol(ctx, NK_SYMBOL_TRIANGLE_LEFT)) { row = i; pg->change(i, -1); }
-            if (is_audio(tab)) {                         /* the volume is a slider too */
+            if (is_audio(tab) && i > 0) {                /* a mixer row */
+                int v = mixer->get(i - 1);
+                if (nk_slider_int(ctx, 0, &v, mixer->max, 1) && v != mixer->get(i - 1)) mixer->set(i - 1, v);
+            } else if (is_audio(tab)) {                  /* the volume is a slider too */
                 int v = g_eng_disp.volume;
                 if (nk_slider_int(ctx, 0, &v, 100, 1) && v != g_eng_disp.volume) eng_disp_set_volume(v);
             } else if (nk_button_label(ctx, value[0] ? value : label)) { row = i; pg->change(i, 0); }

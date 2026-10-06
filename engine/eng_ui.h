@@ -37,6 +37,15 @@ typedef struct eng_ui_page {
 bool eng_ui_init(SDL_Window *win, const char *title);    /* after the GL context; false = no menu (the game runs without) */
 void eng_ui_shutdown(void);
 void eng_ui_add_page(const eng_ui_page *p);              /* after the standard three, in the order added */
+/* a mixer under the Audio page's Volume: `rows()` sliders, each 0..max %, named and read/set by the callbacks (NULL = none) */
+typedef struct eng_ui_mixer {
+    int  (*rows)(void);
+    const char *(*name)(int row);
+    int  (*get)(int row);
+    void (*set)(int row, int pct);
+    int  max;
+} eng_ui_mixer;
+void eng_ui_set_mixer(const eng_ui_mixer *m);
 bool eng_ui_is_open(void);
 void eng_ui_set_open(bool on);
 bool eng_ui_quit_requested(void);                        /* File > Exit */

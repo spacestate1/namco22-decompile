@@ -57,7 +57,7 @@ KEYS -- DIRT DASH
   Z             brake                                Q / E      shift down / up
   M             motion stop                          9          service
   Esc           menu: Display (widescreen, window mode, resolution, frame rate ...),
-                Audio (volume), Controls (rebind the keys)
+                Audio (volume; front speakers / road speaker mix), Controls (rebind the keys)
   F11           fullscreen                           F12        screenshot
 
 A game controller works in all four.

@@ -6,7 +6,7 @@
  *   0x004000-0x00BFFF  shared RAM with the 68K  -> g_ss22.shared, byte lanes ^1
  *   0x00C000-0x00FFFF  the game's sound ROM [0xC000..] the S22-BIOS
  *   0x200000-0x27FFFF  the game's sound ROM      the sound program + sequence data
- *   0x308000-0x308003  MB87078 volume           (write-only, ignored -- as in Prop Cycle)
+ *   0x308000-0x308003  MB87078 volume           (write-only: the four outputs' levels, see mb_w)
  * Ports: P4 latches the I/O control (d3 selects which half of the 16-bit INPUTS word P5 reads,
  * d5/d6 strobe P5's output latch); P5 reads INPUTS; P6 reads 0. A-D channel 0 is the wheel, the pedals are the
  * game's channels (ss22_snd_cfg). The board drives IRQ2 at scanline 240 and IRQ0 at scanline 480 of a 525-line frame
@@ -20,11 +20,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 #include "ss22_game.h"
 #include "ss22_input.h"
 #include "m37710.h"
 #include "c352.h"
 #include "audio_out.h"
+#include "eng_cfg.h"
 
 /* how the sound program's instructions get executed: gen/ss22_snd_driver.c (the translation) in the game,
  * tools/sndoracle/sound_oracle.c (fetch/decode) in dd_oracle */
@@ -59,6 +61,85 @@ static uint16_t  pressed;                /* the INPUTS bits currently held */
 static uint16_t  adc[4] = { 0x200, 0, 0, 0 };            /* the A-D channels: 0 the wheel, the pedals as the game wires them */
 static uint8_t   iocontrol, outdata;
 static uint16_t  outputs;
+
+/* ---- the mix: four outputs into the stereo pair ---------------------------------------------------- */
+/* The board's MB87078 sets a level for each of the C352's four outputs (0 dB .. -32 dB in 0.5 dB steps, or off; MAME
+ * mb87077.cpp, wired chip channel n -> output n ^ 3), and the cabinet decides which speaker each output drives (MAME's
+ * add_route: the front pair always, and per game an extra speaker on output 2 or 3 -- ss22_snd_cfg.aux). Outputs 2 and 3
+ * used to be dropped, and with them everything a game plays there alone: Dirt Dash's tyre skid and road noise.
+ *
+ * The speaker gain (audio_out.h) was set by ear with the MB87078 ignored, so the chip's levels are taken RELATIVE to the
+ * front pair's: Dirt Dash sets all four to -11.5 dB, which changes nothing; a game that sets them apart keeps that balance.
+ * The player's mixer (Audio page) scales the front pair and each extra speaker, 0-200 %. */
+static uint8_t   mb_ctrl;
+static uint16_t  mb_latch[4] = { 0x7F, 0x7F, 0x7F, 0x7F };   /* reset: every channel on, 0 dB */
+static int       mix_pct[3] = { 100, 100, 100 };              /* the player's levels: the front pair, output 2's speaker, output 3's */
+
+static float mb_gain(int out)                                 /* the level the chip gives C352 output `out` */
+{
+    const uint16_t l = mb_latch[out ^ 3];
+    if (!(l & 0x40)) return 0.0f;                             /* EN = 0: off */
+    if (l & 0x100) return powf(10.0f, -32.0f / 20.0f);        /* C32 */
+    if (l & 0x80) return 1.0f;                                /* C0 */
+    return powf(10.0f, -0.5f * (float)(~l & 0x3F) / 20.0f);
+}
+
+static void mix_apply(void)
+{
+    const ss22_snd_cfg *c = &g_ss22_game->snd;
+    float g[4], m[2][4] = { { 0 } };
+    for (int i = 0; i < 4; i++) g[i] = mb_gain(i);
+    const float ref = g[0] > g[1] ? g[0] : g[1];              /* the front pair's level is the speaker gain's reference */
+    if (ref > 0) for (int i = 0; i < 4; i++) g[i] /= ref;
+    m[0][0] = g[0] * (float)mix_pct[0] / 100.0f;
+    m[1][1] = g[1] * (float)mix_pct[0] / 100.0f;
+    for (int k = 0; k < 2; k++)
+        if (c->aux[k].name) m[0][2 + k] = m[1][2 + k] = g[2 + k] * c->aux[k].gain * (float)mix_pct[1 + k] / 100.0f;
+    eng_audio_set_mix(m);
+}
+
+static void mb_w(unsigned off, uint8_t v)                     /* mb87077_device::data_w: off 0 the 6-bit level, 1 the channel + EN/C0/C32 */
+{
+    if (off) { mb_ctrl = v & 0x1F; return; }
+    const uint16_t l = (uint16_t)(((unsigned)mb_ctrl << 4 & 0x1C0) | (v & 0x3F));
+    if (l == mb_latch[mb_ctrl & 3]) return;                   /* the driver rewrites all four about every 10 ms */
+    mb_latch[mb_ctrl & 3] = l;
+    mix_apply();
+}
+
+/* the Audio page's mixer: the front pair, then each extra speaker this cabinet has */
+static int mix_slot(int row)                                  /* row -> mix_pct index, or -1 */
+{
+    if (row == 0) return 0;
+    for (int k = 0; k < 2; k++) if (g_ss22_game->snd.aux[k].name && --row == 0) return 1 + k;
+    return -1;
+}
+static const char *const mix_key[3] = { "mix_front", "mix_out2", "mix_out3" };
+int ss22_snd_mix_rows(void)
+{
+    const ss22_snd_cfg *c = &g_ss22_game->snd;
+    const int n = (c->aux[0].name != NULL) + (c->aux[1].name != NULL);
+    return n ? 1 + n : 0;                                     /* the front pair alone: nothing to mix */
+}
+const char *ss22_snd_mix_name(int row) { const int s = mix_slot(row); return s < 0 ? "" : s == 0 ? "Front speakers" : g_ss22_game->snd.aux[s - 1].name; }
+int ss22_snd_mix_get(int row) { const int s = mix_slot(row); return s < 0 ? 0 : mix_pct[s]; }
+void ss22_snd_mix_set(int row, int pct)
+{
+    const int s = mix_slot(row);
+    if (s < 0) return;
+    mix_pct[s] = pct < 0 ? 0 : pct > 200 ? 200 : pct;
+    eng_cfg_set_int(mix_key[s], mix_pct[s]);
+    mix_apply();
+}
+void ss22_snd_mix_load(void)                                  /* after the settings file is loaded */
+{
+    for (int s = 0; s < 3; s++) {
+        mix_pct[s] = eng_cfg_int(mix_key[s], 100);
+        if (mix_pct[s] < 0) mix_pct[s] = 0;
+        if (mix_pct[s] > 200) mix_pct[s] = 200;
+    }
+    mix_apply();
+}
 
 static FILE     *dump;
 static uint32_t  dump_frames;
@@ -141,7 +222,8 @@ static void bus_w(void *u, uint32_t a, uint8_t v)
         return;
     }
     if (a >= 0x80 && a < 0x400) { iram[a - 0x80] = v; return; }
-    /* 0x300000 / 0x301000 / 0x308000: nopr / watchdog / MB87078 -- ignored */
+    if (a == 0x308000 || a == 0x308002) { mb_w((a >> 1) & 1, v); return; }   /* MB87078 on the low byte lane (umask 0x00ff) */
+    /* 0x300000 / 0x301000: nopr / watchdog -- ignored */
 }
 
 /* ---- ports (mcu_port4/5/6) -------------------------------------------------------------------------- */
@@ -204,6 +286,7 @@ bool ss22_snd_init(const char *dir)
             for (uint32_t k = 0; k < n; k += 2) { const uint8_t t = w[k]; w[k] = w[k + 1]; w[k + 1] = t; }
         }
     if (chip_ok) { c352_init(&chip, wave, c->wave_size); c352_reset(&chip); }
+    mix_apply();                                              /* this cabinet's speakers, at the default levels until the settings are read */
     m37710_init(&cpu, bus_r, bus_w, NULL);
     cpu.port_r = port_r; cpu.port_w = port_w;
     snd_executor_init();

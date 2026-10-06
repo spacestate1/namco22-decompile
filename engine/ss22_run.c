@@ -523,6 +523,11 @@ int ss22_main(int argc, char **argv, const ss22_game *g)
     if (win_scale || shot_dir) {                        /* video: a window, or offscreen for --shots */
         if (win_scale && !frames_given) max_frames = 0xFFFFFFFFu;
         video_on = ss22_video_init(rom_dir) && (win_scale ? ss22_host_open(&host_game, win_scale, win_full) : ss22_host_open_headless());
+        if (video_on && win_scale) {                    /* the player's speaker levels (the settings are loaded now) and their rows in the Audio page */
+            static const eng_ui_mixer mixer = { ss22_snd_mix_rows, ss22_snd_mix_name, ss22_snd_mix_get, ss22_snd_mix_set, 200 };
+            ss22_snd_mix_load();
+            eng_ui_set_mixer(&mixer);
+        }
         if (!video_on) { fprintf(stderr, "[%s] no picture: video could not start\n", g->tag); if (win_scale) return 2; }
     }
     memset(R, 0, RR_REGSPACE);
