@@ -49,7 +49,7 @@ Dirt Dash:
 
 Ace Driver:
 
-![Ace Driver: a race on the beginner course](docs/images/acedriver-gameplay.png)
+![Ace Driver: a race on the beginner course, in widescreen](docs/images/acedriver-widescreen.png)
 
 Cyber Commando:
 
@@ -57,7 +57,7 @@ Cyber Commando:
 
 Cyber Sled:
 
-![Cyber Sled: a battle](docs/images/cybsled-gameplay.png)
+![Cyber Sled: a battle, in widescreen](docs/images/cybsled-widescreen.png)
 
 Prop Cycle:
 
