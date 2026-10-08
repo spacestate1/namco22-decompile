@@ -10,19 +10,19 @@ where a MAME set has since renamed one (see [docs/ROM_CHECKSUMS.md](docs/ROM_CHE
 
 | Game | Year | Status | Online play | Game files you need | Linux | Windows |
 |---|---|---|---|---|---|---|
-| **Prop Cycle** | 1996 | Playable from start to finish, with sound | no | `propcycl.zip` | yes | yes |
-| **Rave Racer** | 1995 | Playable: races, with sound | **yes**: up to 8 players, LAN and internet ([how](#playing-online)) | `raverace.zip` + `namcoc74.zip` | yes | yes |
-| **Tokyo Wars** | 1996 | Playable: attract, play, sound, widescreen | no | `tokyowar.zip` | yes | yes |
-| **Dirt Dash** | 1995 | Playable: five stages, sound, widescreen | no | `dirtdash.zip` | yes | yes |
-| **Time Crisis** | 1995 | Playable: attract, three-coin play through the stages, the operator's test mode, sound, widescreen; **the mouse is the gun**, and light guns work (see below) | no | `timecris.zip` | yes | yes |
-| **Ace Driver** | 1994 | Playable: attract, races, the operator's test mode, sound, force feedback, widescreen; a **Debug** menu with six developer screens left in the game | no | `acedrive.zip` + `namcoc74.zip` | yes | yes |
-| **Cyber Commando** | 1994 | Playable: attract, play, sound, widescreen; Cyber Sled's controls (two sticks). MAME has only the Japanese version, so some text is Japanese | no | `cybrcomm.zip` + `namcoc74.zip` | yes | yes |
+| **Prop Cycle** | 1996 | Playable, start to finish | no | `propcycl.zip` | yes | yes |
+| **Rave Racer** | 1995 | Playable | **yes**, up to 8 ([how](#playing-online)) | `raverace.zip` + `namcoc74.zip` | yes | yes |
+| **Tokyo Wars** | 1996 | Playable | no | `tokyowar.zip` | yes | yes |
+| **Dirt Dash** | 1995 | Playable, all five stages | no | `dirtdash.zip` | yes | yes |
+| **Time Crisis** | 1995 | Playable; mouse or light gun | no | `timecris.zip` | yes | yes |
+| **Ace Driver** | 1994 | Playable; force feedback, developer screens | no | `acedrive.zip` + `namcoc74.zip` | yes | yes |
+| **Cyber Commando** | 1994 | Playable; Japanese version | no | `cybrcomm.zip` + `namcoc74.zip` | yes | yes |
 
 ### System 21
 
 | Game | Year | Status | Online play | Game files you need | Linux | Windows |
 |---|---|---|---|---|---|---|
-| **Cyber Sled** | 1993 | Playable: attract, Training and VS battles, the operator's test mode, sound, widescreen; a **Debug** menu with the developer test mode left in the game | **yes**: 2 players, LAN and internet, with lobby and chat ([how](#playing-online)) | `cybsled.zip` + `namcoc67.zip` + `namcoc68.zip` | yes | yes |
+| **Cyber Sled** | 1993 | Playable; developer test mode | **yes**, 2 players ([how](#playing-online)) | `cybsled.zip` + `namcoc67.zip` + `namcoc68.zip` | yes | yes |
 
 **Are you running the same ROMs as the authors?** The checksums of every ROM file the games use are in
 [docs/ROM_CHECKSUMS.md](docs/ROM_CHECKSUMS.md), with a list in `md5sum` format for each game.
