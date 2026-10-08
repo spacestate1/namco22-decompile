@@ -1,5 +1,5 @@
-PROP CYCLE, RAVE RACER, TOKYO WARS, DIRT DASH and TIME CRISIS
-==============================================================
+PROP CYCLE, RAVE RACER, TOKYO WARS, DIRT DASH, TIME CRISIS, ACE DRIVER, CYBER COMMANDO and CYBER SLED
+=======================================================================================================
 
 1. Put the MAME ROM sets into the "roms" folder (don't unzip them):
      Prop Cycle   propcycl.zip
@@ -7,8 +7,11 @@ PROP CYCLE, RAVE RACER, TOKYO WARS, DIRT DASH and TIME CRISIS
      Tokyo Wars   tokyowar.zip
      Dirt Dash    dirtdash.zip
      Time Crisis  timecris.zip
+     Ace Driver   acedrive.zip  and  namcoc74.zip
+     Cyber Commando  cybrcomm.zip  and  namcoc74.zip
+     Cyber Sled   cybsled.zip  and  namcoc67.zip  and  namcoc68.zip
 
-2. Double-click PropCycle.exe, RaveRacer.exe, TokyoWars.exe, DirtDash.exe or TimeCrisis.exe.
+2. Double-click PropCycle.exe, RaveRacer.exe, TokyoWars.exe, DirtDash.exe, TimeCrisis.exe, AceDriver.exe, CyberCommando.exe or CyberSled.exe.
 
 That's it. The first start takes a few seconds while it unpacks the ROMs.
 Nothing needs installing. Keep the "mesa" folder beside PropCycle.exe: it is
@@ -57,10 +60,41 @@ KEYS -- DIRT DASH
   Z             brake                                Q / E      shift down / up
   M             motion stop                          9          service
   Esc           menu: Display (widescreen, window mode, resolution, frame rate ...),
-                Audio (volume), Controls (rebind the keys)
+                Audio (volume; front speakers / road speaker mix), Controls (rebind the keys)
   F11           fullscreen                           F12        screenshot
 
-A game controller works in all four.
+KEYS -- ACE DRIVER
+------------------
+  5             insert a coin (a game costs two)
+  X / Up        gas            Z / Down   brake
+  Left / Right  steer          A / S      shift down / up
+  V             change view    F2         the operator's test switch
+  Esc           menu (free play, volume, controls, force feedback; Debug: developer screens left in the game)
+  F11           fullscreen     F12        screenshot
+
+KEYS -- CYBER COMMANDO  (Cyber Sled's layout)
+----------------------
+  5             insert a coin (a game costs two)
+  Arrow keys    drive (both sticks; Left / Right turn on the spot, Shift + Left / Right strafe)
+  E / D / S / F the left stick            I / K / J / L   the right stick
+  Z             gun                       X           missile
+  C             change view               F2          the operator's test switch
+  Esc           menu (free play, volume, controls)
+  F11           fullscreen                F12         screenshot
+  Pad: the left and right sticks are the cabinet's two sticks, A gun, B missile, Y view.
+
+KEYS -- CYBER SLED
+------------------
+  5             insert a coin             1 / Enter   start
+  Arrow keys    drive (both levers; Left / Right turn on the spot, Shift + Left / Right strafe)
+  E / D / S / F the left lever           I / K / J / L   the right lever
+  Z             gun                       X           missile
+  C             change view               F2          the operator's test switch
+  Esc           menu (Online: a battle against a friend over the internet or your network; Debug: developer screens)
+  F12           screenshot
+  Pad: the left and right sticks are the two levers, A gun, B missile, Y view. The keys are fixed for now.
+
+A game controller works in all of them; a wheel with force feedback works in Rave Racer and Ace Driver.
 
 
 PROBLEMS?
@@ -69,13 +103,17 @@ PROBLEMS?
                                 are the wrong game. You need the MAME sets
                                 "propcycl" (World, PR2 Ver.A), "raverace"
                                 (World, RV2 Ver.B) plus "namcoc74", and
-                                "tokyowar" (World, TW2 Ver.A) and
-                                "dirtdash" (World, DT2 Ver.A).
+                                "tokyowar" (World, TW2 Ver.A),
+                                "dirtdash" (World, DT2 Ver.A), "timecris"
+                                (World, TS2 Ver.B), "acedrive" (World, AD2)
+                                plus "namcoc74", "cybrcomm" (Japan, CY1)
+                                plus "namcoc74", and "cybsled" (World, CY2)
+                                plus "namcoc67" and "namcoc68".
 
 "Windows protected your PC"     Click "More info", then "Run anyway".
                                 (The games are not signed.)
 
-Slow or stuttering              Open the game's log (raveracer.log, tokyowars.log, dirtdash.log, timecris.log,
+Slow or stuttering              Open the game's log (raveracer.log, tokyowars.log, dirtdash.log, timecris.log, acedriver.log, cybrcomm.log, cybsled.log,
                                 propcycl.log beside the .exe). The line "[HOST] OpenGL: ..." says which
                                 graphics chip is used: on a laptop with two of them it must be the
                                 fast one (NVIDIA / AMD card). If not, set it by hand: Windows Settings >
@@ -89,7 +127,7 @@ Black screen or won't start     Update your graphics driver. In a virtual
                                 PropCycle.exe.
 
 Something else                  Each game writes a log beside it, from its
-                                last start: propcycl.log / raveracer.log / tokyowar.log / dirtdash.log / timecris.log.
+                                last start: propcycl.log / raveracer.log / tokyowar.log / dirtdash.log / timecris.log / acedriver.log / cybrcomm.log / cybsled.log.
                                 It says what went wrong.
 
 Keep the folder somewhere you can write to (Downloads, Desktop, Documents --

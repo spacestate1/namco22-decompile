@@ -139,14 +139,21 @@ static void disp_notes(void (*line)(const char *fmt, ...))
 static const eng_ui_page page_display = { "Display", 440, 120, 26, disp_n, NULL, disp_enabled, disp_text, disp_change, disp_notes };
 
 /* ---- Audio ------------------------------------------------------------------- */
-static int aud_n(void) { return 1; }
+static const eng_ui_mixer *mixer;                              /* the game's speakers under the Volume row (eng_ui_set_mixer) */
+void eng_ui_set_mixer(const eng_ui_mixer *m) { mixer = m; }
+static int aud_n(void) { return 1 + (mixer ? mixer->rows() : 0); }
 static void aud_text(int r, char *l, size_t ln, char *v, size_t vn)
 {
-    (void)r; snprintf(l, ln, "Volume"); snprintf(v, vn, "%d%%", g_eng_disp.volume);
+    if (r > 0) { snprintf(l, ln, "%s", mixer->name(r - 1)); snprintf(v, vn, "%d%%", mixer->get(r - 1)); return; }
+    snprintf(l, ln, "Volume"); snprintf(v, vn, "%d%%", g_eng_disp.volume);
 }
 static void aud_change(int r, int dir)
 {
-    (void)r;
+    if (r > 0) {                                             /* a mixer row: 5% steps, Enter back to 100% */
+        const int m = mixer->get(r - 1) + dir * 5;
+        mixer->set(r - 1, dir == 0 ? 100 : m < 0 ? 0 : m > mixer->max ? mixer->max : m);
+        return;
+    }
     int v = g_eng_disp.volume + (dir ? dir * 5 : 10);
     if (v > 100) v = dir ? 100 : 0;                          /* Enter wraps 100 -> mute */
     if (v < 0) v = 0;
@@ -220,6 +227,10 @@ void eng_ui_input_end(void)   { if (ctx) nk_input_end(ctx); }
 void eng_ui_capture_key(void (*cb)(SDL_Scancode, void *), void *u) { input_cap_cb = NULL; cap_cb = cb; cap_u = u; }
 void eng_ui_capture_input(bool (*cb)(const SDL_Event *, void *), void *u) { cap_cb = NULL; input_cap_cb = cb; cap_u = u; }
 bool eng_ui_capturing(void) { return cap_cb != NULL || input_cap_cb != NULL; }
+#define MAXLAYERS 4
+static const eng_ui_layer *layers[MAXLAYERS]; static int nlayers;
+void eng_ui_add_layer(const eng_ui_layer *l) { if (nlayers < MAXLAYERS) layers[nlayers++] = l; }
+static bool layer_modal(void) { for (int i = 0; i < nlayers; i++) if (layers[i]->modal && layers[i]->modal()) return true; return false; }
 void eng_ui_goto(int p, int r) { if (p >= 0 && p < npages) { tab = p; row = r; } }
 
 /* one navigation step from the keyboard, a pad or a hat */
@@ -250,7 +261,10 @@ void eng_ui_nav(char c)
 
 bool eng_ui_event(SDL_Event *e)
 {
-    if (!ctx || !open_) return false;
+    if (!ctx) return false;
+    for (int i = 0; i < nlayers; i++)                    /* a layer first (the chat box, the lobby window's keys) */
+        if (layers[i]->event && layers[i]->event(e, open_)) return true;
+    if (!open_) return false;
     if (input_cap_cb) {
         if (input_cap_cb(e, cap_u)) input_cap_cb = NULL;
         return true;
@@ -266,6 +280,10 @@ bool eng_ui_event(SDL_Event *e)
         return true;
     }
     int k = -1;
+    if (layer_modal()) {                                 /* a layer's window has the keyboard: only the mouse goes on to Nuklear */
+        if (e->type != SDL_KEYDOWN && e->type != SDL_KEYUP && e->type != SDL_TEXTINPUT && e->type != SDL_CONTROLLERBUTTONDOWN) nk_sdl_handle_event(e);
+        return true;
+    }
     if (e->type == SDL_KEYDOWN) {
         const bool rep = e->key.repeat;                  /* held arrows repeat; the rest do not */
         switch (e->key.keysym.scancode) {
@@ -318,6 +336,9 @@ void eng_ui_draw(bool *quit)
     if (quit_req && quit) *quit = true;
     if (!ctx) return;
     if (!open_) {                                    /* the menu-button hint (a pad has no Esc), for a few seconds after the start */
+        int lw, lh; SDL_GetWindowSize(uwin, &lw, &lh);
+        bool any = hint_left > 0 && hint_text[0];
+        for (int i = 0; i < nlayers; i++) if (layers[i]->draw) { layers[i]->draw(ctx, lw, lh, false); any = true; }
         if (hint_left > 0 && hint_text[0]) {
             hint_left--;
             int hw, hh; SDL_GetWindowSize(uwin, &hw, &hh);
@@ -327,8 +348,8 @@ void eng_ui_draw(bool *quit)
                 nk_label(ctx, hint_text, NK_TEXT_CENTERED);
             }
             nk_end(ctx);
-            nk_sdl_render(NK_ANTI_ALIASING_ON);
         }
+        if (any) nk_sdl_render(NK_ANTI_ALIASING_ON);
         return;
     }
     int ww, wh;
@@ -393,7 +414,10 @@ void eng_ui_draw(bool *quit)
             }
             if (nk_select_label(ctx, label, NK_TEXT_LEFT, i == row)) row = i;
             if (val && nk_button_symbol(ctx, NK_SYMBOL_TRIANGLE_LEFT)) { row = i; pg->change(i, -1); }
-            if (is_audio(tab)) {                         /* the volume is a slider too */
+            if (is_audio(tab) && i > 0) {                /* a mixer row */
+                int v = mixer->get(i - 1);
+                if (nk_slider_int(ctx, 0, &v, mixer->max, 1) && v != mixer->get(i - 1)) mixer->set(i - 1, v);
+            } else if (is_audio(tab)) {                  /* the volume is a slider too */
                 int v = g_eng_disp.volume;
                 if (nk_slider_int(ctx, 0, &v, 100, 1) && v != g_eng_disp.volume) eng_disp_set_volume(v);
             } else if (nk_button_label(ctx, value[0] ? value : label)) { row = i; pg->change(i, 0); }
@@ -403,6 +427,7 @@ void eng_ui_draw(bool *quit)
         if (pg->notes) { nk_layout_row_dynamic(ctx, 18, 1); pg->notes(note_line); }
     }
     nk_end(ctx);
+    for (int i = 0; i < nlayers; i++) if (layers[i]->draw) layers[i]->draw(ctx, ww, wh, true);   /* on top of the menu */
 
     nk_sdl_render(NK_ANTI_ALIASING_ON);        /* scales window units to the drawable itself */
 }

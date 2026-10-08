@@ -1,30 +1,45 @@
 #!/bin/sh
-# Installed-package launcher for the Namco System 22 decompilations.
+# Installed-package launcher for the Namco System 22 / 21 decompilations (Cyber Sled is System 21).
 #   namco22-launch prop [0-3] [args]     Prop Cycle (a number = straight to that level)
 #   namco22-launch rave [1-9] [args]     Rave Racer (a number = window scale)
 #   namco22-launch tokyo [1-9] [args]    Tokyo Wars (a number = window scale)
 #   namco22-launch dirt [1-9] [args]     Dirt Dash (a number = window scale)
 #   namco22-launch tc [1-9] [args]       Time Crisis (a number = window scale; the mouse is the gun)
+#   namco22-launch ace [1-9] [args]      Ace Driver (a number = window scale)
+#   namco22-launch cc [1-9] [args]       Cyber Commando (a number = window scale)
+#   namco22-launch cs [1-9] [args]       Cyber Sled (a number = window scale)
 # Each game plays from its own folder under ~/.local/share/namco22/, which holds
 # its roms/, the unpacked chips, the settings, scores and recordings. The ROM zips
 # (MAME sets) go in that roms/ folder; ~/Downloads is checked on first start.
 # AppImage: zips next to the .AppImage (or in a roms/ folder beside it) are found too,
-# and PORTABLE MODE -- a folder named namco22-data next to the .AppImage -- keeps
-# everything there instead of ~/.local/share (one disk for a Steam Deck and a PC).
+# and PORTABLE MODE -- a folder named namco22-data next to the .AppImage, or the AppImage standard's
+# <name>.AppImage.home -- keeps everything there instead of ~/.local/share (one disk for a Steam Deck and a PC).
 LIB=${NAMCO22_LIB:-/usr/lib/namco22}      # an AppImage points this at its own copy
 game="$1"; [ $# -gt 0 ] && shift
+extra=""                                    # optional companion zips, copied when present (never "missing")
 case "$game" in
     prop|propcycle) title="Prop Cycle"; dir=propcycle; zips="propcycl.zip" ;;
     rave|raverace)  title="Rave Racer"; dir=raverace;  zips="raverace.zip namcoc74.zip" ;;
     tokyo|tokyowar|tokyowars|tw) title="Tokyo Wars"; dir=tokyowar; zips="tokyowar.zip" ;;
-    dirt|dirtdash|dd) title="Dirt Dash"; dir=dirtdash; zips="dirtdash.zip" ;;
+    dirt|dirtdash|dd) title="Dirt Dash"; dir=dirtdash; zips="dirtdash.zip"; extra="dirtdasha.zip" ;;   # a SPLIT MAME set keeps the
+                                                    # DT2 Ver.A program chips (dt2vera.1/.2) in dirtdasha.zip (GitHub #8)
     tc|timecris|timecrisis|crisis) title="Time Crisis"; dir=timecris; zips="timecris.zip" ;;
-    *) sed -n '2,11p' "$0" | sed 's/^# \?//'; exit 1 ;;
+    ace|acedriver|ad) title="Ace Driver"; dir=acedriver; zips="acedrive.zip namcoc74.zip" ;;
+    cc|cybrcomm|cybercommando|commando) title="Cyber Commando"; dir=cybrcomm; zips="cybrcomm.zip namcoc74.zip" ;;
+    cs|cybsled|cybersled|sled) title="Cyber Sled"; dir=cybsled; zips="cybsled.zip namcoc67.zip namcoc68.zip" ;;
+    *) sed -n '2,14p' "$0" | sed 's/^# \?//'; exit 1 ;;
 esac
 # $APPIMAGE is the .AppImage's own path (set by the AppImage runtime, also with --appimage-extract-and-run)
 appdir=""; [ -n "${APPIMAGE:-}" ] && appdir=$(dirname "$APPIMAGE")
 if [ -n "$appdir" ] && [ -d "$appdir/namco22-data" ]; then
     data="$appdir/namco22-data/$dir"                   # portable: the folder travels with the AppImage
+    echo "[launch] portable mode: $data" >&2
+elif [ -n "${APPIMAGE:-}" ] && { [ -d "$APPIMAGE.home" ] || [ -d "${APPIMAGE%.AppImage}.home" ]; }; then
+    # the AppImage standard's portable folder, GitHub #23: <name>.AppImage.home (or <name>.home, as users name it). The
+    # runtime moves $HOME into it, but the user who tried it still found the data under ~/.local/share (an
+    # $XDG_DATA_HOME in the environment, or a runtime without the feature), so the launcher looks for it itself.
+    h="$APPIMAGE.home"; [ -d "$h" ] || h="${APPIMAGE%.AppImage}.home"
+    data="$h/namco22/$dir"
     echo "[launch] portable mode: $data" >&2
 else
     data="${XDG_DATA_HOME:-$HOME/.local/share}/namco22/$dir"
@@ -41,6 +56,12 @@ for z in $zips; do
         if [ -f "$s" ]; then cp "$s" roms/ && break; fi
     done
     [ -f "roms/$z" ] || missing="$missing $z"
+done
+for z in $extra; do
+    [ -f "roms/$z" ] && continue
+    for s in ${appdir:+"$appdir/$z" "$appdir/roms/$z"} "$HOME/Downloads/$z" "$HOME/$z"; do
+        if [ -f "$s" ]; then cp "$s" roms/ && break; fi
+    done
 done
 # Once unpacked the zips are no longer needed, so only complain before that.
 if [ -n "$missing" ] && [ -z "$(ls -A extracted 2>/dev/null)" ]; then
@@ -89,4 +110,19 @@ case "$dir" in
             exec "$LIB/tc" extracted --window ${1:+"$1"}
         fi
         exec "$LIB/tc" extracted "$@" ;;
+    acedriver)
+        if [ $# -eq 0 ] || expr "$1" : '[1-9]$' >/dev/null; then
+            exec "$LIB/ad" extracted --window ${1:+"$1"}
+        fi
+        exec "$LIB/ad" extracted "$@" ;;
+    cybrcomm)
+        if [ $# -eq 0 ] || expr "$1" : '[1-9]$' >/dev/null; then
+            exec "$LIB/cc" extracted --window ${1:+"$1"}
+        fi
+        exec "$LIB/cc" extracted "$@" ;;
+    cybsled)
+        if [ $# -eq 0 ] || expr "$1" : '[1-9]$' >/dev/null; then
+            exec "$LIB/cs21" extracted --window ${1:+"$1"}
+        fi
+        exec "$LIB/cs21" extracted "$@" ;;
 esac

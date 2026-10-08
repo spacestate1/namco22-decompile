@@ -100,14 +100,16 @@ static inline int64_t pshift(c71_t *d)
  * and every such sum came out one LSB low. */
 static inline void add_c(c71_t *d, int64_t alu)
 {
-    uint32_t old = (uint32_t)d->acc;
+    uint32_t old = (uint32_t)d->acc, a = (uint32_t)s32(alu), r = old + a;
+    if ((int32_t)((r ^ a) & (old ^ r)) < 0) d->ov = 1;     /* MAME CALCULATE_ADD_OVERFLOW (on the wrapped sum) */
     d->acc = sat(d, (int64_t)(int32_t)old + s32(alu));
     d->c = old > (uint32_t)d->acc;
 }
 
 static inline void sub_c(c71_t *d, int64_t alu)
 {
-    uint32_t old = (uint32_t)d->acc;
+    uint32_t old = (uint32_t)d->acc, a = (uint32_t)s32(alu), r = old - a;
+    if ((int32_t)((old ^ a) & (old ^ r)) < 0) d->ov = 1;   /* MAME CALCULATE_SUB_OVERFLOW */
     d->acc = sat(d, (int64_t)(int32_t)old - s32(alu));
     d->c = !(old < (uint32_t)d->acc);
 }
@@ -145,7 +147,7 @@ static inline bool misc(c71_t *d, int op, int pc)
     else if (lo >= 0x08 && lo <= 0x0B) d->pm = lo & 3;
     else if (lo == 0x1B) {                                  /* ABS */
         a = d->acc;
-        if (a < 0) { d->acc = s32(-(int64_t)a); if ((uint32_t)d->acc == 0x80000000u && d->ovm) d->acc = 0x7FFFFFFF; }
+        if (a < 0) { d->acc = s32(-(int64_t)a); if ((uint32_t)d->acc == 0x80000000u) { d->ov = 1; if (d->ovm) d->acc = 0x7FFFFFFF; } }
         d->c = 0;
     }
     else if (lo == 0x0E || lo == 0x0F || lo == 0x20 || lo == 0x21 || lo == 0x36 || lo == 0x37) { /* FORT/RTXM/STXM/RFSM/SFSM */ }
@@ -175,7 +177,7 @@ static inline bool misc(c71_t *d, int op, int pc)
     }
     else if (lo == 0x1F) { if (d->idle_halts) { d->intm = 0; d->idle = 1; } }   /* IDLE: (TI) INTM=0, halt until an interrupt is taken */
     else if (lo == 0x23) {                                  /* NEG */
-        if ((uint32_t)d->acc == 0x80000000u) { if (d->ovm) d->acc = 0x7FFFFFFF; }
+        if ((uint32_t)d->acc == 0x80000000u) { d->ov = 1; if (d->ovm) d->acc = 0x7FFFFFFF; }
         else d->acc = s32(-(int64_t)d->acc);
         d->c = d->acc == 0;
     }
@@ -227,12 +229,12 @@ static inline bool c25_exec(c71_t *d, int pc, int op, int it)
     else if (hi == 0x3B) { sub_c(d, pshift(d));
                            d->p = (int64_t)s16(d->t) * s16(c25_dr(d, dma(d, lo))); }
     else if (hi == 0x58) {                                  /* TBLR */
-        d->pfc = (uint16_t)d->acc;
+        if (it == 0) d->pfc = (uint16_t)d->acc;             /* under RPT the address is loaded once, then PFC counts (MAME m_init_load_addr) */
         c25_dw(d, dma(d, lo), c25_pr(d, d->pfc));
         d->pfc++;
     }
     else if (hi == 0x59) {                                  /* TBLW */
-        d->pfc = (uint16_t)d->acc;
+        if (it == 0) d->pfc = (uint16_t)d->acc;
         c25_pw(d, d->pfc, c25_dr(d, dma(d, lo)));
         d->pfc++;
     }
@@ -250,20 +252,24 @@ static inline bool c25_exec(c71_t *d, int pc, int op, int it)
     else if (hi == 0x41)   d->acc = c25_dr(d, dma(d, lo));                          /* ZALS */
     else if (hi == 0x42)   d->acc = s32(load16(d, c25_dr(d, dma(d, lo)), d->t & 0xF));     /* LACT */
     else if (hi == 0x43) {                                  /* ADDC */
-        uint32_t old = (uint32_t)d->acc;
-        d->acc = sat(d, (int64_t)(int32_t)old + c25_dr(d, dma(d, lo)) + d->c);
+        uint32_t old = (uint32_t)d->acc, x = c25_dr(d, dma(d, lo));   /* ONE read: a DSP data address can be a port with side effects */
+        uint32_t m = x + (uint32_t)d->c, r = old + m;
+        if ((int32_t)((r ^ m) & (old ^ r)) < 0) d->ov = 1;
+        d->acc = sat(d, (int64_t)(int32_t)old + x + d->c);
         if ((uint32_t)d->acc != old) d->c = old > (uint32_t)d->acc;
     }
     else if (hi == 0x4F) {                                  /* SUBB */
-        uint32_t old = (uint32_t)d->acc;
-        d->acc = sat(d, (int64_t)(int32_t)old - c25_dr(d, dma(d, lo)) - (d->c ? 0 : 1));
+        uint32_t old = (uint32_t)d->acc, x = c25_dr(d, dma(d, lo));   /* ONE read (see ADDC) */
+        uint32_t m = x + (d->c ? 0u : 1u), r = old - m;
+        if ((int32_t)((old ^ m) & (old ^ r)) < 0) d->ov = 1;
+        d->acc = sat(d, (int64_t)(int32_t)old - x - (d->c ? 0 : 1));
         if ((uint32_t)d->acc != old) d->c = !(old < (uint32_t)d->acc);
     }
     else if (hi == 0x44) {                                  /* SUBH: 16-bit on the high word */
         uint32_t old = (uint32_t)d->acc; uint16_t oh = old >> 16, m = c25_dr(d, dma(d, lo));
         uint16_t nh = (uint16_t)(oh - m);
         if (oh < nh) d->c = 0;
-        if ((int16_t)((oh ^ m) & (oh ^ nh)) < 0 && d->ovm) nh = (int16_t)oh < 0 ? 0x8000 : 0x7FFF;
+        if ((int16_t)((oh ^ m) & (oh ^ nh)) < 0) { d->ov = 1; if (d->ovm) nh = (int16_t)oh < 0 ? 0x8000 : 0x7FFF; }
         d->acc = (int32_t)(((uint32_t)nh << 16) | (old & 0xFFFF));
     }
     else if (hi == 0x45)   sub_c(d, c25_dr(d, dma(d, lo)));                                 /* SUBS */
@@ -274,6 +280,7 @@ static inline bool c25_exec(c71_t *d, int pc, int op, int it)
         uint32_t x = c25_dr(d, dma(d, lo)) & 0xFFFF;
         if (d->sxm && (x & 0x8000)) x |= 0xFFFF0000u;
         uint32_t alu = x << 15, old = (uint32_t)d->acc, res = old - alu;
+        if ((int32_t)((old ^ alu) & (old ^ res)) < 0) d->ov = 1;   /* not affected by OVM */
         d->c = !(old < res);
         d->acc = old >= alu ? (int32_t)((res << 1) | 1) : (int32_t)(old << 1);
     }
@@ -283,7 +290,7 @@ static inline bool c25_exec(c71_t *d, int pc, int op, int it)
         uint32_t old = (uint32_t)d->acc; uint16_t oh = old >> 16, m = c25_dr(d, dma(d, lo));
         uint16_t nh = (uint16_t)(oh + m);
         if (oh > nh) d->c = 1;                              /* set on carry, never cleared */
-        if ((int16_t)((nh ^ m) & (oh ^ nh)) < 0 && d->ovm) nh = (int16_t)oh < 0 ? 0x8000 : 0x7FFF;
+        if ((int16_t)((nh ^ m) & (oh ^ nh)) < 0) { d->ov = 1; if (d->ovm) nh = (int16_t)oh < 0 ? 0x8000 : 0x7FFF; }
         d->acc = (int32_t)(((uint32_t)nh << 16) | (old & 0xFFFF));
     }
     else if (hi == 0x4C)   d->acc = (int32_t)((uint32_t)d->acc ^ c25_dr(d, dma(d, lo)));   /* XOR */
@@ -316,16 +323,18 @@ static inline bool c25_exec(c71_t *d, int pc, int op, int it)
     else if (hi >= 0xA0 && hi <= 0xBF)                                              /* MPYK */
         d->p = (int64_t)s16(d->t) * ((int16_t)(uint16_t)(op << 3) >> 3);
     else if (hi == 0x50) { v = c25_dr(d, dma(d, lo));                              /* LST */
-                           d->arp = (v >> 13) & 7; d->ovm = (v >> 11) & 1;
+                           d->arp = (v >> 13) & 7; d->ov = (v >> 12) & 1; d->ovm = (v >> 11) & 1;
                            d->intm = (v >> 9) & 1; d->dp = v & 0x1FF; }
     else if (hi == 0x51) { v = c25_dr(d, dma(d, lo));                              /* LST1 */
                            d->arb = (v >> 13) & 7; d->arp = d->arb;      /* LST #1 loads ARB and ARP with the same value: the BIOS interrupt stub saves the old ARP in ARB (LARP 7 copies it there) and the game's return restores it this way */
                            d->tc = (v >> 11) & 1;
                            d->sxm = (v >> 10) & 1; d->c = (v >> 9) & 1; d->pm = v & 3; }
-    else if (hi == 0x78)   c25_dw(d, dma(d, lo), ((d->arp & 7) << 13) | (d->ovm << 11) | (1 << 10)
-                                              | (d->intm << 9) | (d->dp & 0x1FF));   /* SST */
-    else if (hi == 0x79)   c25_dw(d, dma(d, lo), ((d->arb & 7) << 13) | (d->tc << 11) | (d->sxm << 10)
-                                              | (d->c << 9) | (d->pm & 3));          /* SST1 */
+    else if (hi == 0x78)   c25_dw(d, (lo & 0x80) ? ind(d, lo) : (uint32_t)(lo & 0x7F),   /* SST: direct = page 0 */
+                                  ((d->arp & 7) << 13) | (d->ov << 12) | (d->ovm << 11) | (1 << 10)
+                                              | (d->intm << 9) | (d->dp & 0x1FF));
+    else if (hi == 0x79)   c25_dw(d, (lo & 0x80) ? ind(d, lo) : (uint32_t)(lo & 0x7F),   /* SST1: direct = page 0 */
+                                  ((d->arb & 7) << 13) | (d->tc << 11) | (d->sxm << 10)
+                                              | (d->c << 9) | (d->pm & 3));
     else if (hi == 0x52)   d->dp = c25_dr(d, dma(d, lo)) & 0x1FF;                  /* LDP */
     else if (hi == 0x55) { if (lo & 0x80) ind(d, lo); }                        /* MAR/LARP */
     else if (hi >= 0x60 && hi <= 0x67)                                         /* SACL */
@@ -385,6 +394,12 @@ static inline bool c25_exec(c71_t *d, int pc, int op, int it)
         case 0xFA: take = d->bioz == 0; break;
         }
         if (take) d->pc = tgt;
+    }
+    else if ((hi == 0xF0 || hi == 0xF7) && (lo & 0x80)) {  /* BV / BNV: a taken-on-OV branch clears OV (MAME bv/bnv) */
+        uint16_t tgt = c25_imm(d);
+        if (lo != 0x80) ind(d, lo);
+        if (hi == 0xF0) { if (d->ov) { d->pc = tgt; d->ov = 0; } }
+        else { if (!d->ov) d->pc = tgt; else d->ov = 0; }
     }
     else if (hi == 0xFB && (lo & 0x80)) {                   /* BANZ */
         uint16_t tgt = c25_imm(d);

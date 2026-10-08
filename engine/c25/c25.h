@@ -54,6 +54,7 @@ typedef struct c71 {
     int arp, arb, dp, pm, sxm, ovm, intm, c, tc, cnf;
     uint16_t imr, prd, tim;
     int tint_pend;
+    int ov;                           /* ST0 OV: set by an accumulator overflow, cleared only by BV/BNV taking it (and LST) */
     /* ---- Rave Racer additions (System 22) ---------------------------------- */
     uint32_t ptram_base;              /* C71_PTRAM_S22 or C71_PTRAM_SS22 */
     int ss22;                         /* port-2 read runs the PDP command block (SS22 only) */

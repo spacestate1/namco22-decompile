@@ -1,0 +1,13 @@
+[package]
+name = "nmn-server"
+version = "0.2.0"
+edition = "2021"
+description = "One lobby + relay server for every game's online play: NMN2 (see ../docs/NETPLAY.md), and Rave Racer's RRN1 alongside"
+license = "GPL-2.0-or-later"
+
+[dependencies]
+
+[profile.release]
+opt-level = 3
+lto = true
+panic = "abort"

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Ace Driver
+Comment=Namco's 1994 arcade racer Ace Driver: Racing Evolution (decompiled engine)
+Exec=acedriver
+Icon=acedriver
+Terminal=false
+Categories=Game;ArcadeGame;

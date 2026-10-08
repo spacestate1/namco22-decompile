@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Cyber Sled
+Comment=Namco's 1993 System 21 arcade tank battle Cyber Sled (decompiled engine)
+Exec=cybersled
+Icon=cybersled
+Terminal=false
+Categories=Game;ArcadeGame;

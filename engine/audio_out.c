@@ -23,7 +23,8 @@ static int16_t ring[RING * 2];
 static atomic_uint r_head, r_tail;
 static SDL_AudioDeviceID dev;
 static double rs_pos;                         /* resampler position in input samples */
-static int16_t rs_prev[2];
+static int16_t rs_prev[4];
+static float g_mix[2][4] = { { 1, 0, 0, 0 }, { 0, 1, 0, 0 } };   /* the chip's four outputs into the stereo pair: the front pair alone */
 static float g_volume = 1.0f;
 static double g_out_gain = 6.0;
 static uint32_t underruns, per_sec_ur, cb_samples, latency_resets;
@@ -117,6 +118,7 @@ bool eng_audio_open(void)
 }
 
 void eng_audio_set_gain(double gain) { if (gain > 0) g_out_gain = gain; }
+void eng_audio_set_mix(const float m[2][4]) { memcpy(g_mix, m, sizeof g_mix); }
 void eng_audio_set_volume(int percent) { g_volume = (percent < 0 ? 0 : percent > 100 ? 100 : percent) / 100.0f; }
 
 void eng_audio_push(const int16_t *in4, int n)
@@ -146,16 +148,20 @@ void eng_audio_push(const int16_t *in4, int n)
     const double step = 85333.333 / OUT_HZ / adj;       /* input samples per output sample */
     while (rs_pos < n) {
         const int i = (int)rs_pos; const double f = rs_pos - i;
+        double s[4];
+        for (int c = 0; c < 4; c++) {
+            const double a = i == 0 ? rs_prev[c] : in4[(i - 1) * 4 + c], b = in4[i * 4 + c];
+            s[c] = a + (b - a) * f;
+        }
         for (int ch = 0; ch < 2; ch++) {
-            const double a = i == 0 ? rs_prev[ch] : in4[(i - 1) * 4 + ch], b = in4[i * 4 + ch];
-            const double v = soft_limit((a + (b - a) * f) * g_volume * g_out_gain);
+            const double v = soft_limit((s[0] * g_mix[ch][0] + s[1] * g_mix[ch][1] + s[2] * g_mix[ch][2] + s[3] * g_mix[ch][3]) * g_volume * g_out_gain);
             if (h - t < RING) ring[(h & (RING - 1)) * 2 + ch] = (int16_t)lrint(v);
         }
         if (h - t < RING) h++;
         rs_pos += step;
     }
     rs_pos -= n;
-    rs_prev[0] = in4[(n - 1) * 4]; rs_prev[1] = in4[(n - 1) * 4 + 1];
+    memcpy(rs_prev, &in4[(n - 1) * 4], sizeof rs_prev);
     atomic_store_explicit(&r_head, h, memory_order_release);
 }
 

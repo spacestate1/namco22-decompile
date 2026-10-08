@@ -24,6 +24,7 @@
 #include <time.h>
 #include <sys/stat.h>
 #include "eng_vsync.h"
+#include "rr_game.h"
 #include "rr_hw.h"
 #include "rr_video.h"
 #include "rr_input.h"
@@ -48,7 +49,10 @@ extern int g_rr_gl;     /* rr_main.c: 1 = the engine's GL renderer, 0 = the soft
  * joystick mapped by axis/button number from rr_controls.cfg (wheels, pedals,
  * arcade sticks). Hot-plug either way. */
 #define MAX_DEV 16
-static struct { SDL_GameController *gc; SDL_Joystick *js; SDL_JoystickID id; } dev[MAX_DEV];
+static struct {
+    SDL_GameController *gc; SDL_Joystick *js; SDL_JoystickID id;
+    int steer_rest; bool steer_seen, steer_live;   /* the raw steering axis: its resting value, and whether it has been turned since */
+} dev[MAX_DEV];
 
 static void dev_scan(void)
 {
@@ -68,6 +72,7 @@ static void dev_scan(void)
                     SDL_JoystickName(dev[free_slot].js), SDL_JoystickNumAxes(dev[free_slot].js), SDL_JoystickNumButtons(dev[free_slot].js));
         }
         dev[free_slot].id = id;
+        dev[free_slot].steer_seen = dev[free_slot].steer_live = false;
     }
 }
 static void dev_remove(SDL_JoystickID id)
@@ -307,11 +312,11 @@ static void apply_fullscreen(void)
         SDL_SetWindowPosition(win, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
     }
 }
-static void save_opt(const char *k, const char *v) { rr_input_set_option("rr_controls.cfg", k, v); }
+static void save_opt(const char *k, const char *v) { rr_input_set_option(g_rr_game->cfg_file, k, v); }
 
 bool rr_host_open(int scale)
 {
-    rr_input_load("rr_controls.cfg");
+    rr_input_load(g_rr_game->cfg_file);
     if (scale > 0) g_cfg_scale = scale;                /* --window N overrides the saved size */
     if (getenv("RR_FULLSCREEN")) { g_cfg_fullscreen = atoi(getenv("RR_FULLSCREEN")) != 0; g_cfg_winmode = g_cfg_fullscreen; }
     if (g_cfg_winmode < 0) g_cfg_winmode = g_cfg_fullscreen ? 1 : 0;
@@ -320,7 +325,7 @@ bool rr_host_open(int scale)
     eng_ffb_start();                                 /* before the joysticks, or Windows never lists a wheel as haptic (engine/eng_ffb.h) */
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_GAMECONTROLLER) != 0) { fprintf(stderr, "[HOST] SDL: %s\n", SDL_GetError()); return false; }
     rr_gl_context_attributes();
-    win = SDL_CreateWindow("Rave Racer", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, rr_host_win_w(g_cfg_scale), rr_host_win_h(g_cfg_scale),
+    win = SDL_CreateWindow(g_rr_game->title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, rr_host_win_w(g_cfg_scale), rr_host_win_h(g_cfg_scale),
                            SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI |
                            (g_cfg_fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0));
     if (!win) { fprintf(stderr, "[HOST] window: %s\n", SDL_GetError()); return false; }
@@ -331,10 +336,10 @@ bool rr_host_open(int scale)
       glc = eng_gl_create_win(&win, &miss);
       if (!glc) {
           char msg[512];
-          snprintf(msg, sizeof msg, "Rave Racer could not start OpenGL (%s%s%s).\n\nInstall or update the "
-                   "graphics driver. In a virtual machine, keep the \"mesa\" folder beside RaveRacer.exe.",
-                   SDL_GetError(), miss ? ", missing " : "", miss ? miss : "");
-          SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Rave Racer", msg, win);
+          snprintf(msg, sizeof msg, "%s could not start OpenGL (%s%s%s).\n\nInstall or update the "
+                   "graphics driver. In a virtual machine, keep the \"mesa\" folder beside the game's .exe.",
+                   g_rr_game->title, SDL_GetError(), miss ? ", missing " : "", miss ? miss : "");
+          SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, g_rr_game->title, msg, win);
       } }
 #else
     glc = SDL_GL_CreateContext(win);
@@ -440,6 +445,16 @@ static bool pad_steer(int *out)                   /* -32767..32767 */
              * the lock dead and then jumped the steering 0x2B at once: a step exactly at the centre, which the steering motor's
              * centring then held the wheel against */
             v = SDL_JoystickGetAxis(dev[d].js, g_joy_steer.axis);
+            /* GitHub #35: the default binding (`joy_steer = 0`, no device) reads axis 0 of EVERY device that is not a gamepad -- a
+             * pedal set, a stick, a vJoy -- and one resting off centre held the steering to one side: the course select's cursor
+             * drifted although nothing was touched. Such a device steers only once it has been TURNED: more than 1/8 of the range away
+             * from where it sat when first read. A device bound in the Controls page (its GUID saved) steers at once, as before. */
+            if (!dev[d].steer_seen) { dev[d].steer_seen = true; dev[d].steer_rest = v; }
+            if (!dev[d].steer_live && (g_joy_steer.guid[0] || abs(v - dev[d].steer_rest) > 4096)) {
+                dev[d].steer_live = true;
+                fprintf(stderr, "[HOST] joystick %d steers (axis %d moved from its resting %d)\n", d, g_joy_steer.axis, dev[d].steer_rest);
+            }
+            if (!dev[d].steer_live) v = 0;
             if (g_joy_steer.invert) v = -v;
             if (v > -WHEEL_DEADZONE && v < WHEEL_DEADZONE) v = 0;
             else v = (v > 0 ? v - WHEEL_DEADZONE : v + WHEEL_DEADZONE) * 32767 / (32767 - WHEEL_DEADZONE);
@@ -484,24 +499,77 @@ static void wheel_motor(bool hold)
     if (ffb_wheel)
         eng_ffb_force(hold ? 0 : motor_hold_off(eng_ffb_decode(rr_hw_motor_byte())), g_cfg_ffb_strength, g_joy_steer.invert != (g_cfg_ffb_invert != 0));
 }
-static bool pad_pedal(bool gas, int *out)         /* 0..0x610 */
+static bool pad_pedal(bool gas, int *out)         /* 0..gas_max / brake_max (the game table) */
 {
     int best = 0;
+    const int top = gas ? g_rr_game->gas_max : g_rr_game->brake_max;
     rr_joyaxis_t *ax = gas ? &g_joy_gas : &g_joy_brake;
     for (int d = 0; d < MAX_DEV; d++) {
         int v = 0;
         if (dev[d].gc) {
             int t = SDL_GameControllerGetAxis(dev[d].gc, gas ? SDL_CONTROLLER_AXIS_TRIGGERRIGHT : SDL_CONTROLLER_AXIS_TRIGGERLEFT);
-            if (t > 1000) v = (t - 1000) * 0x610 / (32767 - 1000);
+            if (t > 1000) v = (t - 1000) * top / (32767 - 1000);
         } else if (rr_input_axis_device(ax, dev[d].js) && ax->axis >= 0 && ax->axis < SDL_JoystickNumAxes(dev[d].js)) {
             int r = SDL_JoystickGetAxis(dev[d].js, ax->axis);
             double f = rr_input_pedal_value(ax, r);
-            if (f > 0.03) v = (int)((f - 0.03) / 0.97 * 0x610);
+            if (f > 0.03) v = (int)((f - 0.03) / 0.97 * top);
         }
         if (v > best) best = v;
     }
-    *out = best > 0x610 ? 0x610 : best;
+    *out = best > top ? top : best;
     return best > 0;
+}
+
+/* TWIN STICKS (rr_game_t.twin_stick, Cyber Commando): the cabinet's two sticks, each with a vertical and a horizontal ADC
+ * (ADC.0 right Y, ADC.1 left Y, ADC.2 right X, ADC.3 left X; 8-bit, centre 0x7F, range 0x47..0xB7, forward / left = low -- MAME
+ * INPUT_PORTS_START(cybrcomm)). A gamepad's left / right stick ARE the left / right stick. Keys play the "tank": forward (the gas
+ * action) pushes both sticks forward, back (brake) both back, turn left / right (steer) pushes them opposite ways -- left stick
+ * back and right forward turns left. Keys ramp at MAME's PORT_KEYDELTA(10) a frame and spring back to the centre. */
+static int pad_stick(SDL_GameControllerAxis a)        /* -32767..32767, deadzone removed, the strongest gamepad */
+{
+    int best = 0;
+    for (int d = 0; d < MAX_DEV; d++) {
+        if (!dev[d].gc) continue;
+        int v = SDL_GameControllerGetAxis(dev[d].gc, a);
+        if (v > -g_pad_deadzone && v < g_pad_deadzone) v = 0;
+        else v = (v > 0 ? v - g_pad_deadzone : v + g_pad_deadzone) * 32767 / (32767 - g_pad_deadzone);
+        if (abs(v) > abs(best)) best = v;
+    }
+    return best;
+}
+static void twin_stick_inputs(void)
+{
+    enum { LO = 0x47, MID = 0x7F, HI = 0xB7, STEP = 10 };
+    /* Cyber Sled's layout (cybsled/src/host/s21_input.c), the same kind of cabinet: Up/Down both sticks forward/back,
+     * Left/Right the sticks opposite (turn), Shift + Left/Right both sticks sideways (strafe); E/D/S/F and I/K/J/L work each
+     * stick on its own, as MAME's default keys for this game do (PORT_CODE_DEC/INC: E/S/I/J = the LOW value = forward/left). */
+    const Uint8 *k = SDL_GetKeyboardState(NULL);
+    const int shift = k[SDL_SCANCODE_LSHIFT] || k[SDL_SCANCODE_RSHIFT];
+    const int fwd = held(RR_GAS), back = held(RR_BRAKE), tl = held(RR_STEER_LEFT), tr = held(RR_STEER_RIGHT);
+    const int turn = shift ? 0 : tr - tl, side = shift ? tr - tl : 0;
+    int kl = back - fwd - turn, kr = back - fwd + turn;                /* -1 = forward (low), +1 = back (high), per stick */
+    kl = kl < -1 ? -1 : kl > 1 ? 1 : kl; kr = kr < -1 ? -1 : kr > 1 ? 1 : kr;
+    static const SDL_GameControllerAxis pad_ax[4] = { SDL_CONTROLLER_AXIS_RIGHTY, SDL_CONTROLLER_AXIS_LEFTY,
+                                                      SDL_CONTROLLER_AXIS_RIGHTX, SDL_CONTROLLER_AXIS_LEFTX };
+    int key[4] = { kr, kl, side, side };
+    if (!rr_ui_is_open()) {
+        const int lev[4][2] = { { SDL_SCANCODE_I, SDL_SCANCODE_K }, { SDL_SCANCODE_E, SDL_SCANCODE_D },
+                                { SDL_SCANCODE_J, SDL_SCANCODE_L }, { SDL_SCANCODE_S, SDL_SCANCODE_F } };
+        for (int i = 0; i < 4; i++) {
+            const int d = k[lev[i][1]] - k[lev[i][0]];
+            if (d) key[i] = d;
+        }
+    }
+    for (int i = 0; i < 4; i++) {
+        const int p = pad_stick(pad_ax[i]);
+        int v = g_hw.adc[i];
+        if (!key[i] && p) v = MID + p * (HI - MID) / 32767;             /* an analog stick out of its deadzone sets the ADC */
+        else {
+            const int target = key[i] < 0 ? LO : key[i] > 0 ? HI : MID;
+            v += v < target ? (target - v < STEP ? target - v : STEP) : v > target ? -(v - target < STEP ? v - target : STEP) : 0;
+        }
+        g_hw.adc[i] = (uint8_t)(v < LO ? LO : v > HI ? HI : v);
+    }
 }
 
 static void toggle_record(void)
@@ -669,15 +737,19 @@ bool rr_host_frame(void)
         set_bit(0x0002, held(RR_SHIFT_UP));
         set_bit(0x0040, held(RR_VIEW));
 
+        if (g_rr_game->twin_stick) { twin_stick_inputs(); goto inputs_done; }
         /* an analog source out of its deadzone wins; keys/buttons ramp like MAME's KEYDELTA */
         int sx, pv;
         int dir = (held(RR_STEER_RIGHT) ? 1 : 0) - (held(RR_STEER_LEFT) ? 1 : 0);
-        if (!dir && pad_steer(&sx)) g_hw.steer = (uint16_t)(0x800 + sx * 0x580 / 32767);
-        else ramp(&g_hw.steer, 0x800 + dir * 0x580, 0x280, 0xD80, dir ? g_steer_speed : g_steer_return);
+        const rr_game_t *gm = g_rr_game;
+        const int half = (gm->steer_max - gm->steer_min) / 2;           /* centre 0x800 */
+        if (!dir && pad_steer(&sx)) g_hw.steer = (uint16_t)(0x800 + sx * half / 32767);
+        else ramp(&g_hw.steer, 0x800 + dir * half, gm->steer_min, gm->steer_max, dir ? g_steer_speed : g_steer_return);
         if (!held(RR_GAS) && pad_pedal(true, &pv)) g_hw.gas = (uint16_t)pv;
-        else ramp(&g_hw.gas, held(RR_GAS) ? 0x610 : 0, 0, 0x610, 160);
+        else ramp(&g_hw.gas, held(RR_GAS) ? gm->gas_max : 0, 0, gm->gas_max, gm->gas_delta);
         if (!held(RR_BRAKE) && pad_pedal(false, &pv)) g_hw.brake = (uint16_t)pv;
-        else ramp(&g_hw.brake, held(RR_BRAKE) ? 0x610 : 0, 0, 0x610, 160);
+        else ramp(&g_hw.brake, held(RR_BRAKE) ? gm->brake_max : 0, 0, gm->brake_max, gm->brake_delta);
+    inputs_done: ;
     }
     wheel_motor(paused || rr_ui_is_open());
 

@@ -1,6 +1,6 @@
 
  ==================================================================
-  Prop Cycle / Rave Racer / Tokyo Wars / Dirt Dash / Time Crisis are installed.  THE GAMES NEED ROM FILES.
+  Prop Cycle / Rave Racer / Tokyo Wars / Dirt Dash / Time Crisis / Ace Driver / Cyber Commando / Cyber Sled are installed.  THE GAMES NEED ROM FILES.
  ==================================================================
   No game data is included. Put the MAME ROM sets here:
 
@@ -13,15 +13,24 @@
     Tokyo Wars:  tokyowar.zip
                  -> ~/.local/share/namco22/tokyowar/roms/
 
-    Dirt Dash:   dirtdash.zip
+    Dirt Dash:   dirtdash.zip  (and dirtdasha.zip, if your MAME set has one)
                  -> ~/.local/share/namco22/dirtdash/roms/
 
     Time Crisis: timecris.zip
                  -> ~/.local/share/namco22/timecris/roms/
 
+    Ace Driver:  acedrive.zip  AND  namcoc74.zip
+                 -> ~/.local/share/namco22/acedriver/roms/
+
+    Cyber Commando:  cybrcomm.zip  AND  namcoc74.zip
+                 -> ~/.local/share/namco22/cybrcomm/roms/
+
+    Cyber Sled:  cybsled.zip  AND  namcoc67.zip  AND  namcoc68.zip
+                 -> ~/.local/share/namco22/cybsled/roms/
+
   (Each user has their own folder. Starting a game once creates it
    and opens it for you. Zips already in ~/Downloads are found
-   automatically.)  Then start "Prop Cycle", "Rave Racer", "Tokyo Wars", "Dirt Dash" or "Time Crisis"
-  from the applications menu, or run:  propcycle / raveracer / tokyowars / dirtdash / timecrisis
+   automatically.)  Then start "Prop Cycle", "Rave Racer", "Tokyo Wars", "Dirt Dash", "Time Crisis", "Ace Driver", "Cyber Commando" or "Cyber Sled"
+  from the applications menu, or run:  propcycle / raveracer / tokyowars / dirtdash / timecrisis / acedriver / cybercommando / cybersled
  ==================================================================
 

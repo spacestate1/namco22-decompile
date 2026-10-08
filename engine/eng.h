@@ -37,6 +37,16 @@ extern uint8_t *g_texture_tilemap;
 int eng_load_texture_roms(const char *dir, const char *const cg[8],
                           const char *ccrl, const char *ccrh);
 
+/* MAME namcos22_v.cpp init_tables(), System 22 Ridge Racer 1/2, Ace Driver, Cyber Commando:
+ * every tilemap entry whose attribute bit 0 is CLEAR becomes (tile & 0x3fff) | 0x8000, and the
+ * tile number is the plain 16-bit one. Call after eng_load_texture_roms. It also sets
+ * g_eng_tex_tile16, which turns off the bake's "attr bit 0 -> tile | 0x10000": in every other
+ * game bit 0 appears only on empty padding (tile 0xFFFF, attr 0xF), where that extension reads
+ * past the 16 MB tile ROM as pen 0; Ace Driver has 104,540 REAL entries with bit 0 set, which
+ * it would turn transparent. */
+void eng_texture_tilemap_sys22_fixup(void);
+extern int g_eng_tex_tile16;
+
 /* ---- point data ----------------------------------------------------------
  * Point ROM, already sign-extended to 24 bits, plus an optional reader for
  * addresses past it (System 22's point RAM at 0xF00000). */

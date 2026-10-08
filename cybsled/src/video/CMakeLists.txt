@@ -1,0 +1,25 @@
+# Cyber Sled module C (video). Standalone: cmake -S cybsled/src/video -B cybsled/build_video
+cmake_minimum_required(VERSION 3.10)
+project(s21_video C)
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE RelWithDebInfo)
+endif()
+set(CMAKE_C_STANDARD 11)
+set(S21V_ENGINE ${CMAKE_CURRENT_LIST_DIR}/../../../engine)
+set(OpenGL_GL_PREFERENCE GLVND)
+find_package(OpenGL REQUIRED)
+if(NOT SDL2_INCLUDE_DIRS)                     # inside the game's build (cybsled/CMakeLists.txt) SDL2 is already found (pkg-config on Windows)
+  find_package(SDL2 REQUIRED)
+endif()
+# s21_video.c: the software oracle + the GL picture's CPU half; s21_video_gl.c: the GL picture (needs the engine's quad_gl.c,
+# tex_bake.c, geo_hw.c, eng.c in the program that calls s21_video_draw_gl -- the game links them, s21_vgate does not need them)
+add_library(s21_video STATIC ${CMAKE_CURRENT_LIST_DIR}/s21_video.c ${CMAKE_CURRENT_LIST_DIR}/s21_video_gl.c)
+target_include_directories(s21_video PUBLIC ${CMAKE_CURRENT_LIST_DIR} ${S21V_ENGINE} ${SDL2_INCLUDE_DIRS})
+target_compile_options(s21_video PRIVATE -Wall -Wextra -fno-strict-aliasing -fwrapv)
+if(NOT WIN32)                                 # Windows: the game resolves OpenGL at run time (engine/gl_dyn.c), never links opengl32
+  target_link_libraries(s21_video PUBLIC OpenGL::GL)
+endif()
+if(EXISTS ${CMAKE_CURRENT_LIST_DIR}/s21_vgate.c)         # DEV: the video gate (vgate.py); not in the public tree
+  add_executable(s21_vgate ${CMAKE_CURRENT_LIST_DIR}/s21_vgate.c)
+  target_link_libraries(s21_vgate s21_video)
+endif()

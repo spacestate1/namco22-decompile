@@ -12,6 +12,7 @@ typedef struct rr_hw {
     uint16_t keycus_rng; uint32_t lcg;
     /* inputs as MAME's ports hold them (before the per-game offsets) */
     uint16_t inputs, steer, gas, brake;
+    uint8_t  adc[4];                   /* twin-stick games: ADC.0..3 = right Y, left Y, right X, left X (8-bit, centre 0x7F) */
     int      old_coin, credits1, credits2;
 } rr_hw_t;
 

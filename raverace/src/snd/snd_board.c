@@ -68,10 +68,23 @@ static bool slurp(const char *dir, const char *n, uint8_t *dst, size_t len)
     return ok;
 }
 
+/* the sound data ROM, mirrored to fill its 512 KB region when the chip is smaller (MAME ROM_RELOAD: Cyber Commando's cy1data.6r is
+ * 128 KB, loaded four times). A size that does not divide 512 KB is an error. */
+static bool slurp_mirror(const char *dir, const char *n, uint8_t *dst, size_t len)
+{
+    char p[1024]; snprintf(p, sizeof p, "%s/%s", dir, n);
+    FILE *f = fopen(p, "rb");
+    size_t got = f ? fread(dst, 1, len, f) : 0;
+    if (f) fclose(f);
+    if (got == 0 || len % got) { fprintf(stderr, "[SND] cannot read %s\n", p); return false; }
+    for (size_t o = got; o < len; o += got) memcpy(dst + o, dst, got);
+    return true;
+}
+
 bool rr_sound_init(const char *dir)
 {
     g_snd_data = calloc(1, 0x80000);
-    if (!slurp(dir, "c74.bin", g_snd_bios, sizeof g_snd_bios) || !slurp(dir, g_rr_game->snd_data, g_snd_data, 0x80000)) return false;
+    if (!slurp(dir, "c74.bin", g_snd_bios, sizeof g_snd_bios) || !slurp_mirror(dir, g_rr_game->snd_data, g_snd_data, 0x80000)) return false;
     m37710_init(&cpu, bus_r, bus_w, NULL);
     snd_executor_init();
     ready = true;

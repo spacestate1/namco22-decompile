@@ -127,3 +127,44 @@ first, then from the top level of the zip, then from any other folder in it, and
 there). If a chip is in the zip but cannot be used, the message says why: the wrong size
 (a different or damaged dump), a damaged zip, or a compression method other than Deflate or
 Store (re-zip it). Compare your files with [ROM_CHECKSUMS.md](ROM_CHECKSUMS.md).
+
+## Ace Driver
+
+Ace Driver needs two MAME sets: `acedrive.zip` (Ace Driver: Racing Evolution, World AD2) and `namcoc74.zip` (the sound CPU's BIOS,
+`c74.bin` -- the same file Rave Racer uses). Give them to the build script:
+
+```bash
+acedriver/build.sh /path/to/acedrive.zip /path/to/namcoc74.zip
+```
+
+It checks all 25 chip files by name, size and CRC and copies them into `acedriver/extracted/`; the 68020 program is the four chips
+`ad2_prguu.6d` .. `ad2_prgll.4d`, interleaved into `acedriver_main.bin`. The installed packages and the Windows version do this themselves the
+first time the game starts, from the two zips in the game's `roms` folder. Compare your files with [ROM_CHECKSUMS.md](ROM_CHECKSUMS.md).
+
+## Cyber Commando
+
+Cyber Commando needs two MAME sets: `cybrcomm.zip` (Cyber Commando, Japan CY1) and `namcoc74.zip` (the sound CPU's BIOS, `c74.bin` --
+the same file Rave Racer and Ace Driver use). It is the same board as Ace Driver and uses Ace Driver's unpacker:
+
+```bash
+cybrcomm/build.sh /path/to/cybrcomm.zip /path/to/namcoc74.zip
+# (it runs: python3 acedriver/tools/setup_roms.py --game cybrcomm <zips>)
+```
+
+It checks all 29 chip files by name, size and CRC and copies them into `cybrcomm/extracted/`; the 68020 program is the four chips
+`cy1prguu.6d` .. `cy1prgll.4d`, interleaved into `cybrcomm_main.bin`. The installed packages and the Windows version do this themselves
+the first time the game starts, from the two zips in the game's `roms` folder. Compare your files with [ROM_CHECKSUMS.md](ROM_CHECKSUMS.md).
+
+## Cyber Sled
+
+Cyber Sled (Namco System 21) needs three MAME sets: `cybsled.zip` (Cyber Sled, World CY2), `namcoc67.zip` (`c67.bin`, the internal
+ROM of the C67 3D DSPs) and `namcoc68.zip` (`c68.bin`, the internal ROM of the C68 I/O controller). Give them to the build script:
+
+```bash
+cybsled/build.sh /path/to/cybsled.zip /path/to/namcoc67.zip /path/to/namcoc68.zip
+```
+
+It checks all 30 chip files by name, size and CRC and copies them into `cybsled/extracted/`; the two 68000 programs are the chip pairs
+`cy2-mpr-u.3j` / `cy2-mpr-l.1j` (master) and `cy2-spr-u.6c` / `cy2-spr-l.4c` (slave). The installed packages and the Windows version
+do this themselves the first time the game starts, from the three zips in the game's `roms` folder. The first build compiles the two
+68000 programs one at a time (about 3 GB of RAM for the larger). Compare your files with [ROM_CHECKSUMS.md](ROM_CHECKSUMS.md).

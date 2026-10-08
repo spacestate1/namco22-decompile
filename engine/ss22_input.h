@@ -36,6 +36,9 @@ typedef struct {
                                               * THE TEST SWITCH IS A TOGGLE like MAME's (press once = on, again = off): the action whose bit
                                               * is test_bit latches. The Controls page has both as rows, so a pad (the Steam Deck) reaches them */
     bool wheel_motor;                        /* the cabinet's steering motor (Dirt Dash): the MCU's UART0 bytes drive a force-feedback wheel */
+    bool kick_wheel;                         /* a cabinet whose HANDLE has a solenoid but no steering motor (Tokyo Wars: MAME "4 = handle solenoid",
+                                              * fired with the cannon): each recoil edge (ss22_game.recoil_mask) is a short jolt on a force-feedback
+                                              * wheel (ss22_input_kick); the Controls page gets a Force feedback strength row */
     bool light_gun;                          /* a LIGHT GUN cabinet: the mouse pointer (or the right stick, or the arrow keys) aims -> g_ss22_gun_x/_y (engine/ss22_board.h) */
     /* the steering torque as the 68K builds it (0 = use the motor byte alone): a work-RAM word written once a frame as a running
      * sum of `parts` terms -- the first write the first term, each later one adding the next -- clamped to +-`limit` and then
@@ -57,5 +60,7 @@ void ss22_input_motor(uint8_t b);
 /* the crosshair: where the gun is aimed in the 4:3 game picture, 0..1 each way; false = off-screen (nothing to draw) */
 bool ss22_input_aim(float *nx, float *ny);
 void ss22_input_rumble(uint16_t low, uint16_t high, uint32_t ms);   /* a short kick on every connected pad (engine/ss22_out.c: a gun's recoil) */
+void ss22_input_kick(void);                             /* the handle solenoid fired: a jolt on the bound force-feedback wheel (kick_wheel games) */
+void ss22_input_kick_frame(void);                       /* once per frame: the jolt's next step (runs whoever has the cabinet's inputs) */
 void ss22_input_close(void);                            /* stop the wheel's force and let go of it (also run at exit) */
 #endif

@@ -35,6 +35,8 @@ set(NAMCO22_ENGINE_SS22_HOST_SRC
     ${NAMCO22_ENGINE_DIR}/ss22_input.c
     ${NAMCO22_ENGINE_FFB_SRC}
     ${NAMCO22_ENGINE_DIR}/ss22_board.c
+    ${NAMCO22_ENGINE_DIR}/ss22_link.c
+    ${NAMCO22_ENGINE_DIR}/c139.c
     ${NAMCO22_ENGINE_DIR}/ss22_dsp.c
     ${NAMCO22_ENGINE_DIR}/ss22_snd.c
     ${NAMCO22_ENGINE_DIR}/ss22_video.c
@@ -49,6 +51,14 @@ set(NAMCO22_ENGINE_UI_SRC
     ${NAMCO22_ENGINE_DIR}/eng_display.c
     ${NAMCO22_ENGINE_DIR}/eng_ui.c
 )
+# ONLINE PLAY (docs/NETPLAY.md): the NMN2 client every game shares (net.c), the built-in LAN host (net_host.c) and the Online
+# menu page for the shared menu (eng_net_ui.c; needs NAMCO22_ENGINE_UI_SRC). A game supplies one eng_net_game (net.h).
+# Windows: link ws2_32.
+set(NAMCO22_ENGINE_NET_SRC
+    ${NAMCO22_ENGINE_DIR}/net.c
+    ${NAMCO22_ENGINE_DIR}/net_host.c
+)
+set(NAMCO22_ENGINE_NET_UI_SRC ${NAMCO22_ENGINE_DIR}/eng_net_ui.c)
 # first-run ROM setup from MAME's zips (table-driven: the game supplies its chip list) and Windows start-up; needs zlib
 set(NAMCO22_ENGINE_ROMZIP_SRC
     ${NAMCO22_ENGINE_DIR}/romzip.c
@@ -76,5 +86,5 @@ set(NAMCO22_ENGINE_SND_SRC
     ${NAMCO22_ENGINE_DIR}/snd/m377_periph.c
 )
 include_directories(${NAMCO22_ENGINE_DIR} ${NAMCO22_ENGINE_DIR}/snd ${NAMCO22_ENGINE_DIR}/c25 ${NAMCO22_TOOLS_DIR}/c25oracle)
-set_source_files_properties(${NAMCO22_ENGINE_GL_SRC} ${NAMCO22_ENGINE_SS22_SRC} ${NAMCO22_ENGINE_SS22_HOST_SRC} ${NAMCO22_ENGINE_UI_SRC} ${NAMCO22_ENGINE_ROMZIP_SRC} ${NAMCO22_ENGINE_SND_SRC} ${NAMCO22_ENGINE_C25_SRC} ${NAMCO22_ENGINE_LIFT_SRC}
+set_source_files_properties(${NAMCO22_ENGINE_NET_SRC} ${NAMCO22_ENGINE_NET_UI_SRC} ${NAMCO22_ENGINE_GL_SRC} ${NAMCO22_ENGINE_SS22_SRC} ${NAMCO22_ENGINE_SS22_HOST_SRC} ${NAMCO22_ENGINE_UI_SRC} ${NAMCO22_ENGINE_ROMZIP_SRC} ${NAMCO22_ENGINE_SND_SRC} ${NAMCO22_ENGINE_C25_SRC} ${NAMCO22_ENGINE_LIFT_SRC}
     PROPERTIES COMPILE_FLAGS "-Wall -Wno-unused-variable -Wno-unused-function -Wno-misleading-indentation")

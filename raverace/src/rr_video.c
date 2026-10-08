@@ -27,6 +27,7 @@
 #include "rr_dsp.h"
 #include "rr_video.h"
 #include "rr_scene.h"
+#include "rr_game.h"
 
 #define NW 640                         /* the board's own picture */
 #define NH 480
@@ -69,28 +70,46 @@ static uint8_t *slurp(const char *dir, const char *name, size_t n)
     return b;
 }
 
+/* the tile map may be SHORTER than its 2 MB slot (Cyber Commando's 1 MB cyc1ccrl.1c): MAME loads it at the start of a zero-filled
+ * region (engine/eng.c load_upto does the same for the engine renderer) */
+static uint8_t *slurp_upto(const char *dir, const char *name, size_t n)
+{
+    char p[1024];
+    snprintf(p, sizeof p, "%s/%s", dir, name);
+    FILE *f = fopen(p, "rb");
+    if (!f) { fprintf(stderr, "[VID] cannot open %s\n", p); return NULL; }
+    uint8_t *b = calloc(1, n);
+    size_t got = fread(b, 1, n, f);
+    fclose(f);
+    if (got == 0 || got % 0x80000) { fprintf(stderr, "[VID] short %s\n", p); free(b); return NULL; }
+    return b;
+}
+
 void rr_video_set_size(int w, int h);
 bool rr_video_init(const char *dir)
 {
     /* RR_RENDER_SIZE=<w>x<h>: render at another size headlessly (--shots) */
     { const char *e = getenv("RR_RENDER_SIZE"); int w, h;
       if (e && sscanf(e, "%dx%d", &w, &h) == 2) rr_video_set_size(w, h); }
-    static const char *cg[8] = { "rv1cg0.1a", "rv1cg1.1c", "rv1cg2.1d", "rv1cg3.1e",
-                                 "rv1cg4.1f", "rv1cg5.1j", "rv1cg6.1k", "rv1cg7.1n" };
-    ttdata = malloc(0x1000000);
+    const char *const *cg = g_rr_game->cg;          /* the game's table (a NULL slot is empty: Ace Driver's chips sit in the upper 8 MB) */
+    ttdata = calloc(1, 0x1000000);
     for (int i = 0; i < 8; i++) {
+        if (!cg[i]) continue;
         uint8_t *b = slurp(dir, cg[i], 0x200000);
         if (!b) return false;
         memcpy(ttdata + i * 0x200000, b, 0x200000);
         free(b);
     }
-    uint8_t *l = slurp(dir, "rv1ccrl.5a", 0x200000), *h = slurp(dir, "rv1ccrh.5c", 0x80000);
+    uint8_t *l = slurp_upto(dir, g_rr_game->ccrl, 0x200000), *h = slurp(dir, g_rr_game->ccrh, 0x80000);
     if (!l || !h) return false;
     ttmap = malloc(0x100000 * sizeof *ttmap);
     for (int i = 0; i < 0x100000; i++) ttmap[i] = (uint16_t)(l[2 * i] | l[2 * i + 1] << 8);   /* ROM_REGION16_LE */
     ttattr = malloc(0x100000);
     for (int i = 0; i < 0x80000; i++) { ttattr[2 * i] = h[i] >> 4; ttattr[2 * i + 1] = h[i] & 0xF; }
     free(l); free(h);
+    if (g_rr_game->tex_fixup)                       /* MAME init_tables: Ridge Racer / Ace Driver (engine/eng.h) */
+        for (int i = 0; i < 0x100000; i++)
+            if (!(ttattr[i] & 1)) ttmap[i] = (uint16_t)((ttmap[i] & 0x3fff) | 0x8000);
     for (int attr = 0; attr < 16; attr++)
         for (int y = 0; y < 16; y++)
             for (int x = 0; x < 16; x++) {
@@ -100,7 +119,7 @@ bool rr_video_init(const char *dir)
                 if (attr & 8) { int t = ix; ix = iy; iy = t; }
                 tt_ayx_to_pixel[attr << 8 | y << 4 | x] = (uint8_t)(iy << 4 | ix);
             }
-    static const char *gp[3] = { "rr1gam.2d", "rr1gam.3d", "rr1gam.4d" };
+    const char *const *gp = g_rr_game->gamma;
     for (int i = 0; i < 3; i++) {
         uint8_t *b = slurp(dir, gp[i], 0x100);
         if (!b) return false;

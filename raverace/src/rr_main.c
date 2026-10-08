@@ -29,6 +29,7 @@
 #include "rr_lift_rt.h"
 #include "lift_cpu.h"
 #include "rr_game.h"
+#include "rr_ui.h"
 #include "rr_lifted.h"
 #include "rr_input.h"
 #include "rr_sound.h"
@@ -80,8 +81,10 @@ static void perf_report(void)
 }
 static const char *rec_path, *rep_path;
 static int freeplay = -1;
-static int32_t test_coin = -1, test_gas = -1;   /* --coin F: pulse coin 1 at frame F; --gas F: hold gas from F */
-static struct { int32_t at; int32_t value; } test_steer[8]; static int n_steer;   /* --steer F:V (repeatable): the wheel at V (0..0xFFF, centre 0x800) from frame F */
+static int32_t test_coin = -1, test_gas = -1;   /* --coin F[,F2...]: pulse coin 1 at each frame (Ace Driver takes two a credit); --gas F: hold gas from F */
+static int32_t test_coins[8]; static int n_test_coins;
+static struct { int32_t at; int32_t value; } test_steer[8]; static int n_steer;
+static struct { int32_t at, idx, value; } test_adc[32]; static int n_adc;   /* --adc F:I:V (repeatable): twin-stick ADC.I at V (0x47..0xB7, centre 0x7F) from frame F */   /* --steer F:V (repeatable): the wheel at V (0..0xFFF, centre 0x800) from frame F */
 
 #define REG_SP   RR_REG_SP
 #define REG_SR   RR_REG_SR
@@ -110,6 +113,12 @@ static void dump_state(void)
     snprintf(p, sizeof p, "%s/text_f%u.bin", dump_dir, frame);      /* the text tilemap: what marks a screen type (the HUD) */
     f = fopen(p, "wb");
     if (f) { fwrite(g_rr.text, 1, RR_TEXT_SIZE, f); fclose(f); }
+    snprintf(p, sizeof p, "%s/pal_f%u.bin", dump_dir, frame);       /* palette RAM 0x90028000 (planar R/G/B) */
+    f = fopen(p, "wb");
+    if (f) { fwrite(g_rr.pal, 1, RR_PAL_SIZE, f); fclose(f); }
+    snprintf(p, sizeof p, "%s/mixer_f%u.bin", dump_dir, frame);     /* mixer 0x90020000 */
+    f = fopen(p, "wb");
+    if (f) { fwrite(g_rr.mixer, 1, RR_MIXER_SIZE, f); fclose(f); }
     snprintf(p, sizeof p, "%s/shared_f%u.bin", dump_dir, frame);    /* 68K byte order */
     f = fopen(p, "wb");
     if (f) { fwrite(g_rr.shared, 1, RR_SHARED_SIZE, f); fclose(f); }
@@ -178,6 +187,44 @@ static void sweep_tick(void)
     prev_slot = slot;
 }
 
+/* ---- the Debug page: developer screens nothing in the program reaches (rr_game.h rr_debug_t) ----
+ * At a frame boundary, once the vblank interrupt is delivered and while the program is in its MAIN context (the coroutine task
+ * stack empty -- inside the mode task the slot would be overwritten by its own next yield), the screen's entry is written into the
+ * mode task's slot, exactly as the program's own setter does, and the Test switch goes ON. The main loop then resumes the screen;
+ * the screen leaves through the program's own exit when the Test switch goes OFF. RR_DEBUG=<i>@<frame>: headless. */
+static int debug_pending = -1;
+static uint32_t debug_test_at;               /* the frame the Test switch went on for this launch (0: not yet) */
+static uint32_t debug_slot_was;              /* the mode task's slot when the Test switch went on */
+void rr_debug_launch(int i)
+{
+    if (!g_rr_game->debug || i < 0 || i >= g_rr_game->ndebug) return;
+    debug_pending = i; debug_test_at = 0;
+    fprintf(stderr, "[DEBUG] launching \"%s\" (0x%X)\n", g_rr_game->debug[i].name, g_rr_game->debug[i].entry);
+}
+/* Two steps, because the program reacts to the Test switch itself: switching it on makes the main loop install the operator
+ * test mode into the very slot the screen goes in. So: the Test switch on first; the moment the slot changes (the test mode
+ * installed, not yet run -- it would leave its menu on the text layer) the screen replaces it. After 120 frames without a
+ * change the screen goes in anyway. */
+static void debug_boundary(void)
+{
+    { static int at = -2, idx; if (at == -2) { const char *e = getenv("RR_DEBUG"); at = -1; if (e && sscanf(e, "%d@%d", &idx, &at) != 2) at = -1; }
+      if (at >= 0 && frame == (uint32_t)at) rr_debug_launch(idx); }
+    if (debug_pending < 0 || rr_in_irq) return;
+    if (!debug_test_at) {
+        g_hw.inputs &= (uint16_t)~0x0400;               /* the Test switch ON (headless; a window's host keeps it on) */
+        if (windowed) rr_host_set_test(true);
+        debug_test_at = frame;
+        debug_slot_was = rr_read(g_rr_game->task_slot, 4);
+        return;
+    }
+    if (rr_read(g_rr_game->task_sp, 4) != g_rr_game->task_sp_empty) return;     /* not the main context: try next frame */
+    if (rr_read(g_rr_game->task_slot, 4) == debug_slot_was && frame < debug_test_at + 120) return;
+    const rr_debug_t *d = &g_rr_game->debug[debug_pending];
+    debug_pending = -1;
+    rr_write(g_rr_game->task_slot, 4, d->entry);
+    fprintf(stderr, "[DEBUG] \"%s\" installed in the mode task at frame %u\n", d->name, frame);
+}
+
 void rr_tick(void)
 {
     rd_budget_out();
@@ -219,21 +266,23 @@ void rr_tick(void)
         if (perf_n == perf_cap) { perf_cap = perf_cap ? perf_cap * 2 : 4096;
             perf_frame = realloc(perf_frame, perf_cap * sizeof *perf_frame); perf_video = realloc(perf_video, perf_cap * sizeof *perf_video); }
         if (t_frame_start > 0 && frame > 60) { perf_frame[perf_n] = t1 - t_frame_start; perf_video[perf_n] = t1 - tv0; perf_n++; }
-        if (perflog && t_frame_start > 0) {         /* frame total_ms video_ms quads hits misses reallocs texels-this-frame placeholders refined (the last two cumulative) */
-            fprintf(perflog, "%u %.3f %.3f %d %d %d %d %.0f %d %d\n", frame, t1 - t_frame_start, t1 - tv0, rr_gl_quads(), tex_frame_hits, tex_frame_misses,
-                    tex_reallocs, g_bake_texels - perflog_texels, tex_placeholders, tex_refined);
+        { extern void tex_caplog_frame(int); tex_caplog_frame((int)frame); }
+        if (perflog && t_frame_start > 0) {         /* frame total_ms video_ms quads hits misses reallocs texels-this-frame placeholders refined tier-fallbacks (the last three cumulative) */
+            fprintf(perflog, "%u %.3f %.3f %d %d %d %d %.0f %d %d %d\n", frame, t1 - t_frame_start, t1 - tv0, rr_gl_quads(), tex_frame_hits, tex_frame_misses,
+                    tex_reallocs, g_bake_texels - perflog_texels, tex_placeholders, tex_refined, tex_tier_fallbacks);
             perflog_texels = g_bake_texels;
         }
     }
-    if (test_coin >= 0) {                          /* scripted inputs for headless captures */
-        if (frame == (uint32_t)test_coin) g_hw.inputs &= (uint16_t)~0x1000;
-        if (frame == (uint32_t)test_coin + 6) g_hw.inputs |= 0x1000;
+    for (int c = 0; c < n_test_coins; c++) {       /* scripted inputs for headless captures */
+        if (frame == (uint32_t)test_coins[c]) g_hw.inputs &= (uint16_t)~0x1000;
+        if (frame == (uint32_t)test_coins[c] + 6) g_hw.inputs |= 0x1000;
     }
-    if (test_gas >= 0 && frame >= (uint32_t)test_gas) g_hw.gas = 0x610;
+    if (test_gas >= 0 && frame >= (uint32_t)test_gas) g_hw.gas = (uint16_t)g_rr_game->gas_max;
     { static int nv = -1; static uint32_t vf[16];          /* RR_TEST_VIEW=f1,f2,...: press VIEW CHANGE (active low 0x0040) for 30 frames at each */
       if (nv < 0) { nv = 0; const char *e = getenv("RR_TEST_VIEW"); while (e && *e && nv < 16) { char *q; const unsigned long v = strtoul(e, &q, 0); if (q == e) break; vf[nv++] = (uint32_t)v; e = q; if (*e == ',') e++; else break; } }
       for (int i = 0; i < nv; i++) { if (frame == vf[i]) g_hw.inputs &= (uint16_t)~0x0040; if (frame == vf[i] + 30) g_hw.inputs |= 0x0040; } }
     for (int i = 0; i < n_steer; i++) if (frame >= (uint32_t)test_steer[i].at) g_hw.steer = (uint16_t)test_steer[i].value;
+    for (int i = 0; i < n_adc; i++) if (frame >= (uint32_t)test_adc[i].at) g_hw.adc[test_adc[i].idx & 3] = (uint8_t)test_adc[i].value;
     if (windowed) {
         if (frame % 120 == 0) rr_hw_eeprom_save();     /* the test menu's settings and the records, once the game has changed them */
         do {
@@ -279,6 +328,10 @@ void rr_tick(void)
             rr_deliver_irqs(rr_hw_irq_level);
         }
     }
+    /* a Debug-menu launch leaves the lifted call stack here (never returns if one is pending): AFTER the vblank interrupt,
+     * whose handler rewinds the program's cooperative task list (Ace Driver: the pointer at A6-0x7FD0) -- launched before it,
+     * the screen's first yield (0x4C6E) read past the end of the list and jumped to 0 */
+    debug_boundary();
     if (dump_dir) {             /* RR_DUMP_EVERY=n (default 60), RR_DUMP_FROM=f: dump cadence */
         static unsigned every, from; static int init;
         if (!init) { const char *e = getenv("RR_DUMP_EVERY"), *f = getenv("RR_DUMP_FROM");
@@ -338,9 +391,15 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--record") && i + 1 < argc) rec_path = argv[++i];
         else if (!strcmp(argv[i], "--replay") && i + 1 < argc) rep_path = argv[++i];
         else if (!strcmp(argv[i], "--joytest")) return rr_host_joytest();
-        else if (!strcmp(argv[i], "--write-controls")) return rr_input_write("rr_controls.cfg") ? 0 : 1;
-        else if (!strcmp(argv[i], "--coin") && i + 1 < argc) test_coin = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--write-controls")) return rr_input_write(g_rr_game->cfg_file) ? 0 : 1;
+        else if (!strcmp(argv[i], "--coin") && i + 1 < argc) {
+            for (char *q = argv[++i]; *q && n_test_coins < 8; ) { char *e; long v = strtol(q, &e, 0); if (e == q) break; test_coins[n_test_coins++] = (int32_t)v; q = *e == ',' ? e + 1 : e; }
+            test_coin = n_test_coins ? test_coins[0] : -1;
+        }
         else if (!strcmp(argv[i], "--gas") && i + 1 < argc) test_gas = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--adc") && i + 1 < argc && n_adc < 32) {
+            int f, k, v; if (sscanf(argv[++i], "%d:%d:%i", &f, &k, &v) == 3) { test_adc[n_adc].at = f; test_adc[n_adc].idx = k; test_adc[n_adc].value = v; n_adc++; }
+        }
         else if (!strcmp(argv[i], "--steer") && i + 1 < argc && n_steer < 8) {
             int f, v; if (sscanf(argv[++i], "%d:%i", &f, &v) == 2) { test_steer[n_steer].at = f; test_steer[n_steer].value = v; n_steer++; }
         }
@@ -383,6 +442,27 @@ int main(int argc, char **argv)
      * chips unzipped loose into roms/ work too. */
     if (g_rr_game->autosetup && rr_romzip_missing(rom_dir) && !strcmp(rom_dir, "extracted") && !rr_romzip_missing("roms"))
         rom_dir = "roms";
+    if (g_rr_game->roms) {                       /* a game with a chip table (Ace Driver): the engine's table-driven unpacker */
+        if (eng_romzip_missing(rom_dir, g_rr_game->roms, g_rr_game->nroms) && !strcmp(rom_dir, "extracted") &&
+            !eng_romzip_missing("roms", g_rr_game->roms, g_rr_game->nroms))
+            rom_dir = "roms";
+        if (eng_romzip_missing(rom_dir, g_rr_game->roms, g_rr_game->nroms)) {
+            char err[512], *base = SDL_GetBasePath();
+            if (!eng_romzip_autosetup(rom_dir, base, g_rr_game->zips, g_rr_game->nzips, g_rr_game->roms, g_rr_game->nroms, err, sizeof err)) {
+                char zl[256] = ""; for (int z = 0; z < g_rr_game->nzips; z++) { strncat(zl, z ? (z + 1 == g_rr_game->nzips ? " and " : ", ") : "", sizeof zl - strlen(zl) - 1); strncat(zl, g_rr_game->zips[z], sizeof zl - strlen(zl) - 1); }
+                fprintf(stderr, "%s needs its ROMs (%s): %s\n", g_rr_game->title, zl, err);
+                if (windowed) {
+                    char msg[1024];
+                    snprintf(msg, sizeof msg, "%s needs its ROMs.\n\nPut %s (the MAME ROM sets) in the \"roms\" folder next to this program, "
+                             "then start it again.\n\n(%s)", g_rr_game->title, zl, err);
+                    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, g_rr_game->title, msg, NULL);
+                }
+                SDL_free(base);
+                return 2;
+            }
+            SDL_free(base);
+        }
+    }
     if (g_rr_game->autosetup && rr_romzip_missing(rom_dir)) {
         char err[512], *base = SDL_GetBasePath();
         if (!rr_romzip_autosetup(rom_dir, base, err, sizeof err)) {
@@ -407,7 +487,7 @@ int main(int argc, char **argv)
 #ifdef RR_TRACE
     rr_env_init();                         /* RR_ENV: the trace oracle's environment (dev builds) */
 #endif
-    if (windowed) rr_hw_eeprom_persist("rr_eeprom.nv");   /* a player's session keeps its settings and records; headless runs never do */
+    if (windowed) rr_hw_eeprom_persist(g_rr_game->nv_file);   /* a player's session keeps its settings and records; headless runs never do */
     if (freeplay >= 0) rr_hw_set_freeplay(freeplay);
     else if (windowed && g_cfg_freeplay >= 0) {        /* the saved menu choice, windowed runs only */
         rr_hw_set_freeplay(g_cfg_freeplay);

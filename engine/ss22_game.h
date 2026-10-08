@@ -33,6 +33,10 @@ typedef struct {
     int         adc_pedal[2];                /* the A-D channels of the two pedals (channel 0 is the wheel) */
     bool        wave_swap[2];                /* swap each pair of bytes of that wave ROM as loaded (MAME's ROM_LOAD16_WORD_SWAP: Time Crisis's
                                               * ts1wavea.2l, fixed in MAME 0.190; Armadillo Racing swaps both) */
+    /* the C352's outputs 2 and 3 where the cabinet wires them to a speaker of its own (MAME's add_route): the speaker's name in the
+     * Audio page's mixer, and its level against the front pair. Mixed into both sides of the stereo output. NULL name = not wired
+     * here: dropped, as before. Dirt Dash: output 3 is the "road" speaker at 0.5 -- the tyres' skid and the road noise play there alone */
+    struct { const char *name; float gain; } aux[2];
 } ss22_snd_cfg;
 
 /* the picture: where the ROM chips are and what they are called (the RAM is the board's) */
@@ -82,6 +86,10 @@ typedef struct ss22_game {
     unsigned    pedal_full[2];               /* what --pedal F holds the first pedal at */
     void (*frame)(long n);                   /* once a frame at the frame boundary, in every mode (the game's test switches); NULL = none */
     const struct eng_ui_page *(*menu_page)(void);   /* the game's own page in the Esc menu (Time Crisis: Stages); NULL = none */
+    /* THE CABINET LINK (engine/ss22_link.h, --link): set this cabinet's id in the game's own operator setting (its EEPROM); NULL = the game
+     * has no link support here. link_debug: the game's own link state, printed with <TAG>_LINKDBG=1 every 60 frames (NULL = none). */
+    void (*link_cabinet)(int id);
+    void (*link_debug)(uint32_t frame);
 } ss22_game;
 
 /* Run the game's start script NAME (ss22_game.start) from now: its frame n counts from this call. The Esc menu's way to --stage. */
@@ -111,6 +119,13 @@ void ss22_snd_slice(void);               /* 1/16 of a video frame of MCU time (a
 void ss22_snd_close(void);
 bool ss22_snd_faulted(void);
 void ss22_snd_set_output(bool on);       /* the front pair to the sound card (engine/audio_out.c) as it is generated */
+/* the Audio page's mixer (engine/ss22_snd.c): rows 0..n-1 = the front pair, then each extra speaker of this cabinet; 0 rows for a
+ * cabinet with the front pair alone. Levels 0-200 %, saved as mix_front / mix_out2 / mix_out3 */
+int  ss22_snd_mix_rows(void);
+const char *ss22_snd_mix_name(int row);
+int  ss22_snd_mix_get(int row);
+void ss22_snd_mix_set(int row, int pct);
+void ss22_snd_mix_load(void);            /* after the settings file is loaded */
 void ss22_snd_inputs(uint16_t pressed, unsigned wheel, unsigned pedal1, unsigned pedal2);   /* pressed: INPUTS bits; A-D 10-bit */
 uint16_t ss22_snd_outputs(void);         /* the MCU's output latches (lamps, motors) */
 void ss22_snd_debug(char *buf, int n);

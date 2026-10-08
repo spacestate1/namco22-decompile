@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Cyber Commando
+Comment=Namco's 1994 arcade mech shooter Cyber Commando (decompiled engine)
+Exec=cybercommando
+Icon=cybercommando
+Terminal=false
+Categories=Game;ArcadeGame;

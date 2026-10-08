@@ -19,7 +19,7 @@ Get-FileHash -Algorithm MD5 *
 (or `certutil -hashfile <file> MD5` for one file), and compare with the table. The **CRC32** column is the one MAME's own
 ROM lists show.
 
-Rave Racer's `c74.bin` (the sound chip's BIOS) comes from `namcoc74.zip`. The DSP's BIOS, `c71.bin` (MAME's `namcoc71`), is built into all five games and
+Rave Racer's, Ace Driver's and Cyber Commando's `c74.bin` (the sound chip's BIOS) comes from `namcoc74.zip`. The DSP's BIOS, `c71.bin` (MAME's `namcoc71`), is built into every System 22 game and
 is not needed; if you have it, its MD5 is `223914888d9be9ffe07952d9aa4c4107` (CRC32 `47c623ab`).
 
 ## Prop Cycle
@@ -210,3 +210,108 @@ MAME set: `timecris` (World, TS2 Ver.B). Unpacked chips end up in `timecris/extr
 | `ts2verb.2` | 1048576 | `3b849adff914dd1d6eca3ee103cc7e90` | `79512e25` |
 | `ts2verb.3` | 1048576 | `140924f0d62359b0fe1f47999a82f8f5` | `9f4ced33` |
 | `ts2verb.4` | 1048576 | `0cbfc47b60ccbdbcf34743fb82b4a054` | `3e0cfb38` |
+
+## Ace Driver
+
+MAME set: `acedrive` (World, AD2) and `namcoc74`. Unpacked chips end up in `acedriver/extracted/`. 25 files.
+
+| File | Size | MD5 | CRC32 |
+|---|---:|---|---|
+| `ad1ccrh.2c` | 524288 | `08bcfaaca7718cf520615753478cd123` | `71f44526` |
+| `ad1ccrl.1c` | 2097152 | `bae70d5bcb3a158b4621bee1f93be31d` | `bc3c9b12` |
+| `ad1cg0.1a` | 2097152 | `499b542cd6af8c296891190d003b7a41` | `faaa1ee2` |
+| `ad1cg1.2a` | 2097152 | `1c45646cbf3b17bc9d1c0134ae215c13` | `1aab1eb7` |
+| `ad1cg2.3a` | 2097152 | `5bf949953a1a31fabf1a0c6138770fbe` | `cdcd1874` |
+| `ad1cg3.5a` | 2097152 | `3fab9a4a875b1dbbb0dbd343224199aa` | `effdd2cd` |
+| `ad1data.6r` | 524288 | `357a681ecf1c6a34e188edc18d72e814` | `82024f74` |
+| `ad1potl0.5b` | 524288 | `977e9096c74c1c801aa05e6e8650d469` | `dfc7e729` |
+| `ad1potl1.4b` | 524288 | `32d8e8166a669995022ac55f510c6707` | `5914ef8e` |
+| `ad1potm0.5c` | 524288 | `0cbd2c87745fffbfad8df84728a391ef` | `844bcd6b` |
+| `ad1potm1.4c` | 524288 | `4cc41f3a3523ce0da02431ad05b03b2f` | `515cf541` |
+| `ad1potu0.5d` | 524288 | `e6b8370dc1fd74056ab3a5bca580a970` | `e0f44949` |
+| `ad1potu1.4d` | 524288 | `02a0cf71a8d81202efd871407524cd10` | `f2cd2cbb` |
+| `ad1wave0.10r` | 1048576 | `90ee6498b3c979cec5328e79edfa900a` | `c7879a72` |
+| `ad1wave1.10p` | 1048576 | `949c08ca9531eed176696d973b55e2f3` | `69c1d41e` |
+| `ad1wave2.10n` | 1048576 | `2374566aff5bcc6da0ba5fb667e41bc4` | `365a6831` |
+| `ad1wave3.10l` | 1048576 | `fdcc951cc1692d8088c36952b5375fb8` | `cd8ecb0b` |
+| `ad2_prgll.4d` | 524288 | `a28d99b23e375253d0ab37c34e3281e6` | `808c5ff8` |
+| `ad2_prglm.2d` | 524288 | `22744662d82da82d6b4c30e9da70832d` | `5f726a10` |
+| `ad2_prgum.8d` | 524288 | `684a824ad89e894d1598a68c5fdc47a4` | `d5042d6e` |
+| `ad2_prguu.6d` | 524288 | `c72cc24705dcc9ab70e762c754882a5d` | `86d4661d` |
+| `c74.bin` | 16384 | `c78a2c4d6071a227e6d49bc009ef7600` | `a3dce360` |
+| `rr1gam.2d` | 256 | `8554aa5b8d9b2bfac5222d3391de25f0` | `b2161bce` |
+| `rr1gam.3d` | 256 | `8554aa5b8d9b2bfac5222d3391de25f0` | `b2161bce` |
+| `rr1gam.4d` | 256 | `8554aa5b8d9b2bfac5222d3391de25f0` | `b2161bce` |
+
+## Cyber Commando
+
+MAME set: `cybrcomm` (Japan, CY1) and `namcoc74`. Unpacked chips end up in `cybrcomm/extracted/`. 29 files.
+
+| File | Size | MD5 | CRC32 |
+|---|---:|---|---|
+| `c74.bin` | 16384 | `c78a2c4d6071a227e6d49bc009ef7600` | `a3dce360` |
+| `cy1data.6r` | 131072 | `7d0229144ae524798933f4397203e582` | `10d0005b` |
+| `cy1eeprm.9e` | 8192 | `b55429e7f9e256c77f6bc69776984cbb` | `8432c066` |
+| `cy1prgll.4d` | 524288 | `ffd6c73cd2c5ab95166f7ec8bf911db0` | `b3eab156` |
+| `cy1prglm.2d` | 524288 | `3fde321dc526ca85b5ea42b6af0e4d0a` | `884a5b0e` |
+| `cy1prgum.8d` | 524288 | `fa6ae7f1a2375024596a83ade432616a` | `c9c4a921` |
+| `cy1prguu.6d` | 524288 | `9dce98ee02e03c3072bd387271cb54f4` | `5f22975b` |
+| `cy1wav0.10r` | 1048576 | `d1f3f6329bbafe903b87698a9a1a6fc1` | `c6f366a2` |
+| `cy1wav1.10p` | 1048576 | `7b81c108a4e8499722d1a63d02708a65` | `f30b5e37` |
+| `cy1wav2.10n` | 1048576 | `b35a0ff75bd2533692bacf6db088651c` | `b98c1ca6` |
+| `cy1wav3.10l` | 1048576 | `897fb7339cabb8fb49580d60bf2b2c0d` | `43dbac19` |
+| `cyc1ccrh.2c` | 524288 | `487ee1864a71fd837c178e81c66e9735` | `8c4090b8` |
+| `cyc1ccrl.1c` | 1048576 | `ed2f59b192da16a1c97084cb36509858` | `1a0dc5f0` |
+| `cyc1cg0.1a` | 2097152 | `4c11b15a96469c9d79440745575a5b86` | `e839b9bd` |
+| `cyc1cg1.2a` | 2097152 | `202937f712218f43eb882d26fe0e7dc0` | `7d13993f` |
+| `cyc1cg2.3a` | 2097152 | `6a58757210b6ecb6741b47e29ba53529` | `7c464566` |
+| `cyc1cg3.5a` | 2097152 | `6a820d29d7f6c86bfd92e3f61d5d4f85` | `2222e16f` |
+| `cyc1ptl0.5b` | 524288 | `6b48d68982c809cc0feca6dfd90006d3` | `d91de03d` |
+| `cyc1ptl1.4b` | 524288 | `44c6f72666d200b9b45cfa3c11e39928` | `e5b98021` |
+| `cyc1ptl2.3b` | 524288 | `624cf2e87186ca8faa031d4fb8d4ee5d` | `7ba786c6` |
+| `cyc1ptm0.5c` | 524288 | `1418066bcd3884ad50898a0ec0f7b7e6` | `d454b5c6` |
+| `cyc1ptm1.4c` | 524288 | `f0203e60f431882e17ef87040ff6a24b` | `74fdf8cc` |
+| `cyc1ptm2.3c` | 524288 | `a5a0c1a78c24cae3c4a7b8889d335fde` | `b9c99a45` |
+| `cyc1ptu0.5d` | 524288 | `4124672f66326534a36880a44e0e5f1c` | `4d40897f` |
+| `cyc1ptu1.4d` | 524288 | `37d3e7f3f4773b08da15d49f0fbe0bac` | `3bdaeeeb` |
+| `cyc1ptu2.3d` | 524288 | `ea57ab1d5e80c35cde17285ae42888bf` | `a0e73674` |
+| `rr1gam.2d` | 256 | `8554aa5b8d9b2bfac5222d3391de25f0` | `b2161bce` |
+| `rr1gam.3d` | 256 | `8554aa5b8d9b2bfac5222d3391de25f0` | `b2161bce` |
+| `rr1gam.4d` | 256 | `8554aa5b8d9b2bfac5222d3391de25f0` | `b2161bce` |
+
+## Cyber Sled
+
+MAME set: `cybsled` (World, CY2), `namcoc67` and `namcoc68`. Unpacked chips end up in `cybsled/extracted/`. 30 files.
+
+| File | Size | MD5 | CRC32 |
+|---|---:|---|---|
+| `c67.bin` | 8192 | `35381d235bff6cd22204f4a03eb499f3` | `6bd8988e` |
+| `c68.bin` | 32768 | `c9b10b75a476ed686581f86913c2808b` | `ca64550a` |
+| `cy1-data-l.1a` | 524288 | `4a1daf6c8c401a365861064d1605ad36` | `9cf96f9e` |
+| `cy1-data-u.3a` | 524288 | `6a409d2dc3211ee02d7c04c0af98a6be` | `570da15d` |
+| `cy1-edata0-l.1b` | 524288 | `37c1cdadfc397c1d977b6fd1d9d44132` | `e812e290` |
+| `cy1-edata0-u.3b` | 524288 | `be21a716f2d5c1bc01c0359cb403b05e` | `77452533` |
+| `cy1-obj0.5s` | 524288 | `f0a3338dc9cc13be1857fd5562dde484` | `5ae542d5` |
+| `cy1-obj1.5x` | 524288 | `be5ad68592007a237b74841094a93885` | `4aae3eff` |
+| `cy1-obj2.3s` | 524288 | `f75e0406062d28da75fe4743611724eb` | `d64ec4c3` |
+| `cy1-obj3.3x` | 524288 | `ef82a8e08a9339b81d3944563a272732` | `3d1f7168` |
+| `cy1-obj4.4s` | 524288 | `3c8a26b228809b88c3940b5b8ed76887` | `57904076` |
+| `cy1-obj5.4x` | 524288 | `cf1e1bdd4759461040820fee7ada2e95` | `0e11ca47` |
+| `cy1-obj6.2s` | 524288 | `363459c87d5bff5971391ebb3e0c1c48` | `7748b485` |
+| `cy1-obj7.2x` | 524288 | `40095c62701854f2d7cdb90f166a59ed` | `b6eb6ad2` |
+| `cy1-poi-h1.2f` | 524288 | `88d177f2c0f0d35aa927f8cf88f902ea` | `eaf8bac3` |
+| `cy1-poi-h2.2j` | 524288 | `9c56bbd966d87e1de7abcc5b79dde45e` | `4079f342` |
+| `cy1-poi-ll1.2n` | 524288 | `a5360a13ddb26028e5bad8f0f3bc8ba1` | `30acb99b` |
+| `cy1-poi-ll2.2p` | 524288 | `be58e23f26cf9eb7dbb62f1a8b08a248` | `faf09158` |
+| `cy1-poi-lu1.2k` | 524288 | `bcd462f2fa79e14b6d1e5bb875482cc7` | `c544a8dc` |
+| `cy1-poi-lu2.2l` | 524288 | `a2a076a0f165912925d80469ac66174c` | `61d816d4` |
+| `cy1-snd0.8j` | 131072 | `8a9bceaf67efddf79eb2f22d7e22c1da` | `3dddf83b` |
+| `cy1-voi0.12b` | 524288 | `290e0eb6809dfcee2bd73fcacf3f6f54` | `99d7ce46` |
+| `cy1-voi1.12c` | 524288 | `3e815a267a5eb4095d08c27cfea1597e` | `2b335f06` |
+| `cy1-voi2.12d` | 524288 | `8f0c438884ca2e4c783b269b30fd8c36` | `10cd15f0` |
+| `cy1-voi3.12e` | 524288 | `d83269fb7116a7a6ba009b85e66b139b` | `c902b4a4` |
+| `cy2-mpr-l.1j` | 524288 | `9546d08c0c387ce36310c1328f26cfcd` | `c4a25919` |
+| `cy2-mpr-u.3j` | 524288 | `98cbc63cbc0f67d554bc9cb63165e051` | `b35a72bc` |
+| `cy2-spr-l.4c` | 524288 | `f519aa6495d765722c7daa6c3a69d289` | `4066291a` |
+| `cy2-spr-u.6c` | 524288 | `8e28d63abcd9b60147c35d44fafecacd` | `575a422d` |
+| `cybsled.nv` | 8192 | `671fef57adc93d69feada9f50f3ad784` | `aa18bf9e` |

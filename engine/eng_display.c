@@ -11,6 +11,7 @@
 #define BASE_H 480
 
 eng_display_t g_eng_disp = { 0, 0, 2, 640, 480, 1, 0, 100 };
+int g_eng_disp_native_default;   /* a game whose board is not 640x480 (Cyber Sled: 496x480) sets it: no saved resolution = native */
 static SDL_Window *win;
 static void (*volume_hook)(int);
 
@@ -139,7 +140,8 @@ void eng_disp_load(const char *cfg_path, int scale, bool fullscreen)
     if (d->winmode < 0 || d->winmode > 2) d->winmode = 0;
     d->scale = eng_cfg_int("window_scale", 2);
     if (d->scale < 1 || d->scale > 4) d->scale = 2;
-    d->res_w = BASE_W; d->res_h = BASE_H;
+    d->res_w = d->res_h = g_eng_disp_native_default ? 0 : BASE_W;
+    if (!g_eng_disp_native_default) d->res_h = BASE_H;
     const char *r = eng_cfg_get("resolution");
     if (r && !strcmp(r, "native")) { d->res_w = 0; d->res_h = 0; }
     else if (r) { int w, h; if (sscanf(r, "%dx%d", &w, &h) == 2 && w > 0 && h > 0) { d->res_w = w; d->res_h = h; } }

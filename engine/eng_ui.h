@@ -37,6 +37,15 @@ typedef struct eng_ui_page {
 bool eng_ui_init(SDL_Window *win, const char *title);    /* after the GL context; false = no menu (the game runs without) */
 void eng_ui_shutdown(void);
 void eng_ui_add_page(const eng_ui_page *p);              /* after the standard three, in the order added */
+/* a mixer under the Audio page's Volume: `rows()` sliders, each 0..max %, named and read/set by the callbacks (NULL = none) */
+typedef struct eng_ui_mixer {
+    int  (*rows)(void);
+    const char *(*name)(int row);
+    int  (*get)(int row);
+    void (*set)(int row, int pct);
+    int  max;
+} eng_ui_mixer;
+void eng_ui_set_mixer(const eng_ui_mixer *m);
 bool eng_ui_is_open(void);
 void eng_ui_set_open(bool on);
 bool eng_ui_quit_requested(void);                        /* File > Exit */
@@ -51,6 +60,17 @@ void eng_ui_capture_key(void (*cb)(SDL_Scancode sc, void *u), void *u);
 /* Capture any input; return true when complete. NULL cancels on menu close. */
 void eng_ui_capture_input(bool (*cb)(const SDL_Event *e, void *u), void *u);
 bool eng_ui_capturing(void);
+/* A LAYER: windows of its own on top of the menu (or over the game while the menu is closed), and first sight of the input --
+ * the online lobby and chat (engine/eng_net_ui.c). draw() runs every frame inside the menu's Nuklear frame; event() sees every
+ * event first, menu open or closed, and returns true to consume it (closed: the game does not see it). modal(): while true the
+ * menu's own keyboard/pad navigation is off (the layer's window has the keyboard), the mouse still reaches every window. */
+struct nk_context;
+typedef struct eng_ui_layer {
+    void (*draw)(struct nk_context *ctx, int ww, int wh, bool menu_open);
+    bool (*event)(SDL_Event *e, bool menu_open);
+    bool (*modal)(void);
+} eng_ui_layer;
+void eng_ui_add_layer(const eng_ui_layer *l);
 void eng_ui_goto(int page, int row);                     /* tests */
 void eng_ui_nav(char k);                                 /* tests: u d l r o(k) b(ack) n(ext page) p(revious page) */
 #endif

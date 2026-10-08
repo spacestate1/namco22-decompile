@@ -69,7 +69,7 @@ uint8_t texture_pen_lookup(int u, int v, int texbank) {
 
     /* Tile attributes from pr1ccrh.1d */
     int attr = get_tile_attr(tilemap_index);
-    if (attr & 0x1) tile |= 0x10000;   /* bit 0: extends tile index to 17 bits */
+    if ((attr & 0x1) && !g_eng_tex_tile16) tile |= 0x10000;   /* bit 0: extends tile index to 17 bits (not on the fix-up boards: eng.h) */
 
     /* Transform local pixel offset within 16×16 tile */
     int local_x = u & 0xF;
@@ -254,6 +254,8 @@ static TexCacheEntry tex_cache[TEX_CACHE_SIZE];
 
 double g_bake_texels;
 int tex_frame_hits  = 0;
+static FILE *g_caplog; static int g_caplog_ini;   /* ENG_TEX_CAPLOG=<file>: the cap tier of every wide-UV draw, one 'F' line per frame */
+void tex_caplog_frame(int f) { if (g_caplog) fprintf(g_caplog, "F %d\n", f); }
 int tex_frame_misses = 0;
 int tex_cache_evictions = 0;
 int tex_reallocs = 0;      /* glTexImage2D: allocates new storage */
@@ -650,6 +652,8 @@ static GLuint bake_impl(int min_u, int min_v, int range_u, int range_v,
     if (!g_tex_fixedcap && (range_u > TEX_BAKE_MAX || range_v > TEX_BAKE_MAX)) {
         int want = g_tex_bake_cap_req;
         cap = want > 512 ? 1024 : want > 256 ? 512 : 256;
+        { if (!g_caplog_ini) { g_caplog_ini = 1; const char *e = getenv("ENG_TEX_CAPLOG"); if (e) g_caplog = fopen(e, "w"); }
+        }
     }
     if (force_cap > 0 && force_cap < cap) cap = force_cap;
     uint32_t h = tex_cache_hash(min_u, min_v, range_u, range_v, texbank, pal_group, cmode);
@@ -665,6 +669,7 @@ static GLuint bake_impl(int min_u, int min_v, int range_u, int range_v,
             e->pal_gen == g_eng_pal_gen[pal_group & 0x7F]) {
             tex_frame_hits++;
             e->ref = 1;
+            if (g_caplog && cap != TEX_BAKE_MAX) fprintf(g_caplog, "%d %d %d %d %d %d %d\n", min_u, min_v, range_u, range_v, texbank, pal_group, cap);
             if (out_su) *out_su = e->su;
             if (out_sv) *out_sv = e->sv;
             if (out_ou) *out_ou = e->ou;
@@ -674,6 +679,7 @@ static GLuint bake_impl(int min_u, int min_v, int range_u, int range_v,
     }
     if (peek) return 0;
     tex_frame_misses++;
+    if (g_caplog && cap != TEX_BAKE_MAX) fprintf(g_caplog, "%d %d %d %d %d %d %d\n", min_u, min_v, range_u, range_v, texbank, pal_group, cap);
 
     /* Reuse an evicted slot's texture OBJECT rather than deleting and
      * regenerating one. At ~40 misses + ~40 evictions per frame this was
@@ -923,7 +929,7 @@ static GLuint bake_impl(int min_u, int min_v, int range_u, int range_v,
                                ? ((tilemap_index & 1) ? (tmap[ao] & 0xF)
                                                       : ((tmap[ao] >> 4) & 0xF))
                                : 0;
-                        if (attr & 0x1) tile |= 0x10000;
+                        if ((attr & 0x1) && !g_eng_tex_tile16) tile |= 0x10000;
                     } else { tile = 0; attr = 0; last_idx = -1; }
                 }
                 int local_x = u & 0xF, local_y = local_y0;
@@ -1111,6 +1117,7 @@ static int      budget_env_done;
 static double   frame_spent;
 static unsigned budget_frame = ~0u;
 static int      in_pump;
+int tex_tier_fallbacks;                          /* over budget, a cached OTHER size tier of the same texture was drawn instead (cumulative) */
 int tex_placeholders, tex_refined;              /* placeholders served / refined to full quality (cumulative, for the perf logs) */
 typedef struct { uint16_t min_u, min_v, range_u, range_v; uint8_t texbank, pal_group, cmode; int cap_req, opaque; } PendingBake;
 static PendingBake pend[PEND_MAX];
@@ -1154,6 +1161,24 @@ GLuint bake_quad_texture(int min_u, int min_v, int range_u, int range_v,
                          int texbank, int pal_group, int cmode,
                          float *out_su, float *out_sv, float *out_ou, float *out_ov) {
     if (!budget_env_done) budget_env();
+    /* NEVER STEP DOWN A TIER WHILE A SHARPER BAKE IS CACHED (2026-10-07, "the road textures pop off and on"). A wide texture's cap
+     * follows its on-screen size (256 / 512 / 1024) and each tier decimates the strip differently -- 1280 texels keep every 5th
+     * column at 256, every 2nd at 1024 -- so a road strip whose size wobbles across a threshold re-baked and changed pattern back and
+     * forth: 1,327 tier changes in 970 race frames at 1920x1440. Asking for a smaller tier now returns the larger one if it is in the
+     * cache; the tier only steps UP as the object approaches (once, like a mipmap), and back down only after eviction. Keying the tier
+     * on the UV range alone was measured: 19x the texels, p99 150 ms. ENG_TEX_TIERSTICKY=0 restores the old rule. */
+    if (!in_pump && (range_u > TEX_BAKE_MAX || range_v > TEX_BAKE_MAX)) {
+        static int sticky = -1; if (sticky < 0) { const char *e = getenv("ENG_TEX_TIERSTICKY"); sticky = !(e && *e == '0'); }
+        const int req = g_tex_bake_cap_req, rt = req > 512 ? 1024 : req > 256 ? 512 : 256;
+        if (sticky && rt < 1024) {
+            for (int want = 1024; want > rt; want >>= 1) {
+                g_tex_bake_cap_req = want;
+                GLuint t = bake_impl(min_u, min_v, range_u, range_v, texbank, pal_group, cmode, out_su, out_sv, out_ou, out_ov, 0, 1);
+                if (t) { g_tex_bake_cap_req = req; return t; }
+            }
+            g_tex_bake_cap_req = req;
+        }
+    }
     if (g_budget_draw <= 0 || in_pump) return bake_impl(min_u, min_v, range_u, range_v, texbank, pal_group, cmode, out_su, out_sv, out_ou, out_ov, 0, 0);
     if (budget_frame != g_eng_frame) {                      /* a new shown frame: a fresh budget, and the refinement of what earlier frames coarsened */
         budget_frame = g_eng_frame; frame_spent = 0;
@@ -1169,6 +1194,33 @@ GLuint bake_quad_texture(int min_u, int min_v, int range_u, int range_v,
         if (tx >= 5000) ns_per_texel += 0.1 * ((now_ns() - c0) / tx - ns_per_texel);      /* only bakes big enough to time */
         return t;
     }
+    /* THE SAME TEXTURE AT ANOTHER SIZE TIER (2026-10-07, "the road textures pop off and on"): a wide texture's cap is chosen from its
+     * on-screen size (256 / 512 / 1024), so a road strip coming towards the camera crosses a tier -- a NEW cache key -- although the
+     * texels it shows are the ones already cached one tier down. Over budget, that quad used to drop to the 32-texel placeholder for a
+     * frame or more and then sharpen again: visible popping, in windows only (headless runs have no budget). Draw the cached tier
+     * instead and queue the right one; the coarse placeholder is only for a texture seen for the first time. ENG_TEX_TIERFALLBACK=0
+     * restores the old behaviour for A/B. */
+    { static int tierfb = -1; if (tierfb < 0) { const char *e = getenv("ENG_TEX_TIERFALLBACK"); tierfb = !(e && *e == '0'); }
+      if (tierfb && (range_u > TEX_BAKE_MAX || range_v > TEX_BAKE_MAX)) {
+          const int req = g_tex_bake_cap_req;
+          static const int tiers[3] = { 1024, 512, 256 };
+          for (int k = 0; k < 3 && !t; k++) {
+              const int want = tiers[k];
+              if ((want > 512 ? 1024 : want > 256 ? 512 : 256) == (req > 512 ? 1024 : req > 256 ? 512 : 256)) continue;   /* the tier just missed */
+              g_tex_bake_cap_req = want;
+              t = bake_impl(min_u, min_v, range_u, range_v, texbank, pal_group, cmode, out_su, out_sv, out_ou, out_ov, 0, 1);
+          }
+          g_tex_bake_cap_req = req;
+          if (t) {
+              tex_tier_fallbacks++;
+              if (pend_n < PEND_MAX) {
+                  const PendingBake pb = { (uint16_t)min_u, (uint16_t)min_v, (uint16_t)range_u, (uint16_t)range_v, (uint8_t)texbank, (uint8_t)pal_group,
+                                           (uint8_t)cmode, req, g_tex_opaque };
+                  pend[pend_n++] = pb;
+              }
+              return t;
+          }
+      } }
     t = bake_impl(min_u, min_v, range_u, range_v, texbank, pal_group, cmode, out_su, out_sv, out_ou, out_ov, COARSE_CAP, 1);       /* a placeholder already there? */
     if (t) return t;
     { const double t0 = g_bake_texels;

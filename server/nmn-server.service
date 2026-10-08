@@ -1,0 +1,22 @@
+# systemd unit for nmn-server (the online lobby/relay of every game, NMN2 + RRN1) on UDP 27750.
+#   cargo build --release      (in the directory below)
+#   sudo cp nmn-server.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now nmn-server
+# Edit User / WorkingDirectory / ExecStart for your machine.
+[Unit]
+Description=Namco 22 online lobby/relay (NMN2 + RRN1) on UDP 27750
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=cmcrann
+WorkingDirectory=/home/cmcrann/nmn-server
+ExecStart=/home/cmcrann/nmn-server/target/release/nmn-server --port 27750 --bind 0.0.0.0 --name "ZoneSync" --max-per-ip 8 --status-sec 300 --stats-file /home/cmcrann/nmn-server/stats.txt
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+
+[Install]
+WantedBy=multi-user.target

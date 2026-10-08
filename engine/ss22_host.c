@@ -227,7 +227,7 @@ static bool pump(void)
         if (e.type == SDL_KEYDOWN && !e.key.repeat) {
             const SDL_Scancode sc = e.key.keysym.scancode;
             if (sc == SDL_SCANCODE_ESCAPE) { eng_ui_set_open(true); game->input_neutral(); }
-            if (sc == SDL_SCANCODE_P) { paused = !paused; fprintf(stderr, "[HOST] %s\n", paused ? "paused" : "running"); }
+            if (sc == SDL_SCANCODE_P) { paused = !paused; if (paused) game->input_neutral(); fprintf(stderr, "[HOST] %s\n", paused ? "paused" : "running"); }   /* neutral: no force (wheel motor, a kick) is held through the pause */
             if (sc == SDL_SCANCODE_F12) shot_pending = true;
             if (sc == SDL_SCANCODE_F8 && game->aim) { eng_disp_cycle_gun_border(); fprintf(stderr, "[HOST] light-gun border %d%%\n", g_eng_disp.gun_border); }
             if (sc == SDL_SCANCODE_F11 || (sc == SDL_SCANCODE_RETURN && (e.key.keysym.mod & KMOD_ALT))) eng_disp_toggle_fullscreen();
@@ -292,6 +292,7 @@ bool ss22_host_frame(void)
     eng_pace_after(&pl, game->tag);
     while (paused || eng_ui_is_open()) {             /* the game stops (P, or the menu); the window keeps answering */
         eng_pace_reset(&pl);
+        if (game->paused_tick) game->paused_tick();
         if (!pump()) return false;
         if (paused || eng_ui_is_open()) {
             if (eng_ui_is_open()) { present(); if (!vs.vsync) SDL_Delay(12); }

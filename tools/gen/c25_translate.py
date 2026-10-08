@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""c25_translate.py --game pc|rr|tw|dd --roms DIR --cov FILE [--cov FILE...] --out FILE --func NAME
+"""c25_translate.py --game pc|rr|tw|dd|tc|cs --roms DIR --cov FILE [--cov FILE...] --out FILE --func NAME
                    [--block ADDR ...]
 
 Translate a System 22 / Super System 22 MASTER DSP program -- the C71 BIOS
@@ -27,11 +27,18 @@ instruction becomes a `case` that
   - repeats it for RPT exactly as the oracle's step does,
 so the translation can be gated as EQUAL to the oracle. A PC with no
 translation TRAPS LOUDLY (the master stops and says where) -- never skipped.
+
+--game cs: Cyber Sled (Namco System 21, cybsled/), a different chip and board: the C67 (a TMS320C25 with a
+4K-word internal ROM, c67.bin, the BIOS at program 0) and the programs the master 68000 uploads to program
+0x8000, held in the shared DATA ROM (cy1-data-u.3a even bytes / cy1-data-l.1a odd) as `count, count words`
+(count = the number of words, no +1). Block 0 is the master DSP's program, block 1E16 the slave DSP's; the two
+chips run different programs at the same addresses, so cybsled generates one function per chip (--block 0
+-> cs_c67_master, --block 1E16 -> cs_c67_slave), each from its own chip's coverage.
 """
 import argparse, os, re, sys
 
 ap = argparse.ArgumentParser()
-ap.add_argument('--game', required=True, choices=['pc', 'rr', 'tw', 'dd', 'tc'])
+ap.add_argument('--game', required=True, choices=['pc', 'rr', 'tw', 'dd', 'tc', 'cs'])
 ap.add_argument('--roms', required=True)
 ap.add_argument('--cov', action='append', default=[])
 ap.add_argument('--out')
@@ -50,7 +57,17 @@ _inc = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.absp
 bios_img = {i: int(w, 16) for i, w in enumerate(re.findall(r'0x([0-9a-fA-F]{4})', open(_inc).read())[:0x4000])}
 assert len(bios_img) == 0x1000, f'{_inc}: expected 4096 BIOS words, found {len(bios_img)}'
 
-if a.game == 'dd':
+prog_base = 0x4000                           # where the uploaded programs land in program space
+if a.game == 'cs':
+    # Cyber Sled (System 21): the C67's own internal ROM is the BIOS (c67.bin, 4096 BE words at program 0), the uploaded programs
+    # live in the data ROM, ROM_LOAD16_BYTE (u = even byte), and land at program 0x8000 (cybsled/src/dsp/s21_dsp.c).
+    b = open(os.path.join(a.roms, 'c67.bin'), 'rb').read()
+    bios_img = {i: w for i, w in enumerate(words_be(b[:0x2000]))}
+    u = open(os.path.join(a.roms, 'cy1-data-u.3a'), 'rb').read(); l = open(os.path.join(a.roms, 'cy1-data-l.1a'), 'rb').read()
+    rom = bytearray(2 * len(u)); rom[0::2] = u; rom[1::2] = l
+    main_block = 0x0
+    prog_base = 0x8000
+elif a.game == 'dd':
     # Dirt Dash (Super System 22): two 2 MB chips, MAME ROM_LOAD32_WORD_SWAP -- dt2vera.2 the high word of every long, dt2vera.1 the
     # low, each word byte-swapped (dirtdash/src/dd_mem.c dd_load_program). The master program's count word is at 0x57F00 (0x187B: 6,268
     # words, program 0x4000..0x587B): found by matching MAME's master program RAM (tools/mame/mseq_run.sh captures) in the 68K ROM.
@@ -90,9 +107,9 @@ blocks = [int(b, 16) for b in a.block] or [main_block]
 
 images = {'bios': bios_img}                  # tag -> {program address: word}
 for ca in blocks:
-    cnt = ((rom[ca] << 8) | rom[ca + 1]) + 1
+    cnt = ((rom[ca] << 8) | rom[ca + 1]) + (0 if a.game == 'cs' else 1)
     if not 0 < cnt <= 0xC000: sys.exit(f'bad master program size {cnt} at {ca:X}')
-    images[f'{ca:X}'] = {0x4000 + i: w for i, w in enumerate(words_be(rom[ca + 2: ca + 2 + 2 * cnt]))}
+    images[f'{ca:X}'] = {prog_base + i: w for i, w in enumerate(words_be(rom[ca + 2: ca + 2 + 2 * cnt]))}
 cnt = len(images[f'{main_block:X}']) if f'{main_block:X}' in images else 0
 
 # ---- decode: length and control flow (engine/c25/c25_sem.h c25_exec/misc) ---------
@@ -100,16 +117,17 @@ def length(op):
     hi, lo = op >> 8, op & 0xFF
     if hi in (0x5C, 0x5D, 0x5E, 0x5F, 0xFC, 0xFD): return 2          # MACD MAC BC BNC BLKP BLKD
     if (hi & 0xF0) == 0xD0: return 2                                  # long immediates
-    if hi in (0xFF, 0xFE, 0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF8, 0xF9, 0xFA, 0xFB) and (lo & 0x80):
-        return 2                                                      # B CALL Bcond BANZ
+    if hi in (0xFF, 0xFE, 0xF0, 0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7, 0xF8, 0xF9, 0xFA, 0xFB) and (lo & 0x80):
+        return 2                                                      # B CALL Bcond (incl. BV 0xF0 / BNV 0xF7) BANZ
     return 1
 
 def valid(op):
     """False where the oracle faults (it would stop there too)."""
     hi, lo = op >> 8, op & 0xFF
     if (hi & 0xF0) == 0xD0: return lo <= 6
-    if hi in (0xFF, 0xFE, 0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF8, 0xF9, 0xFA, 0xFB): return bool(lo & 0x80)
-    if hi == 0xF7 or hi == 0xF0: return False
+    # BV (0xF0) / BNV (0xF7): the engine has the OV flag since 2026-10-06 (cybsled's C67 programs use them); before, the
+    # oracle faulted on them and this returned False. No other game's program reaches one (their translations are unchanged).
+    if hi in (0xFF, 0xFE, 0xF0, 0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7, 0xF8, 0xF9, 0xFA, 0xFB): return bool(lo & 0x80)
     if 0x5C <= hi <= 0x5F or hi in (0xFC, 0xFD): return True
     return True        # the rest: exec1/misc decide; a fault there faults in both
 
@@ -118,7 +136,7 @@ def successors(pc, op, op2):
     nxt = (pc + length(op)) & 0xFFFF
     if hi == 0xFF and (lo & 0x80): return [op2]                       # B
     if hi == 0xFE and (lo & 0x80): return [op2, nxt]                  # CALL
-    if (hi in (0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF8, 0xF9, 0xFA, 0xFB) and (lo & 0x80)) or hi in (0x5E, 0x5F):
+    if (hi in (0xF0, 0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7, 0xF8, 0xF9, 0xFA, 0xFB) and (lo & 0x80)) or hi in (0x5E, 0x5F):
         return [op2, nxt]                                             # conditional, BANZ, BC/BNC
     if hi == 0xCE:
         if lo in (0x25, 0x26): return []                              # BACC, RET: dynamic
@@ -172,7 +190,8 @@ def dispatch_seeds(img, ins):
       BACC  `ADLK/LALK base ; ... ; BACC` followed IN LINE by a table of `B target` (0xFF80 target),
             one per index -- every `B` right after the BACC is a case, executed or not;
       CALA  `LALK T ; ADD index ; SACL ; LAR ARn ; LAC * ; CALA`: a table of code pointers at T in
-            program memory (data space aliases 0x4000..), read while the words are addresses in this image.
+            program memory (data space aliases 0x4000..), read while the words are addresses in this image;
+            or, when T itself holds `B` (0xFF80), `LALK T ; ADD index ; CALA` into an in-line `B` table as for BACC.
     A coverage-only translation traps on every case the oracle's scenarios never took; this finds them.
     Returns (seeds, [(kind, site, entries)])."""
     seeds, sites = set(), []
@@ -187,7 +206,12 @@ def dispatch_seeds(img, ins):
             for a in range(pc - 1, pc - 17, -1):
                 if a in ins and img.get(a) == 0xD001 and (a + 1) in img: base = img[a + 1]; break
             n = 0
-            if base is not None:
+            if base is not None and img.get(base) == 0xFF80:
+                # `LALK T ; ADD index ; CALA` straight into an IN-LINE table of `B target` (cybsled's C67 master program, 0x86A2 /
+                # 0x86FA -> 0x86A5): every `B` from T on is a case, as for BACC
+                a2 = base
+                while img.get(a2) == 0xFF80 and (a2 + 1) in img: seeds.add(a2); a2 += 2; n += 1
+            elif base is not None:
                 while n < 64 and img.get(base + n) is not None and (base + n) in img and img[base + n] in img: seeds.add(img[base + n]); n += 1
             sites.append(('CALA', pc, n))
     return seeds, sites
@@ -198,6 +222,10 @@ dispatch = []
 for tag, img in images.items():
     seeds = set(cov[tag])
     if tag == 'bios': seeds |= {0x0000, 0x0002, 0x0004, 0x0006, 0x0018, 0x001A, 0x001C, 0x001E}
+    elif a.game == 'cs':
+        # the C67 BIOS enters an uploaded program at its first word, and forwards the chip's vectors (INT0/1/2 at 2/4/6, TINT/RINT/
+        # XINT/TRAP at 0x18..0x1E) to `B` entries at program+2..+0xE: a per-image walk cannot follow the BIOS's jumps there
+        seeds |= {prog_base + 2 * k for k in range(8)}
     ins = walk(img, seeds)
     while True:                                  # tables can lead to code with more tables
         extra, sites = dispatch_seeds(img, ins)

@@ -1,9 +1,14 @@
-# RRN1 — Rave Racer Netplay Protocol v1
+# RRN1 — Rave Racer Netplay Protocol v1 (superseded by NMN2)
+
+**Online play for every game is now NMN2: see `docs/NETPLAY.md`** (one protocol, the one server `server/` = `nmn-server`,
+the shared client `engine/net.c`). This file documents RRN1, the protocol of the released Rave Racer builds, which
+`nmn-server` still speaks and BRIDGES into its Rave Racer rooms (an RRN1 client and an NMN2 client race in the same room),
+and which new Rave Racer builds fall back to when a server or LAN host only knows RRN1.
 
 Wire protocol for networked multiplayer: a lobby/relay server assigns cabinet
 slots (0–7), manages the lobby, and relays 40-byte car-state packets between
-players at ~60 Hz. This document is the contract for the production backend.
-The reference implementation is the Rust server in `raverace/server/` (`rrn1-server`); the game also carries a built-in host (`src/rr_netd.c`).
+players at ~60 Hz. The reference server was `raverace/server/` (`rrn1-server`); it is now `server/` (`nmn-server`, both
+protocols), and the game's built-in host is `engine/net_host.c`.
 
 ## 1. Transport and conventions
 
@@ -282,8 +287,8 @@ client                                server
 
 ## 8. Backend implementor notes
 
-- This document is the contract; the reference server is `raverace/server/`
-  (Rust, std only: `cargo build --release`, then `rrn1-server [--port 27750]
+- This document is the contract; the reference server is `server/` (was `raverace/server/`)
+  (Rust, std only: `cargo build --release`, then `nmn-server [--port 27750]
   [--bind ADDR] [--name NAME] [--max-per-ip N] [--quiet]`; `cargo test` runs its
   conformance tests -- join, roster, GO retransmission, relay, drops, liveness).
   It is hardened beyond the contract: exact 59-byte FRAMEs, per-IP rate limit on
@@ -316,7 +321,7 @@ client                                server
   PING, DISCOVER); a stranger's FRAMEs are dropped for free, so a restarted server's ghosts cannot starve their own
   PING.
 
-## Rooms (rrn1-server)
+## Rooms (rrn1-server, and nmn-server for RRN1 clients)
 
 One port serves many independent rooms. A room is a whole lobby (8 slots, its own roster, chat and race); a race in one room never
 blocks another. A new player's HELLO goes to the fullest room that is still in its lobby, and opens a new room when every room is

@@ -21,6 +21,7 @@
 #include "ss22_game.h"
 #include "ss22_out.h"
 #include "ss22_host.h"
+#include "ss22_link.h"
 #include <sys/stat.h>
 #include "win_startup.h"
 #include "romzip.h"
@@ -153,6 +154,7 @@ static bool rep_open(const char *path)
     return true;
 }
 static const char *rec_path, *rep_path;
+static const char *link_spec;                        /* --link ID/N[:PORT][:free] (engine/ss22_link.h) */
 static const char *start_name;                       /* --stage NAME (the game's start script, ss22_game.start) */
 static bool start_on;                                /* the start script owns the cabinet this frame: the window's keys stay out of it */
 static long start_base;                              /* the frame the script started at (0: --stage, from power-on) */
@@ -339,6 +341,7 @@ void rr_tick(void)
     } else
         ss22_dsp_run(dsp_steps_per_frame / SLICES);       /* the master DSP runs beside the 68K */
     ss22_snd_slice();                                     /* and so does the sound MCU (ports, A-D, the C352) */
+    if (g_ss22_link_on) ss22_link_slice();                /* --link: the C139's clock and its interrupt (engine/ss22_link.c) */
     if ((serial_acc += 100) >= 60 * SLICES) { serial_acc -= 60 * SLICES; ss22_dsp_serial(); }
     if (++slice % SLICES) return;
     if (ftime_on < 0) { ftime_on = getenv("ENG_FTIME") != NULL; if (ftime_on) { extern int g_perf_enabled; g_perf_enabled = 1; } }
@@ -348,6 +351,7 @@ void rr_tick(void)
         ft_prev = t0;
     }
     rr_frame++;
+    if (g_ss22_link_on) ss22_link_frame(rr_frame);        /* --link: this frame's payload out, the predecessor's in */
 #ifdef RR_TRACE
     if (pc_ring_frame >= 0 && (rr_frame == (uint32_t)pc_ring_frame || (pc_ring_frame > 0 && rr_frame > (uint32_t)pc_ring_frame && rr_frame % 300 == 0))) pc_ring_report();
 #endif
@@ -427,7 +431,7 @@ void rr_tick(void)
 
 /* the window's host: the game's name, settings file and cabinet controls (engine/ss22_host.c) */
 static void in_init(void) { ss22_input_init(g_ss22_game->input); }
-static void in_update(void) { if (!start_on && !autoplay && !rep_f) ss22_input_update(); }      /* the start script has the cabinet until it is over; --autoplay's script keeps it (else the window's idle keyboard overwrites it every frame) */
+static void in_update(void) { if (!start_on && !autoplay && !npress && !rep_f) ss22_input_update(); ss22_input_kick_frame(); }      /* the start script has the cabinet until it is over; --autoplay's and --press's scripts keep it for the WHOLE run, keys included (else the window's idle keyboard overwrites them every frame); the kick's step runs either way */
 static ss22_host_game host_game;
 
 int ss22_main(int argc, char **argv, const ss22_game *g)
@@ -475,6 +479,7 @@ int ss22_main(int argc, char **argv, const ss22_game *g)
         else if (!strcmp(argv[i], "--pedal") && i + 1 < argc) pedal_from = atol(argv[++i]);
         else if (!strcmp(argv[i], "--clock") && i + 1 < argc) clock_addr = strtol(argv[++i], NULL, 0);
         else if (!strcmp(argv[i], "--input-offset") && i + 1 < argc) input_offset = atol(argv[++i]);
+        else if (!strcmp(argv[i], "--link") && i + 1 < argc) link_spec = argv[++i];
         else rom_dir = argv[i];
     }
     /* First run: take the ROMs out of MAME's zip if the ROM folder is incomplete (the shared engine/romzip.c) -- how the installed
@@ -516,6 +521,8 @@ int ss22_main(int argc, char **argv, const ss22_game *g)
     static char last_rec[80];                            /* a played session always keeps its latest recording: a crash can be replayed afterwards */
     if (win_scale && !rec_path && !rep_path) { snprintf(last_rec, sizeof last_rec, "%s_last.rec", g->lname); rec_path = last_rec; }
     if (rec_path) { rec_open(rec_path); if (rec_f) fatal_rec = rec_path; }
+    { char lv[64]; snprintf(lv, sizeof lv, "%s_LINK", g->tag); if (!link_spec) link_spec = getenv(lv); }
+    if (link_spec && !ss22_link_setup(link_spec, g->tag)) return 2;   /* the cabinet link: after the EEPROM is final (it sets the cabinet id there) */
     rr_fatal_hook = on_fatal;
     if (!ss22_dsp_init(rom_dir)) return 2;
     if (!ss22_snd_init(rom_dir)) fprintf(stderr, "[%s] no sound MCU: the game will read no inputs\n", g->tag);
@@ -523,6 +530,11 @@ int ss22_main(int argc, char **argv, const ss22_game *g)
     if (win_scale || shot_dir) {                        /* video: a window, or offscreen for --shots */
         if (win_scale && !frames_given) max_frames = 0xFFFFFFFFu;
         video_on = ss22_video_init(rom_dir) && (win_scale ? ss22_host_open(&host_game, win_scale, win_full) : ss22_host_open_headless());
+        if (video_on && win_scale) {                    /* the player's speaker levels (the settings are loaded now) and their rows in the Audio page */
+            static const eng_ui_mixer mixer = { ss22_snd_mix_rows, ss22_snd_mix_name, ss22_snd_mix_get, ss22_snd_mix_set, 200 };
+            ss22_snd_mix_load();
+            eng_ui_set_mixer(&mixer);
+        }
         if (!video_on) { fprintf(stderr, "[%s] no picture: video could not start\n", g->tag); if (win_scale) return 2; }
     }
     memset(R, 0, RR_REGSPACE);

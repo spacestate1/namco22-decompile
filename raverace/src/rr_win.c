@@ -17,6 +17,7 @@
 #include <wchar.h>
 #include <windows.h>
 #include <SDL.h>
+#include "rr_game.h"
 
 void rr_win_startup(void)
 {
@@ -26,7 +27,7 @@ void rr_win_startup(void)
         wchar_t *sl = wcsrchr(p, L'\\');
         if (sl) { *sl = 0; _wchdir(p); }
     }
-    if (freopen("raveracer.log", "w", stdout)) {
+    if (freopen(g_rr_game->log_file ? g_rr_game->log_file : "raveracer.log", "w", stdout)) {
         setvbuf(stdout, NULL, _IONBF, 0);
         freopen("NUL", "w", stderr);            /* a double-clicked GUI program's stderr is a closed stream: reopen it before redirecting */
         _dup2(_fileno(stdout), _fileno(stderr));

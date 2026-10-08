@@ -48,6 +48,7 @@ static int32_t pointram_read(uint32_t a) { return rr_dsp_pointram_read(a & 0xfff
 bool rr_gl_init(const char *dir)
 {
     if (!eng_load_texture_roms(dir, g_rr_game->cg, g_rr_game->ccrl, g_rr_game->ccrh)) return false;
+    if (g_rr_game->tex_fixup) eng_texture_tilemap_sys22_fixup();
     const char *const *gp = g_rr_game->gamma;
     for (int i = 0; i < 3; i++) {
         char p[1024]; snprintf(p, sizeof p, "%s/%s", dir, gp[i]);
@@ -104,6 +105,7 @@ static void push_quad(const geo_quad *q, void *user)
     }
     qbuf[qn] = *q;
     qbuf[qn].order = qorder++;
+    if (!qbuf[qn].direct) qbuf[qn].pick_code = g_bbox_cur;   /* the object it came from (probes; slave_list.c sets it per record) */
     qn++;
 }
 
@@ -278,6 +280,14 @@ static int frame_mixer_flags, frame_bg_palbase, frame_text_palbase;
 static const eng_hud_mark hud_marks[] = { { 22, 2, 0xF0C0 }, { 22, 3, 0xF0C1 }, { 22, 2, 0x40D2 }, { 22, 3, 0x40D3 } };
 static bool hud_on;
 
+static int seam_by_quad;
+static int seam_colour(const geo_quad *q, float c[4])  /* RR_SEAMTEST=3 */
+{
+    uint32_t h = (uint32_t)(seam_by_quad ? q->order + 1 : q->pick_code) * 2654435761u;   /* =4: per QUAD, for edge maps */
+    c[0] = 0.25f + (h >> 24 & 0xFF) / 340.0f; c[1] = 0.25f + (h >> 16 & 0xFF) / 340.0f; c[2] = 0.25f + (h >> 8 & 0xFF) / 340.0f; c[3] = 1.0f;
+    return true;
+}
+
 void rr_gl_prepare(bool slave_active)
 {
     if (!assets_ok) return;
@@ -379,7 +389,9 @@ void rr_gl_draw(int vw, int vh)
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 
     uint8_t bg[3]; pen_rgb(frame_bg_palbase | 0xff, bg);
-    glClearColor(bg[0] / 255.0f, bg[1] / 255.0f, bg[2] / 255.0f, 0.0f);   /* alpha 0: no prio */
+    static int seamtest = -1; if (seamtest < 0) { const char *e = getenv("RR_SEAMTEST"); seamtest = e ? atoi(e) : 0; }   /* dev: the crack detector, Prop Cycle's SEAMTEST */
+    if (seamtest) glClearColor(1.0f, 0.0f, 1.0f, 0.0f);   /* magenta: any pixel no polygon covers */
+    else glClearColor(bg[0] / 255.0f, bg[1] / 255.0f, bg[2] / 255.0f, 0.0f);   /* alpha 0: no prio */
     glClear(GL_COLOR_BUFFER_BIT);
 
     eng_draw_cfg dc;
@@ -391,8 +403,28 @@ void rr_gl_draw(int vw, int vh)
     dc.write_prio_alpha = 1;
     { static int tc = -1; if (tc < 0) { const char *e = getenv("RR_TEXEL_CENTRE"); tc = e ? atoi(e) : 1; }
       dc.texel_centre = tc; }
+    dc.flat_white = seamtest == 1 || seamtest == 2;
+    if (seamtest >= 3) { dc.flat_quad = seam_colour; seam_by_quad = seamtest == 4; }         /* RR_SEAMTEST=3: each object its own flat colour, to name the backdrop pieces */
     eng_draw_begin();
-    for (int i = 0; i < qn; i++) eng_draw_quad(&qbuf[i], &dc);
+    for (int i = 0; i < qn; i++) {
+        if (seamtest) {                                   /* RR_SEAMSKIP=<code>[-<hi>],...: leave the backdrop out, or it covers every crack */
+            static int nsk = -1; static int sk[32][2];
+            if (nsk < 0) { nsk = 0; const char *e = getenv("RR_SEAMSKIP");
+                while (e && *e && nsk < 32) { int lo = atoi(e), hi = lo; const char *d = strpbrk(e, "-,"); if (d && *d == '-') hi = atoi(d + 1);
+                    sk[nsk][0] = lo; sk[nsk][1] = hi; nsk++; e = strchr(e, ','); if (e) e++; } }
+            int skip = 0; for (int k = 0; k < nsk; k++) if (qbuf[i].pick_code >= sk[k][0] && qbuf[i].pick_code <= sk[k][1]) skip = 1;
+            if (skip) continue;
+            if (seamtest == 2) {                          /* RR_SEAMTEST=2: also log every quad bigger than a quarter of the screen */
+                int x0 = 1 << 30, x1 = -(1 << 30), y0 = 1 << 30, y1 = -(1 << 30);
+                for (int k = 0; k < qbuf[i].nrv; k++) { int x = qbuf[i].rv[k].sx16 >> 4, y = qbuf[i].rv[k].sy16 >> 4;
+                    if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+                if ((long)(x1 - x0) * (y1 - y0) > 640L * 480 / 4)
+                    fprintf(stderr, "[SEAMBIG] pick %d direct %d x %d..%d y %d..%d zsort %06X uv %d..%d %d..%d\n", qbuf[i].pick_code, qbuf[i].direct, x0, x1, y0, y1, qbuf[i].zsort & 0xffffff,
+                            qbuf[i].uvbox[0], qbuf[i].uvbox[1], qbuf[i].uvbox[2], qbuf[i].uvbox[3]);
+            }
+        }
+        eng_draw_quad(&qbuf[i], &dc);
+    }
     eng_draw_end();
 
     /* text: over the polygons wherever the last one drawn did not set
@@ -401,7 +433,7 @@ void rr_gl_draw(int vw, int vh)
     bool any_shadow;
     bool any_text = build_text(frame_text_palbase, (frame_mixer_flags >> 8) & 1, &any_shadow);
     { static int no = -1; if (no < 0) { const char *e = getenv("RR_NO_TEXT"); no = e && *e == '1'; }     /* dev: the picture without the text layer */
-      if (no) { any_text = false; any_shadow = false; } }
+      if (no || seamtest) { any_text = false; any_shadow = false; } }
     glEnable(GL_BLEND);
     if (any_shadow) {                                   /* rgb *= mix/256 */
         { static uint8_t *last; upload(&shd_tex, shd_rgba, NW, NH, &last); }

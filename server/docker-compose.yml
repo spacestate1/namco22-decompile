@@ -1,0 +1,16 @@
+# One command:   docker compose up -d --build
+# Host networking keeps every player's real address (the per-IP limit needs it) and lets LAN discovery work.
+# Open UDP 27750 (or NMN_PORT) in the machine's firewall. Linux only.
+services:
+  nmn:
+    build: .
+    container_name: nmn
+    restart: unless-stopped
+    init: true                                     # PID 1 ignores SIGTERM without one: a clean `docker compose down`
+    network_mode: host
+    environment:
+      NMN_PORT: ${NMN_PORT:-27750}
+      NMN_NAME: ${NMN_NAME:-Namco 22 online}      # 16 bytes at most, shown in the LAN game list
+      NMN_MAX_PER_IP: ${NMN_MAX_PER_IP:-8}
+      NMN_MAX_ROOMS: ${NMN_MAX_ROOMS:-128}        # rooms of every game together
+      NMN_ROOM_TTL_MIN: ${NMN_ROOM_TTL_MIN:-10}   # an empty room stays listed this many minutes

@@ -18,6 +18,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <SDL.h>
+#include "rr_game.h"
 #include "rr_hw.h"
 #include "rr_input.h"
 
@@ -87,6 +88,8 @@ static void defaults(void)
     set_default(RR_PAUSE, "P", NULL);
     set_default(RR_RECORD, "F9", NULL);
     set_default(RR_QUIT, "Escape", NULL);
+    for (int i = 0; g_rr_game && i < g_rr_game->nbind_defaults; i++)     /* a game's own layout (Cyber Commando: Cyber Sled's) */
+        set_default(g_rr_game->bind_defaults[i].act, g_rr_game->bind_defaults[i].keys, g_rr_game->bind_defaults[i].pad);
 }
 
 static char *trim(char *s)
@@ -191,7 +194,7 @@ bool rr_input_write(const char *path)
     defaults();
     FILE *f = fopen(path, "w");
     if (!f) return false;
-    fprintf(f, "# Rave Racer controls. Keys: SDL key names, comma-separated.\n"
+    fprintf(f, "# %s controls. Keys: SDL key names, comma-separated.\n", g_rr_game->title); fprintf(f, ""
                "# pad_<action>: SDL game-controller button (a b x y back start guide\n"
                "# leftshoulder rightshoulder leftstick rightstick dpup dpdown dpleft dpright).\n"
                "# The left stick steers and the triggers are gas (right) / brake (left).\n");
@@ -280,7 +283,7 @@ bool rr_input_record_start(const char *path)
     if (rec_f) return true;
     rec_f = fopen(path, "w");
     if (!rec_f) { fprintf(stderr, "[INPUT] cannot write %s\n", path); return false; }
-    fprintf(rec_f, "# Rave Racer input recording: F frame inputs steer gas brake (hex), on change\n");
+    fprintf(rec_f, "# %s input recording: F frame inputs steer gas brake (hex), on change\n", g_rr_game->title);
     rec_first = true;
     fprintf(stderr, "[INPUT] recording to %s\n", path);
     return true;
@@ -318,7 +321,7 @@ void rr_input_bind_key(int a, SDL_Scancode sc)
 {
     if (a < 0 || a >= RR_ACT_N || sc == SDL_SCANCODE_UNKNOWN) return;
     g_bind[a].keys[0] = sc; g_bind[a].nkeys = 1;
-    rr_input_set_option("rr_controls.cfg", act_name[a], SDL_GetScancodeName(sc));
+    rr_input_set_option(g_rr_game->cfg_file, act_name[a], SDL_GetScancodeName(sc));
     fprintf(stderr, "[INPUT] %s = %s (saved to rr_controls.cfg)\n", act_name[a], SDL_GetScancodeName(sc));
 }
 
@@ -381,9 +384,9 @@ bool rr_input_capture_event(int a, const SDL_Event *e)
         SDL_JoystickGetGUIDString(SDL_JoystickGetGUID(js), g_joy_button_guid[a], sizeof g_joy_button_guid[a]);
         snprintf(key, sizeof key, "joy_button_%s", act_name[a]);
         snprintf(value, sizeof value, "%d", g_joy_button[a]);
-        rr_input_set_option("rr_controls.cfg", key, value);
+        rr_input_set_option(g_rr_game->cfg_file, key, value);
         snprintf(key, sizeof key, "joy_button_%s_guid", act_name[a]);
-        rr_input_set_option("rr_controls.cfg", key, g_joy_button_guid[a]);
+        rr_input_set_option(g_rr_game->cfg_file, key, g_joy_button_guid[a]);
         return true;
     }
     rr_joyaxis_t *ax = action_axis(a);
@@ -407,12 +410,12 @@ bool rr_input_capture_event(int a, const SDL_Event *e)
         char value[64], guidkey[64];
         snprintf(value, sizeof value, "%d%s%s", index, ax->invert ? " invert" : "",
                  ax->direction > 0 ? " positive" : ax->direction < 0 ? " negative" : "");
-        rr_input_set_option("rr_controls.cfg", key, value);
+        rr_input_set_option(g_rr_game->cfg_file, key, value);
         snprintf(guidkey, sizeof guidkey, "%s_guid", key);
-        rr_input_set_option("rr_controls.cfg", guidkey, ax->guid);
+        rr_input_set_option(g_rr_game->cfg_file, guidkey, ax->guid);
         snprintf(guidkey, sizeof guidkey, "%s_shape", key);
         snprintf(value, sizeof value, "A%dB%d", ax->shape_axes, ax->shape_buttons);
-        rr_input_set_option("rr_controls.cfg", guidkey, value);
+        rr_input_set_option(g_rr_game->cfg_file, guidkey, value);
         return true;
     }
     return false;

@@ -39,5 +39,5 @@ extern double g_bake_texels;
  * (texels, "0" = off) overrides. Needs g_eng_frame to advance once per shown frame. */
 void tex_bake_set_budget(long draw_texels, long pump_texels);
 void tex_bake_window_defaults(void);
-extern int tex_placeholders, tex_refined;
+extern int tex_placeholders, tex_refined, tex_tier_fallbacks;
 #endif

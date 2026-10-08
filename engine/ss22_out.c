@@ -28,6 +28,7 @@ typedef int out_sock;
 #include "ss22_game.h"
 #include "ss22_input.h"
 #include "ss22_out.h"
+#include "lift_cpu.h"                                    /* rr_frame, for the SS22_OUTDBG log */
 
 #define MAX_CLIENTS 4
 static out_sock lsock = OUT_BAD, clients[MAX_CLIENTS];
@@ -100,11 +101,12 @@ void ss22_out_poll(uint16_t outs)
     for (int i = 0; i < 16; i++) {
         if (!(diff >> i & 1)) continue;
         char b[40]; snprintf(b, sizeof b, "mcuout%d = %d\r", i, (outs >> i) & 1);
-        if (dbg) fprintf(stderr, "[OUT] %s\n", b);
+        if (dbg) fprintf(stderr, "[OUT] f%u %s\n", rr_frame, b);
         send_all(b);
     }
     const uint16_t rising = (uint16_t)(diff & outs & g_ss22_game->recoil_mask);
-    if (rising && rumble_on) ss22_input_rumble(0xC000, 0xFFFF, 90);              /* the gun solenoid fired: a short, hard kick */
+    if (rising && rumble_on) ss22_input_rumble(0xC000, 0xFFFF, 90);              /* the gun / handle solenoid fired: a short, hard kick */
+    if (rising) ss22_input_kick();                                               /* and on a force-feedback wheel (Tokyo Wars' handle) */
     prev = outs;
 }
 

@@ -221,7 +221,10 @@ static const ss22_game game = {
                {"dt1ptrm0.18j", "dt1ptrm1.16j", "dt1ptrm2.15j"},
                {"dt1ptru0.18f", "dt1ptru1.16f", "dt1ptru2.15f"} }, 3, dd_c25_exec,     /* the region is three planes of three chips (Prop Cycle's shape) */
                .spin_pc = 0x45BB, .spin_op = 0x2000 },   /* the upload routine's LAC *0 / BNEZ poll of polygon-RAM word 0 (~36% of all retired steps) */
-    .snd = { "dt1dataa.8k", { "dt1wavea.2l", "dt1waveb.1l" }, { 0, 0x800000 }, 0x1000000, 0xFDFF, { 1, 2 } },   /* MAME's c352 region: dt1wavea.2l at 0, dt1waveb.1l at 0x800000 */
+    .snd = { "dt1dataa.8k", { "dt1wavea.2l", "dt1waveb.1l" }, { 0, 0x800000 }, 0x1000000, 0xFDFF, { 1, 2 },   /* MAME's c352 region: dt1wavea.2l at 0, dt1waveb.1l at 0x800000 */
+             /* MAME's dirtdash(): m_c352->add_route(3, "road", 0.5). The tyres' skid and the road noise play on outputs 2 and 3 alone
+              * (the same signal on both; MAME wires only 3) -- without this speaker a drift is silent */
+             .aux = { [1] = { "Road speaker", 0.5f } } },
     .video = { { "dt1cg0.8d", "dt1cg1.10d", "dt1cg2.12d", "dt1cg3.13d", "dt1cg4.14d", "dt1cg5.16d", "dt1cg6.18d", "dt1cg7.19d" },
                "dt1ccrl.3d", "dt1ccrh.1d", { "dt1scg0.12f", "dt1scg1.10f" }, 2, 0x1000000, 0xFF,
                true, true,     /* MAME: a 16 MB region, ROMREGION_ERASEFF, the two chips at 0 and 0x200000; the spot is on in its captures */

@@ -325,7 +325,7 @@ static int clip_to_screen(const geo_sv *in, int n, geo_sv *out)
  * are static, so the pointers are set once per flush rather than per quad,
  * and the data is written in the same order the immediate-mode path emitted
  * it -- identical geometry, identical attributes, byte-identical output. */
-static float qa_xy[32 * 2], qa_rgba[32 * 4], qa_st[32 * 4];
+static float qa_xy[32 * 2], qa_rgba[32 * 4], qa_st[32 * 4], qa_z[32];
 
 /* ---- batched triangles ---------------------------------------------------
  * One glDrawArrays per quad cost ~1.2-5 us of driver time each, and with the
@@ -333,8 +333,10 @@ static float qa_xy[32 * 2], qa_rgba[32 * 4], qa_st[32 * 4];
  * quads collect into BB_* as fan triangles and flush once per STATE RUN. */
 #define BB_MAXV 60000
 static float bb_xy[BB_MAXV * 2], bb_rgba[BB_MAXV * 4], bb_st[BB_MAXV * 4];
+static float *bb_xyz;                    /* depth-tested runs (eng_draw_cfg.depth_test): x, y, z -- allocated on first use */
 static int bb_n, bb_valid;
-static struct bbstate { GLuint tex; int env, alpha, blend, prio, tex_on, sc_on, fog; int sc[4]; float frgb[3]; } bb_run;
+static struct bbstate { GLuint tex; int env, alpha, blend, prio, tex_on, sc_on, fog; int sc[4]; float frgb[3]; int depth; } bb_run;
+static int depth_applied;                /* GL_DEPTH_TEST as this file last set it (only depth-tested runs ever turn it on) */
 
 static void bb_flush(void)
 {
@@ -344,6 +346,11 @@ static void bb_flush(void)
      * behind our back, and commit() below binds only when the page is dirty --
      * a clean page would draw against whatever texture was last bound */
     if (bb_run.tex_on) { qs_bind(bb_run.tex); tex_bake_commit(bb_run.tex); }   /* the page's dirty bands upload once, here, not per bake */
+    if (bb_run.depth) {
+        glVertexPointer(3, GL_FLOAT, 0, bb_xyz);
+        glDrawArrays(GL_TRIANGLES, 0, bb_n);
+        glVertexPointer(2, GL_FLOAT, 0, bb_xy);
+    } else
     glDrawArrays(GL_TRIANGLES, 0, bb_n);
     g_bb_draws++;
     bb_n = 0;
@@ -369,6 +376,11 @@ static void bb_apply(const struct bbstate *st)
     qs_blend(st->blend);
     qs_prio_mask(st->prio);
     qs_scissor(st->sc_on, st->sc);
+    if (st->depth != depth_applied) {
+        if (st->depth) { glEnable(GL_DEPTH_TEST); glDepthFunc(GL_LESS); glDepthMask(GL_TRUE); }
+        else glDisable(GL_DEPTH_TEST);
+        depth_applied = st->depth;
+    }
 }
 
 /* ENG_RUNSTATS=1: why runs break, printed at exit (per-field counts + hook flushes) */
@@ -415,10 +427,14 @@ static void bb_emit(int n, const struct bbstate *st_)
     if (!bb_valid) { bb_run = *st; bb_apply(st); bb_valid = 1; }
     if (nobatch) bb_flush();                            /* start empty: draw just this quad below */
     if (bb_n + (n - 2) * 3 > BB_MAXV) { br_full++; bb_flush(); }
+    if (st->depth && !bb_xyz && !(bb_xyz = malloc(sizeof(float) * 3 * BB_MAXV))) return;
     for (int i = 1; i + 1 < n; i++)
         for (int k = 0; k < 3; k++) {
             int s = k == 0 ? 0 : i + k - 1;              /* fan: (0, i, i+1) */
+            if (st->depth) { bb_xyz[bb_n*3+0] = qa_xy[s*2+0]; bb_xyz[bb_n*3+1] = qa_xy[s*2+1]; bb_xyz[bb_n*3+2] = qa_z[s]; }
+            else {
             bb_xy[bb_n*2+0] = qa_xy[s*2+0]; bb_xy[bb_n*2+1] = qa_xy[s*2+1];
+            }
             memcpy(&bb_rgba[bb_n*4], &qa_rgba[s*4], 4 * sizeof(float));
             memcpy(&bb_st[bb_n*4], &qa_st[s*4], 4 * sizeof(float));
             bb_n++;
@@ -486,6 +502,7 @@ void eng_draw_end(void)
         glTexEnvf(GL_TEXTURE_ENV, GL_RGB_SCALE, 1.0f);
         qs.fog = 0;
     }
+    if (depth_applied) { glDisable(GL_DEPTH_TEST); depth_applied = 0; }
     glDisable(GL_TEXTURE_2D);
     glEnable(GL_ALPHA_TEST);
     glDisable(GL_BLEND);
@@ -507,6 +524,21 @@ static void draw_quad_one(const geo_quad *q, const eng_draw_cfg *cfg)
         }
         bb_emit(n, &(struct bbstate){ .tex_on = 0, .alpha = 0, .blend = 0, .prio = 0, .sc_on = 0 });
         return;
+    }
+    if (cfg->flat_quad) {                  /* System 21: one colour per quad, optionally depth-tested (see quad_gl.h) */
+        float c[4];
+        if (cfg->flat_quad(q, c)) {
+            if (q->nrv < 3) return;
+            const int n = q->nrv > 32 ? 32 : q->nrv;
+            const float z = (cfg->depth_test && cfg->quad_depth) ? cfg->quad_depth(q) : 0.0f;
+            for (int i = 0; i < n; i++) {
+                memcpy(&qa_rgba[i*4], c, sizeof c);
+                qa_xy[i*2+0] = q->rv[i].sx16 / 16.0f; qa_xy[i*2+1] = q->rv[i].sy16 / 16.0f;
+                qa_z[i] = z;
+            }
+            bb_emit(n, &(struct bbstate){ .tex_on = 0, .alpha = 0, .blend = 0, .prio = 0, .sc_on = 0, .depth = cfg->depth_test ? 1 : 0 });
+            return;
+        }
     }
 
     /* TEXTURED, not flat. The colour word is a palette SELECTOR

@@ -32,6 +32,7 @@
     GLF(glBlendFunc) \
     GLF(glClear) \
     GLF(glClearColor) \
+    GLF(glClearDepth) \
     GLF(glColor3f) \
     GLF(glColor4f) \
     GLF(glColorMask) \
@@ -39,6 +40,7 @@
     GLF(glCopyTexSubImage2D) \
     GLF(glDeleteTextures) \
     GLF(glDepthFunc) \
+    GLF(glDepthMask) \
     GLF(glDisable) \
     GLF(glDisableClientState) \
     GLF(glDrawArrays) \
@@ -68,6 +70,7 @@
     GLF(glRotatef) \
     GLF(glScalef) \
     GLF(glScissor) \
+    GLF(glShadeModel) \
     GLF(glTexCoord2f) \
     GLF(glTexCoordPointer) \
     GLF(glTexEnvf) \

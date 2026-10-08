@@ -4568,18 +4568,29 @@ void renderer3d_render_frame(void) {
               framedump_render_words(master_dsp_output(), geohw_quad_cb, NULL);
           else {
               extern const int32_t *pause_world_words(int *);
+              extern const int32_t *pause_world_wide_words(int *, float, float);
               extern void pause_world_reset(void);
               int n = 0; const int32_t *pw = NULL;
-              if (g_pausecam_on) pw = pause_world_words(&n); else pause_world_reset();
+              if (g_pausecam_on) pw = pause_world_words(&n);
+              else {
+                  pause_world_reset();
+                  /* widescreen: the scenery beside the 4:3 view, from the game's own emitters (pause_world.c) */
+                  extern int g_rig_view;
+                  if (g_scene_x0 < -0.5f && !g_rig_view) pw = pause_world_wide_words(&n, -g_scene_x0, 554.25f);
+              }
               if (pw) { memset(seen_pos, 0, sizeof seen_pos); memset(seen_full, 0, sizeof seen_full); g_seen_mode = 1; }
               process_pdp_commands();
               if (pw) {                          /* the rest of the world, paused only */
                   g_pdp_words = pw; g_pdp_nwords = n; g_seen_mode = 2;
                   process_pdp_commands();
                   g_pdp_words = NULL; g_seen_mode = 0;
-                  { static int said; if (!said) { said = 1;
+                  { static int said; if (!said && g_pausecam_on) { said = 1;
                     fprintf(stderr, "[PAUSE360] extra walk: %d new placements, %d already drawn\n",
                             g_p360_new, g_p360_dup); } }
+                  { static int wlog = -1; if (wlog < 0) wlog = getenv("PROPCYCL_WIDEFILL_LOG") != NULL;
+                    if (wlog && !g_pausecam_on && g_sys.frame_count % 60 == 0)
+                        fprintf(stderr, "[WIDEFILL] f%d: %d placements added at the sides, %d already drawn\n",
+                                g_sys.frame_count, g_p360_new, g_p360_dup); }
                   g_p360_new = g_p360_dup = 0;
               }
           }

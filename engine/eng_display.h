@@ -36,6 +36,7 @@ extern bool g_eng_disp_light_gun;          /* the host: this game aims a light g
 
 /* Before the window exists: load cfg_path (engine/eng_cfg.c) into g_eng_disp. scale > 0 overrides the saved window size,
  * fullscreen forces fullscreen (desktop). */
+extern int g_eng_disp_native_default;   /* set before eng_disp_load: no saved resolution means Native (window size) */
 void eng_disp_load(const char *cfg_path, int scale, bool fullscreen);
 /* After the window exists: the exclusive mode, a size too big for this display. */
 void eng_disp_attach(SDL_Window *win);

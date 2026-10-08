@@ -41,13 +41,28 @@ static void render_reset(void) { rbuf_n = 0; rr_scene_render_refresh(); }
 static void port3_r(void) { upload_state = 0; }
 extern bool g_rr_in_vblank;
 static void pdp_begin(void) { rr_scene_pdp_begin(g_rr_in_vblank); }
-static void slave_w(uint16_t v)          /* upload_code_to_slave_dsp_w: only the enables matter */
+/* the slave DSP's external RAM (program and data, 0x8000-0x9FFF): what the master uploads through port 7. Kept (MAME's
+ * m_slave_extram) though nothing runs it yet; RR_SLAVEDUMP=<file> writes it, big-endian words, at every slave enable. */
+static uint16_t slave_extram[0x2000];
+static uint16_t upload_dest;
+static void slave_dump(void)
+{
+    static const char *path; static int init;
+    if (!init) { init = 1; path = getenv("RR_SLAVEDUMP"); }
+    if (!path) return;
+    FILE *f = fopen(path, "wb"); if (!f) return;
+    for (int i = 0; i < 0x2000; i++) { fputc(slave_extram[i] >> 8, f); fputc(slave_extram[i] & 0xFF, f); }
+    fclose(f);
+    fprintf(stderr, "[DSP] slave extram written to %s\n", path);
+}
+static void slave_w(uint16_t v)          /* upload_code_to_slave_dsp_w */
 {
     if (upload_state == 0) {
         if (v == 0) slave_on = false;
         else if (v == 1) upload_state = 1;
-        else if (v == 3 || v == 0x10) slave_on = true;
-    } else if (upload_state == 1) upload_state = 2;   /* destination, then data until port 3 read */
+        else if (v == 3 || v == 0x10) { slave_on = true; slave_dump(); }
+    } else if (upload_state == 1) { upload_dest = v; upload_state = 2; }    /* destination, then data until port 3 read */
+    else slave_extram[upload_dest++ & 0x1FFF] = v;
 }
 static uint32_t seen_begins;
 

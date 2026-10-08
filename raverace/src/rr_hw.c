@@ -102,7 +102,7 @@ bool rr_hw_init(const char *rom_dir)
     g_hw.lcg = 0x2545F491u;
     g_hw.dsw = 0xFFFFFFFFu;             /* every DIP off */
     g_hw.portbits[0] = g_hw.portbits[1] = 0xFFFF;
-    g_hw.steer = 0x800; g_hw.gas = 0; g_hw.brake = 0; g_hw.inputs = 0xFEFF;   /* MAME default: active-low bits 1, cabinet field 0x2100 = 0x2000 (Standard) */
+    g_hw.steer = 0x800; g_hw.gas = 0; g_hw.brake = 0; g_hw.adc[0] = g_hw.adc[1] = g_hw.adc[2] = g_hw.adc[3] = 0x7F; g_hw.inputs = g_rr_game->inputs_idle;   /* MAME default: active-low bits 1 (Rave Racer: cabinet field 0x2100 = 0x2000, Standard) */
     char p[1024];
     snprintf(p, sizeof p, "%s/%s", rom_dir, g_rr_game->eeprom ? g_rr_game->eeprom : "");
     FILE *f = g_rr_game->eeprom ? fopen(p, "rb") : NULL;
@@ -127,9 +127,13 @@ void rr_hw_drive_io(void)                            /* MAME handle_driving_io: 
 {
     if (g_hw.mcu_run) {
         shared_w16(0x30, g_hw.inputs);
+        if (g_rr_game->twin_stick) {                    /* MAME handle_cybrcomm_io: each 8-bit ADC x 0x10 */
+            for (int i = 0; i < 4; i++) shared_w16((uint32_t)(0x32 + 2 * i), (uint16_t)(g_hw.adc[i] * 0x10));
+        } else {
         shared_w16(0x32, (uint16_t)(g_hw.steer + g_rr_game->steer_add));
         shared_w16(0x34, (uint16_t)(g_hw.gas + g_rr_game->gas_add));
         shared_w16(0x36, (uint16_t)(g_hw.brake + g_rr_game->brake_add));
+        }
         int coin = (g_hw.inputs & 0x1000) >> 12 | (g_hw.inputs & 0x0200) >> 8;
         if (!(coin & 1) && (g_hw.old_coin & 1)) g_hw.credits1++;
         if (!(coin & 2) && (g_hw.old_coin & 2)) g_hw.credits2++;

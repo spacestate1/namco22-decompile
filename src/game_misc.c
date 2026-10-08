@@ -2689,7 +2689,8 @@ undefined4 coin_credit_update(void)
       W[0x2C0E] = W[0x2C0E] + 1;
       if ((W[0x2B82] & 1) != 0) {
         g_sys.commsram[0x7D26] = 1;
-        audio_hle_trigger(AUDIO_SFX_COIN);
+        /* (a hand-added audio_hle_trigger(AUDIO_SFX_COIN) stood here from before the real sound driver ran: it mixed a
+         * recorded coin sample at full level ON TOP of the game's own coin sound below -- measured ~20x MAME's level) */
       }
       sound_play(0x15);
       if (((g_time_limit <= W[0x2C0E]) || (W16(0x3FF4) != 0)) && (W[0x2C12] != 0)) {
