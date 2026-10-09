@@ -97,6 +97,8 @@ one disk, e.g. a microSD card, then works the same on a Steam Deck and another P
 named after the AppImage plus `.home` (`TimeCrisis-x86_64.AppImage.home`, or `TimeCrisis-x86_64.home`) keeps that game's data inside it. The Windows zip
 is portable already (everything lives in its folder).
 
+Once extracted by the app after a first run, ROM zips are no longer needed and can be removed.
+
 ## How it was made
 
 Each game's original program was taken apart with
