@@ -823,8 +823,6 @@ void L_C8B0_at(uint32_t pc);   /* FUN_0000c8b0 */
 static inline void L_C8B0(void) { L_C8B0_at(0xC8B0U); }
 void L_C90E_at(uint32_t pc);   /* FUN_0000c90e */
 static inline void L_C90E(void) { L_C90E_at(0xC90EU); }
-void L_C910_at(uint32_t pc);   /* FUN_0000c910 */
-static inline void L_C910(void) { L_C910_at(0xC910U); }
 void L_C914_at(uint32_t pc);   /* FUN_0000c914 */
 static inline void L_C914(void) { L_C914_at(0xC914U); }
 void L_C932_at(uint32_t pc);   /* FUN_0000c932 */

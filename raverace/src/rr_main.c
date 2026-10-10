@@ -281,6 +281,12 @@ void rr_tick(void)
     { static int nv = -1; static uint32_t vf[16];          /* RR_TEST_VIEW=f1,f2,...: press VIEW CHANGE (active low 0x0040) for 30 frames at each */
       if (nv < 0) { nv = 0; const char *e = getenv("RR_TEST_VIEW"); while (e && *e && nv < 16) { char *q; const unsigned long v = strtoul(e, &q, 0); if (q == e) break; vf[nv++] = (uint32_t)v; e = q; if (*e == ',') e++; else break; } }
       for (int i = 0; i < nv; i++) { if (frame == vf[i]) g_hw.inputs &= (uint16_t)~0x0040; if (frame == vf[i] + 30) g_hw.inputs |= 0x0040; } }
+    { static int np = -1; static uint32_t pf[16], pt[16], pa[16], pv[16]; static int ps[16];   /* RR_POKE=from[-to]:addr:size:value,...: a test switch, written at every frame in [from, to] */
+      if (np < 0) { np = 0; const char *e = getenv("RR_POKE");
+          while (e && *e && np < 16) { char *q; pf[np] = (uint32_t)strtoul(e, &q, 0); pt[np] = *q == '-' ? (uint32_t)strtoul(q + 1, &q, 0) : 0xFFFFFFFFu;
+              unsigned a, v; int s, n = 0; if (sscanf(q, ":%x:%d:%x%n", &a, &s, &v, &n) != 3 || !n) break;
+              pa[np] = a; ps[np] = s; pv[np] = v; np++; e = q + n; if (*e == ',') e++; else break; } }
+      for (int i = 0; i < np; i++) if (frame >= pf[i] && frame <= pt[i]) rr_write(pa[i], ps[i], pv[i]); }
     for (int i = 0; i < n_steer; i++) if (frame >= (uint32_t)test_steer[i].at) g_hw.steer = (uint16_t)test_steer[i].value;
     for (int i = 0; i < n_adc; i++) if (frame >= (uint32_t)test_adc[i].at) g_hw.adc[test_adc[i].idx & 3] = (uint8_t)test_adc[i].value;
     if (windowed) {

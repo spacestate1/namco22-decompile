@@ -22,7 +22,7 @@
 #include "geo_hw.h"
 #include "slave_list.h"
 
-int g_objlog_on;                                   /* ENG_OBJLOG: geo_hw.c prints the quads while it is set */
+extern int g_objlog_on;                            /* ENG_OBJLOG: geo_hw.c prints the quads while it is set (defined in geo_hw.c) */
 static int32_t sext_n(uint32_t v, int bits)
 {
     uint32_t m = 1u << (bits - 1);

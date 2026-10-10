@@ -41,6 +41,7 @@
 #include <stdio.h>
 #include "eng.h"
 #include "geo_hw.h"
+int g_objlog_on;                                   /* ENG_OBJLOG: set by slave_list.c while it logs an object; here because every game links geo_hw.c (a weak extern fails to link on Windows) */
 
 /* ---- point data ----------------------------------------------------------
  * The board's point ROM (sign-extended 24-bit at load time, which matches the
@@ -480,8 +481,8 @@ static void quad_fixed(int32_t color, uint32_t addr, int32_t polyshift,
     if (g_geo_stats.zmin_seen == 0 || zmin < g_geo_stats.zmin_seen)
         g_geo_stats.zmin_seen = zmin;
     if (zmax > g_geo_stats.zmax_seen) g_geo_stats.zmax_seen = zmax;
-    { extern int g_objlog_on __attribute__((weak));       /* slave_list.c's; a game that links no slave list (Cyber Sled) has none */
-      if (&g_objlog_on && g_objlog_on) {
+    {                                                     /* ENG_OBJLOG: slave_list.c sets g_objlog_on (defined here: every game links geo_hw.c, Cyber Sled no slave list) */
+      if (g_objlog_on) {
           int x0 = 1 << 30, x1 = -(1 << 30), y0 = 1 << 30, y1 = -(1 << 30);
           for (int k = 0; k < q.nrv; k++) { const int x = q.rv[k].sx16 / 16, y = q.rv[k].sy16 / 16;
               if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }

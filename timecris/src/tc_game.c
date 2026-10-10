@@ -83,7 +83,8 @@ static const ss22_input_game input = {
     ss22_snd_inputs,
     IN_TEST, IN_SERVICE,
     false,                                  /* no steering motor (the gun recoil is the aux PCB: not emulated) */
-    true,                                   /* the light gun: the pointer aims (engine/ss22_input.c) */
+    .light_gun = true,                      /* the light gun: the pointer aims (engine/ss22_input.c). NAMED, not positional: 0.6.0 put kick_wheel
+                                             * before light_gun, a positional true became kick_wheel and the aim was dead (GitHub #38) */
 };
 
 static const ss22_press_name presses[] = {
