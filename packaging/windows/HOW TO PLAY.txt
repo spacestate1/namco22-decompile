@@ -1,5 +1,5 @@
-PROP CYCLE, RAVE RACER, TOKYO WARS, DIRT DASH, TIME CRISIS, ACE DRIVER, CYBER COMMANDO and CYBER SLED
-=======================================================================================================
+PROP CYCLE, RAVE RACER, TOKYO WARS, DIRT DASH, TIME CRISIS, ACE DRIVER, CYBER COMMANDO, CYBER SLED and TIME CRISIS 2
+======================================================================================================================
 
 1. Put the MAME ROM sets into the "roms" folder (don't unzip them):
      Prop Cycle   propcycl.zip
@@ -10,8 +10,9 @@ PROP CYCLE, RAVE RACER, TOKYO WARS, DIRT DASH, TIME CRISIS, ACE DRIVER, CYBER CO
      Ace Driver   acedrive.zip  and  namcoc74.zip
      Cyber Commando  cybrcomm.zip  and  namcoc74.zip
      Cyber Sled   cybsled.zip  and  namcoc67.zip  and  namcoc68.zip
+     Time Crisis 2  timecrs2.zip
 
-2. Double-click PropCycle.exe, RaveRacer.exe, TokyoWars.exe, DirtDash.exe, TimeCrisis.exe, AceDriver.exe, CyberCommando.exe or CyberSled.exe.
+2. Double-click PropCycle.exe, RaveRacer.exe, TokyoWars.exe, DirtDash.exe, TimeCrisis.exe, AceDriver.exe, CyberCommando.exe, CyberSled.exe or TimeCrisis2.exe.
 
 That's it. The first start takes a few seconds while it unpacks the ROMs.
 Nothing needs installing. Keep the "mesa" folder beside PropCycle.exe: it is
@@ -52,6 +53,16 @@ KEYS -- TIME CRISIS
   Esc menu     F8   a white border round the picture (some light guns need it)     F11 fullscreen
   A light gun that acts as an absolute mouse (Sinden, Gun4IR, OpenFIRE, Reaper, AimTrak) works as is: shoot just OUTSIDE the
   screen (or hold R / the gun's side button) to reload. Arrow keys / a pad's right stick aim too.
+
+KEYS -- TIME CRISIS 2
+---------------------
+  The MOUSE is the gun: move it to aim.        Left button   shoot
+  Right button / Z / X   the foot pedal: come out of cover (let go to take cover and reload)
+  5   insert a coin                            9 service       F2 the operator's test switch
+  Esc menu     F8   a white border round the picture (some light guns need it)     F11 fullscreen     F12 screenshot
+  Reload: shoot off the screen, hold R / the gun's side button, or let go of the pedal. A pad: a stick aims, A / RB shoots,
+  B / LB is the pedal. Recoil guns: the solenoid goes out as MAME's network output (MAMEHooker, Hook Of The Reaper).
+  Its settings are in tc2.cfg and its rankings in tc2_backup.nv beside the .exe; the log is tc2.log.
 
 KEYS -- DIRT DASH
 -----------------

@@ -8,4 +8,5 @@ Put the MAME ROM sets in this folder, still zipped:
   Ace Driver   acedrive.zip  and  namcoc74.zip
   Cyber Commando  cybrcomm.zip  and  namcoc74.zip
   Cyber Sled   cybsled.zip  and  namcoc67.zip  and  namcoc68.zip
+  Time Crisis 2  timecrs2.zip
 

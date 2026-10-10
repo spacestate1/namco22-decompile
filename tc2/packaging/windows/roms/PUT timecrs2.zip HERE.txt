@@ -1,0 +1,2 @@
+Put MAME's timecrs2.zip (Time Crisis II, US TSS3 Ver. B) in this folder, still zipped.
+Then double-click TimeCrisis2.exe.

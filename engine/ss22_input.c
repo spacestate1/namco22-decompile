@@ -439,7 +439,11 @@ static void axis_label(int kind, char *v, size_t vn)
 static int nsw(void) { return (game->test_bit ? 1 : 0) + (game->service_bit ? 1 : 0); }
 static int nffb(void) { return game->wheel_motor ? (game->torque.addr ? 4 : 2) : game->kick_wheel ? 1 : 0; }   /* motor: Force feedback, FFB direction[, FFB centering, FFB road effects]; kick only: Force feedback */
 static int gun_flash_on = 1;                                     /* light-gun games: draw the shot flash (gun_flash in the cfg; ss22_gl.c hides it when 0) */
-static int ngun(void) { return game->light_gun ? 2 : 0; }        /* Gun shot flash, Gun border */
+static int ngun(void) { return game->light_gun || game->trackball ? 2 : 0; }   /* Gun shot flash, Gun border -- or Trackball sensitivity, Trackball orientation */
+static int tb_sens = 100;                                       /* trackball: % of the default counts per mouse pixel / stick deflection (tb_sens in the cfg) */
+static bool tb_direct;                                          /* trackball: MAME's "Direct" orientation instead of the cabinet's 45-degree "Natural" */
+void ss22_snd_trackball_direct(bool on);
+void ss22_snd_trackball(int dx, int dy);                         /* engine/ss22_snd.c */
 static int pg_n(void) { return nsw() + nffb() + ngun() + 2 + game->n; }    /* the switches, the FFB rows, the gun rows, Reset, Stick steering, the actions */
 static bool pg_val(int r) { return (r >= nsw() && r < nsw() + nffb() + ngun()) || r == nsw() + nffb() + ngun() + 1; }
 
@@ -459,6 +463,8 @@ static void pg_text(int r, char *l, size_t ln, char *v, size_t vn)
     if (r == 2 && nffb() > 2) { snprintf(l, ln, "FFB centering"); snprintf(v, vn, "%d%%", ffb_centre); return; }
     if (r == 3 && nffb() > 2) { snprintf(l, ln, "FFB road effects"); snprintf(v, vn, "%d%%", ffb_road); return; }
     r -= nffb();
+    if (r == 0 && ngun() && game->trackball) { snprintf(l, ln, "Trackball / mouse sensitivity"); snprintf(v, vn, "%d%%", tb_sens); return; }
+    if (r == 1 && ngun() && game->trackball) { snprintf(l, ln, "Trackball orientation"); snprintf(v, vn, "%s", tb_direct ? "direct" : "natural (the cabinet's)"); return; }
     if (r == 0 && ngun()) { snprintf(l, ln, "Gun shot flash"); snprintf(v, vn, "%s", gun_flash_on ? "ON (as the arcade)" : "OFF (no white flash)"); return; }
     if (r == 1 && ngun()) { snprintf(l, ln, "Gun border"); if (g_eng_disp.gun_border) snprintf(v, vn, "%d%%", g_eng_disp.gun_border); else snprintf(v, vn, "OFF"); return; }
     r -= ngun();
@@ -514,6 +520,14 @@ static void pg_change(int r, int dir)
         return;
     }
     r -= nffb();
+    if (r == 0 && ngun() && game->trackball) {                    /* 25..400 %: Left/Right 25% steps, Enter cycles */
+        tb_sens = dir ? tb_sens + 25 * dir : (tb_sens >= 400 ? 25 : tb_sens + 25);
+        if (tb_sens < 25) tb_sens = 25;
+        if (tb_sens > 400) tb_sens = 400;
+        eng_cfg_set_int("tb_sens", tb_sens);
+        return;
+    }
+    if (r == 1 && ngun() && game->trackball) { tb_direct = !tb_direct; ss22_snd_trackball_direct(tb_direct); eng_cfg_set_int("tb_direct", tb_direct); return; }
     if (r == 0 && ngun()) { gun_flash_on = !gun_flash_on; ss22_gl_set_gun_flash(gun_flash_on); eng_cfg_set_int("gun_flash", gun_flash_on); return; }
     if (r == 1 && ngun()) {                                        /* Gun border: off, 1..6 % (F8 too) */
         if (dir < 0) { for (int k = 0; k < 6; k++) eng_disp_cycle_gun_border(); } else eng_disp_cycle_gun_border();
@@ -538,6 +552,7 @@ static void pg_notes(void (*line)(const char *fmt, ...))
     line("Pedal direction is learned automatically and saved.");
     if (game->wheel_motor) line("Force feedback: the cabinet's wheel motor, on the bound steering wheel.");
     if (game->kick_wheel) line("Force feedback: the cannon's kick in the handle, on the bound wheel (and pad rumble).");
+    if (game->trackball) line("Trackball: the mouse (a USB trackball is a mouse) is captured while playing; the left stick and the arrow keys roll it too.");
     for (int i = 1; i < 3; i++) if (game->notes[i]) line("%s", game->notes[i]);
 }
 
@@ -550,6 +565,13 @@ static unsigned wheel = 0x200, pedal[2];
 void ss22_input_init(const ss22_input_game *g)
 {
     game = g;
+    if (g->trackball) {
+        tb_sens = eng_cfg_int("tb_sens", 100);
+        if (tb_sens < 25) tb_sens = 25;
+        if (tb_sens > 400) tb_sens = 400;
+        tb_direct = eng_cfg_int("tb_direct", 0) != 0;
+        ss22_snd_trackball_direct(tb_direct);
+    }
     bindings_load();
     raw_bindings_load();
     SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
@@ -580,8 +602,10 @@ void ss22_input_init(const ss22_input_game *g)
     raw_scan();
 }
 
+static int tb_mx, tb_my;                                         /* trackball: mouse motion since the last frame (relative mode) */
 void ss22_input_event(const SDL_Event *e)
 {
+    if (e->type == SDL_MOUSEMOTION && game && game->trackball && SDL_GetRelativeMouseMode()) { tb_mx += e->motion.xrel; tb_my += e->motion.yrel; }
     if (e->type == SDL_JOYDEVICEADDED || e->type == SDL_CONTROLLERDEVICEADDED) {
         pad_scan(); raw_scan();
     } else if (e->type == SDL_JOYDEVICEREMOVED || e->type == SDL_CONTROLLERDEVICEREMOVED) {
@@ -782,6 +806,41 @@ static void aim_update(const uint8_t *k)
       if (dbg && ++n % 60 == 0) fprintf(stderr, "[AIM] src %d on %d  norm %.3f,%.3f  port %u,%u  buttons 0x%X\n", aim_src, aim_on, aim_x, aim_y, g_ss22_gun_x, g_ss22_gun_y, SDL_GetMouseState(NULL, NULL)); } 
 }
 
+/* ---- the trackball: the mouse (captured), the left stick and the arrow keys roll it ------------------------------------------------
+ * Units are MAME's OPT.0 / OPT.1 port counts. The board reads the movement every 20 ms and saturates at 0x7F counts per look (engine/ss22_snd.c), so
+ * a full stick or a held key is ~0x7F per 20 ms: 127 * 60 / 50 ~ 152 counts a frame. A mouse pixel is 2 counts at 100 % (a brisk roll of a desk
+ * trackball, ~3000 px/s, is about full speed). The ball's Y port is REVERSED (MAME PORT_REVERSE): rolling it away from you -- the mouse moving up,
+ * the stick pushed up, the Up key -- counts up. */
+#define TB_FULL 152.0
+static void tb_update(const uint8_t *k)
+{
+    const bool focus = SDL_GetKeyboardFocus() != NULL;
+    if (focus && !SDL_GetRelativeMouseMode()) { SDL_SetRelativeMouseMode(SDL_TRUE); tb_mx = tb_my = 0; }
+    double dx = 0, dy = 0;
+    if (SDL_GetRelativeMouseMode()) { dx += tb_mx * 2.0; dy += tb_my * 2.0; }
+    tb_mx = tb_my = 0;
+    for (int i = 0; i < MAX_DEV; i++) {
+        SDL_GameController *c = pads[i].gc; if (!c) continue;
+        const int x = SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_LEFTX), y = SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_LEFTY);
+        if (abs(x) > PAD_DEADZONE) dx += TB_FULL * (x - (x < 0 ? -PAD_DEADZONE : PAD_DEADZONE)) / (32767.0 - PAD_DEADZONE);
+        if (abs(y) > PAD_DEADZONE) dy += TB_FULL * (y - (y < 0 ? -PAD_DEADZONE : PAD_DEADZONE)) / (32767.0 - PAD_DEADZONE);
+        if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_DPAD_LEFT))  dx -= TB_FULL;
+        if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_DPAD_RIGHT)) dx += TB_FULL;
+        if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_DPAD_UP))    dy -= TB_FULL;
+        if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_DPAD_DOWN))  dy += TB_FULL;
+    }
+    if (k[SDL_SCANCODE_LEFT]) dx -= TB_FULL; if (k[SDL_SCANCODE_RIGHT]) dx += TB_FULL;
+    if (k[SDL_SCANCODE_UP])   dy -= TB_FULL; if (k[SDL_SCANCODE_DOWN])  dy += TB_FULL;
+    dx *= tb_sens / 100.0; dy *= tb_sens / 100.0;
+    static double fx, fy;                                       /* fractions carried to the next frame */
+    fx += dx; fy += dy;
+    const int ix = (int)fx, iy = (int)fy;
+    fx -= ix; fy -= iy;
+    if (ix || iy) ss22_snd_trackball(ix, -iy);
+    { static int dbg = -1, n; if (dbg < 0) dbg = getenv("SS22_TBDBG") != NULL;       /* SS22_TBDBG=1: the trackball once a second */
+      if (dbg && ++n % 60 == 0) fprintf(stderr, "[TB] frame dx %d dy %d (relative mouse %d)\n", ix, -iy, SDL_GetRelativeMouseMode()); }
+}
+
 static uint16_t swallow;                 /* buttons held since the menu closed: masked until released */
 static bool swallow_arm;
 
@@ -790,8 +849,9 @@ void ss22_input_update(void)
     const uint8_t *k = SDL_GetKeyboardState(NULL);
     uint16_t p = 0;
     int left = 0, right = 0, pk[2] = { 0, 0 };
-    const uint32_t mb = game->light_gun ? SDL_GetMouseState(NULL, NULL) : 0;
+    const uint32_t mb = game->light_gun || (game->trackball && SDL_GetRelativeMouseMode()) ? SDL_GetMouseState(NULL, NULL) : 0;   /* a trackball's buttons: only while the mouse is the game's */
     if (game->light_gun) aim_update(k);
+    if (game->trackball) tb_update(k);
 
     for (int a = 0; a < game->n; a++) {
         const ss22_action *ac = &game->actions[a];
@@ -904,6 +964,7 @@ void ss22_input_update(void)
 
 void ss22_input_neutral(void)
 {
+    if (game && game->trackball && SDL_GetRelativeMouseMode()) SDL_SetRelativeMouseMode(SDL_FALSE);   /* the menu / the pause: the pointer is the player's again */
     swallow_arm = true;                                      /* the buttons held when the menu closes are ignored until released */
     const unsigned centre = (unsigned)((game->wheel_min + game->wheel_max) / 2);
     wheel = centre; pedal[0] = pedal[1] = 0;

@@ -431,12 +431,13 @@ static bool pressed(const SDL_Event *e, int act)
 
 #define WHEEL_DEADZONE 32             /* of 32767 (0.1% of the lock, 0.3 degrees of the cabinet's 270): a wheel's own sensor noise, nothing more */
 /* analog sources, strongest wins; returns false when every source is neutral */
-static bool pad_steer(int *out)                   /* -32767..32767 */
+static bool pad_steer_ex(int *out, bool raw_only)   /* -32767..32767; raw_only: leave the gamepads' sticks out (twin stick: they ARE the sticks) */
 {
     int best = 0;
     for (int d = 0; d < MAX_DEV; d++) {
         int v = 0;
         if (dev[d].gc) {
+            if (raw_only) continue;
             v = SDL_GameControllerGetAxis(dev[d].gc, SDL_CONTROLLER_AXIS_LEFTX);
             if (v > -g_pad_deadzone && v < g_pad_deadzone) v = 0;
             else v = (v > 0 ? v - g_pad_deadzone : v + g_pad_deadzone) * 32767 / (32767 - g_pad_deadzone);
@@ -499,6 +500,7 @@ static void wheel_motor(bool hold)
     if (ffb_wheel)
         eng_ffb_force(hold ? 0 : motor_hold_off(eng_ffb_decode(rr_hw_motor_byte())), g_cfg_ffb_strength, g_joy_steer.invert != (g_cfg_ffb_invert != 0));
 }
+static bool pad_steer(int *out) { return pad_steer_ex(out, false); }
 static bool pad_pedal(bool gas, int *out)         /* 0..gas_max / brake_max (the game table) */
 {
     int best = 0;
@@ -525,6 +527,19 @@ static bool pad_pedal(bool gas, int *out)         /* 0..gas_max / brake_max (the
  * INPUT_PORTS_START(cybrcomm)). A gamepad's left / right stick ARE the left / right stick. Keys play the "tank": forward (the gas
  * action) pushes both sticks forward, back (brake) both back, turn left / right (steer) pushes them opposite ways -- left stick
  * back and right forward turns left. Keys ramp at MAME's PORT_KEYDELTA(10) a frame and spring back to the centre. */
+/* a RAW pedal bound to the gas / brake action (Controls page), 0..1: the twin-stick games have no gas_max to scale to */
+static double raw_pedal(bool gas)
+{
+    double best = 0;
+    rr_joyaxis_t *ax = gas ? &g_joy_gas : &g_joy_brake;
+    for (int d = 0; d < MAX_DEV; d++) {
+        if (dev[d].gc || !dev[d].js || ax->axis < 0 || ax->axis >= SDL_JoystickNumAxes(dev[d].js) || !rr_input_axis_device(ax, dev[d].js)) continue;
+        double f = rr_input_pedal_value(ax, SDL_JoystickGetAxis(dev[d].js, ax->axis));
+        f = f > 0.03 ? (f - 0.03) / 0.97 : 0;
+        if (f > best) best = f;
+    }
+    return best;
+}
 static int pad_stick(SDL_GameControllerAxis a)        /* -32767..32767, deadzone removed, the strongest gamepad */
 {
     int best = 0;
@@ -560,16 +575,28 @@ static void twin_stick_inputs(void)
             if (d) key[i] = d;
         }
     }
+    /* A WHEEL AND PEDALS (raw joysticks bound in the Controls page to Turn / Forward / Back): the wheel turns -- the two sticks
+     * opposite, as the Turn keys -- the gas pedal pushes both forward, the brake pedal both back. All analog. */
+    int wheel = 0;
+    pad_steer_ex(&wheel, true);
+    const double thr = raw_pedal(true) - raw_pedal(false);              /* -1 (back) .. +1 (forward) */
+    const bool analog_drive = wheel != 0 || thr != 0;
+    double wl = -thr - wheel / 32767.0, wr = -thr + wheel / 32767.0;    /* the sticks, -1 = forward (low) .. +1 = back (high) */
+    wl = wl < -1 ? -1 : wl > 1 ? 1 : wl; wr = wr < -1 ? -1 : wr > 1 ? 1 : wr;
     for (int i = 0; i < 4; i++) {
         const int p = pad_stick(pad_ax[i]);
         int v = g_hw.adc[i];
-        if (!key[i] && p) v = MID + p * (HI - MID) / 32767;             /* an analog stick out of its deadzone sets the ADC */
+        if (!key[i] && !p && analog_drive && i < 2) v = MID + (int)((i == 0 ? wr : wl) * (HI - MID));   /* i: 0 right Y, 1 left Y */
+        else if (!key[i] && p) v = MID + p * (HI - MID) / 32767;        /* an analog stick out of its deadzone sets the ADC */
         else {
             const int target = key[i] < 0 ? LO : key[i] > 0 ? HI : MID;
             v += v < target ? (target - v < STEP ? target - v : STEP) : v > target ? -(v - target < STEP ? v - target : STEP) : 0;
         }
         g_hw.adc[i] = (uint8_t)(v < LO ? LO : v > HI ? HI : v);
     }
+    { static int log = -1; static uint8_t prev[4];      /* RR_INLOG=1: every change of the four sticks (Cyber Sled's CS_INLOG) */
+      if (log < 0) log = getenv("RR_INLOG") != NULL;
+      if (log && memcmp(prev, g_hw.adc, 4)) { fprintf(stderr, "[INPUT] adc %02X %02X %02X %02X\n", g_hw.adc[0], g_hw.adc[1], g_hw.adc[2], g_hw.adc[3]); memcpy(prev, g_hw.adc, 4); } }
 }
 
 static void toggle_record(void)

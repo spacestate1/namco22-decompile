@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(propcycl C)
+project(namco_2x_systems C)   # the top level builds Prop Cycle (target propcycl); each game directory has its own project
 
 set(CMAKE_C_STANDARD 11)
 

@@ -319,7 +319,12 @@ static void decode_sprite(const sprite_state *st, const fog_state *fog,
 static int item_cmp(const void *a, const void *b)
 {
     uint32_t za = ((const sprite_item *)a)->z, zb = ((const sprite_item *)b)->z;
-    return (za > zb) ? -1 : (za < zb) ? 1 : 0;   /* far (large z) first */
+    if (za != zb) return (za > zb) ? -1 : 1;      /* far (large z) first */
+    /* A TIE draws in REVERSE list order: MAME's new_scenenode PREPENDS a leaf to an occupied radix bucket and the render walks from the
+     * head, so the FIRST entry submitted at a z ends on top (Prop Cycle register row 175 measured it for polygons). Armadillo Racing's coin
+     * screen: the "2" of INSERT 2 MORE COIN(S) is VICS entry 0, the card behind it entry 1, both z 0 -- in list order the card covered it. */
+    const int ia = ((const sprite_item *)a)->idx, ib = ((const sprite_item *)b)->idx;
+    return (ia > ib) ? -1 : (ia < ib) ? 1 : 0;
 }
 
 int sprite_collect(const sprite_state *st, const fog_state *fog,

@@ -9,6 +9,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <math.h>
+#include "eng_cfg.h"
 #include "s21_host.h"
 #include "s21_board.h"
 #include "s21_io.h"
@@ -58,10 +60,111 @@ static void fakepad_frame(void)
     SDL_JoystickSetVirtualButton(fake_js, SDL_CONTROLLER_BUTTON_A, (Uint8)(f >= 420 && f < 700 && (f - 420) % 72 < 6));
 #endif
 }
-void s21_input_init(void) { SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER); fakepad_init(); }
+
+/* ---- A WHEEL AND PEDALS (raw joysticks, the ones SDL has no gamepad mapping for) --------------------------------------------
+ * The wheel TURNS the sled (the two levers opposite, as the arrows' Left/Right; outside a battle it moves both levers sideways to
+ * pick in the menus), the gas pedal pushes both levers forward, the brake pedal both back. Bound on the Controls page (Enter on a
+ * row, then move the wheel / press the pedal) and saved as joy_turn / joy_gas / joy_brake in cs21_controls.cfg. An unbound wheel
+ * is axis 0 of any raw joystick that has been turned (more than 1/8 of the range from where it first read, so a pedal set resting
+ * off centre does not steer); pedals have no default. Cyber Commando does the same through rr_host.c. */
+#define MAXJOY 8
+static SDL_Joystick *joys[MAXJOY];
+typedef struct { int axis; int invert; int dir; int rest; char guid[40]; } rawbind;   /* axis -1 = unbound; dir/rest: a pedal's travel */
+static rawbind b_turn = { 0, 0, 0, 0, "" }, b_gas = { -1, 0, 0, 0, "" }, b_brake = { -1, 0, 0, 0, "" };
+static int bind_loaded, learn = -1, learn_base[MAXJOY][32], turn_seen[MAXJOY], turn_rest[MAXJOY], turn_live[MAXJOY];
+
+static void guid_of(SDL_Joystick *j, char *out) { SDL_JoystickGetGUIDString(SDL_JoystickGetGUID(j), out, 40); }
+static void bind_save(const char *key, const rawbind *b)
+{
+    char v[96]; snprintf(v, sizeof v, "%d,%d,%d,%d,%s", b->axis, b->invert, b->dir, b->rest, b->guid);
+    eng_cfg_set(key, v);
+}
+static void bind_load(const char *key, rawbind *b)
+{
+    const char *v = eng_cfg_get(key); if (!v) return;
+    rawbind t = *b; char g[48] = "";
+    if (sscanf(v, "%d,%d,%d,%d,%47s", &t.axis, &t.invert, &t.dir, &t.rest, g) >= 4) { snprintf(t.guid, sizeof t.guid, "%s", g); *b = t; }
+}
+static void joy_open(int idx)
+{
+    if (SDL_IsGameController(idx)) return;
+    SDL_JoystickID id = SDL_JoystickGetDeviceInstanceID(idx);
+    int free_slot = -1;
+    for (int i = 0; i < MAXJOY; i++) { if (joys[i] && SDL_JoystickInstanceID(joys[i]) == id) return; if (!joys[i] && free_slot < 0) free_slot = i; }
+    if (free_slot < 0) return;
+    if ((joys[free_slot] = SDL_JoystickOpen(idx))) {
+        turn_seen[free_slot] = turn_live[free_slot] = 0;
+        fprintf(stderr, "[INPUT] joystick %d: %s (%d axes, %d buttons) -- wheel / pedals: Controls page, Enter on a row to bind\n", free_slot,
+                SDL_JoystickName(joys[free_slot]), SDL_JoystickNumAxes(joys[free_slot]), SDL_JoystickNumButtons(joys[free_slot]));
+    }
+}
+static int joy_axes(int i) { int n = SDL_JoystickNumAxes(joys[i]); return n > 32 ? 32 : n; }
+static int bound_to(const rawbind *b, int i) { char g[40]; if (!b->guid[0]) return 1; guid_of(joys[i], g); return !strcmp(g, b->guid); }
+
+/* the wheel, -1 (left) .. +1 (right); *on = it is turned past its deadzone */
+static double raw_turn(int *on)
+{
+    double best = 0;
+    for (int i = 0; i < MAXJOY; i++) {
+        if (!joys[i] || b_turn.axis < 0 || b_turn.axis >= joy_axes(i) || !bound_to(&b_turn, i)) continue;
+        int v = SDL_JoystickGetAxis(joys[i], b_turn.axis);
+        if (!turn_seen[i]) { turn_seen[i] = 1; turn_rest[i] = v; }
+        if (!turn_live[i] && (b_turn.guid[0] || abs(v - turn_rest[i]) > 4096)) turn_live[i] = 1;
+        if (!turn_live[i]) continue;
+        if (b_turn.invert) v = -v;
+        double f = v / 32767.0;
+        f = f > -0.003 && f < 0.003 ? 0 : (f > 0 ? f - 0.003 : f + 0.003) / 0.997;      /* a wheel's own sensor noise and nothing more */
+        if (f > 1) f = 1; if (f < -1) f = -1;
+        if (fabs(f) > fabs(best)) best = f;
+    }
+    *on = best != 0;
+    return best;
+}
+static double raw_pedal(const rawbind *b)                /* 0 .. 1 */
+{
+    double best = 0;
+    for (int i = 0; i < MAXJOY; i++) {
+        if (!joys[i] || b->axis < 0 || b->axis >= joy_axes(i) || !bound_to(b, i)) continue;
+        int r = SDL_JoystickGetAxis(joys[i], b->axis), range = b->dir > 0 ? 32767 - b->rest : b->rest + 32768, d = b->dir > 0 ? r - b->rest : b->rest - r;
+        double f = range > 0 ? (double)d / range : 0;
+        f = f > 0.03 ? (f - 0.03) / 0.97 : 0;
+        if (f > 1) f = 1;
+        if (f > best) best = f;
+    }
+    return best;
+}
+static void learn_begin(int which)
+{
+    learn = which;
+    for (int i = 0; i < MAXJOY; i++) if (joys[i]) for (int a = 0; a < joy_axes(i); a++) learn_base[i][a] = SDL_JoystickGetAxis(joys[i], a);
+    fprintf(stderr, "[INPUT] binding %s: move it now\n", which == 0 ? "the wheel (turn it RIGHT)" : which == 1 ? "the gas pedal (press it)" : "the brake pedal (press it)");
+}
+static void learn_step(void)
+{
+    for (int i = 0; i < MAXJOY && learn >= 0; i++) {
+        if (!joys[i]) continue;
+        for (int a = 0; a < joy_axes(i); a++) {
+            int d = SDL_JoystickGetAxis(joys[i], a) - learn_base[i][a];
+            if (abs(d) < 16000) continue;
+            rawbind *b = learn == 0 ? &b_turn : learn == 1 ? &b_gas : &b_brake;
+            b->axis = a; guid_of(joys[i], b->guid);
+            if (learn == 0) { b->invert = d < 0; b->dir = b->rest = 0; turn_seen[i] = 0; turn_live[i] = 1; }
+            else { b->invert = 0; b->dir = d > 0 ? 1 : -1; b->rest = learn_base[i][a]; }
+            bind_save(learn == 0 ? "joy_turn" : learn == 1 ? "joy_gas" : "joy_brake", b);
+            fprintf(stderr, "[INPUT] bound to %s axis %d%s\n", SDL_JoystickName(joys[i]), a, learn == 0 && b->invert ? " (inverted)" : "");
+            learn = -1;
+            break;
+        }
+    }
+}
+void s21_input_init(void) { SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK); fakepad_init(); }
 
 void s21_input_event(const SDL_Event *e)
 {
+    if (e->type == SDL_JOYDEVICEADDED) joy_open(e->jdevice.which);
+    else if (e->type == SDL_JOYDEVICEREMOVED) {
+        for (int i = 0; i < MAXJOY; i++) if (joys[i] && SDL_JoystickInstanceID(joys[i]) == e->jdevice.which) { SDL_JoystickClose(joys[i]); joys[i] = NULL; }
+    }
     if (e->type == SDL_CONTROLLERDEVICEADDED) {
         for (int i = 0; i < 4; i++) if (!pads[i]) { pads[i] = SDL_GameControllerOpen(e->cdevice.which); if (pads[i]) fprintf(stderr, "[INPUT] pad: %s\n", SDL_GameControllerName(pads[i])); break; }
     } else if (e->type == SDL_CONTROLLERDEVICEREMOVED) {
@@ -134,6 +237,22 @@ void s21_input_update(void)
     in.an[3] = (uint8_t)stick(axis[3], SDL_CONTROLLER_AXIS_LEFTX, 0);
     in.an[0] = (uint8_t)stick(axis[0], SDL_CONTROLLER_AXIS_RIGHTY, 0);
     in.an[2] = (uint8_t)stick(axis[2], SDL_CONTROLLER_AXIS_RIGHTX, 0);
+    /* the wheel and pedals (analog; they win over the keys / pad only while they are off their rest) */
+    if (!bind_loaded) { bind_loaded = 1; bind_load("joy_turn", &b_turn); bind_load("joy_gas", &b_gas); bind_load("joy_brake", &b_brake); }
+    SDL_JoystickUpdate();
+    learn_step();
+    {
+        int on; const double w = raw_turn(&on), t = raw_pedal(&b_gas) - raw_pedal(&b_brake);   /* w: right +; t: forward + */
+        if (on || t != 0) {
+            const int battle = ((g_s21.mram[0x907 >> 1] & 0xFF) != 0);
+            const int shift_k = k[SDL_SCANCODE_LSHIFT] || k[SDL_SCANCODE_RSHIFT];
+            const double turn = (shift_k || !battle) ? 0 : w, side = (shift_k || !battle) ? w : 0;
+            double l = t + turn, r = t - turn;                     /* +1 forward .. -1 back, per lever */
+            l = l > 1 ? 1 : l < -1 ? -1 : l; r = r > 1 ? 1 : r < -1 ? -1 : r;
+            in.an[1] = (uint8_t)(0x7F - (int)(0x40 * l)); in.an[0] = (uint8_t)(0x7F - (int)(0x40 * r));
+            if (side != 0) { in.an[3] = (uint8_t)(0x7F + (int)(0x40 * side)); in.an[2] = in.an[3]; }
+        }
+    }
     const int gun = k[SDL_SCANCODE_LCTRL] || k[SDL_SCANCODE_Z] || pad_btn(SDL_CONTROLLER_BUTTON_A) || pad_axis(SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > 16000;
     const int missile = k[SDL_SCANCODE_LALT] || k[SDL_SCANCODE_X] || pad_btn(SDL_CONTROLLER_BUTTON_B) || pad_axis(SDL_CONTROLLER_AXIS_TRIGGERLEFT) > 16000;
     const int view = k[SDL_SCANCODE_SPACE] || k[SDL_SCANCODE_C] || pad_btn(SDL_CONTROLLER_BUTTON_Y);
@@ -168,14 +287,30 @@ static const char *rows[][2] = {
     { "Drive (both levers)", "arrows, Shift+Left/Right strafe, pad D-pad" }, { "Left lever", "E/D/S/F, pad left stick" }, { "Right lever", "I/K/J/L, pad right stick" },
     { "Gun", "Ctrl / Z, pad A or RT" }, { "Missile", "Alt / X, pad B or LT" }, { "Viewport", "Space / C, pad Y" },
     { "Coin / Start", "5 / 1 or Enter, pad Back / Start" }, { "Test switch", "" }, { "Service button", "9, pad LB" },
+    { "Wheel (turn)", "" }, { "Gas pedal", "" }, { "Brake pedal", "" },
 };
 static int nrows(void) { return (int)(sizeof rows / sizeof rows[0]); }
-static bool has_value(int r) { return r == 7; }
+static bool has_value(int r) { return r == 7 || r >= 9; }
 static void text(int r, char *l, size_t ln, char *v, size_t vn)
 {
     snprintf(l, ln, "%s", rows[r][0]);
-    if (r == 7) snprintf(v, vn, "%s (F2)", test_on ? "ON" : "OFF"); else snprintf(v, vn, "%s", rows[r][1]);
+    if (r == 7) snprintf(v, vn, "%s (F2)", test_on ? "ON" : "OFF");
+    else if (r >= 9) {
+        const rawbind *b = r == 9 ? &b_turn : r == 10 ? &b_gas : &b_brake;
+        if (learn == r - 9) snprintf(v, vn, "%s", r == 9 ? "turn the wheel RIGHT ..." : "press the pedal ...");
+        else if (b->axis < 0) snprintf(v, vn, "not bound (Enter to bind)");
+        else snprintf(v, vn, "axis %d%s (Enter to rebind, Left clears)", b->axis, b->invert ? " inverted" : "");
+    } else snprintf(v, vn, "%s", rows[r][1]);
 }
-static void change(int r, int dir) { (void)dir; if (r == 7) { test_on = !test_on; fprintf(stderr, "[INPUT] test switch %s\n", test_on ? "ON" : "OFF"); } }
+static void change(int r, int dir)
+{
+    if (r >= 9) {
+        rawbind *b = r == 9 ? &b_turn : r == 10 ? &b_gas : &b_brake;
+        if (dir < 0) { b->axis = r == 9 ? 0 : -1; b->guid[0] = 0; b->invert = b->dir = b->rest = 0; bind_save(r == 9 ? "joy_turn" : r == 10 ? "joy_gas" : "joy_brake", b); learn = -1; }
+        else learn_begin(r - 9);
+        return;
+    }
+    if (r == 7) { test_on = !test_on; fprintf(stderr, "[INPUT] test switch %s\n", test_on ? "ON" : "OFF"); }
+}
 static const eng_ui_page page = { "Controls", 460, 130, 0, nrows, has_value, NULL, text, change, NULL };
 const eng_ui_page *s21_input_page(void) { return &page; }

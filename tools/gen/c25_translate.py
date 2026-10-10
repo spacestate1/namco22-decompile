@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""c25_translate.py --game pc|rr|tw|dd|tc|cs --roms DIR --cov FILE [--cov FILE...] --out FILE --func NAME
+"""c25_translate.py --game pc|rr|tw|dd|tc|cs|am --roms DIR --cov FILE [--cov FILE...] --out FILE --func NAME
                    [--block ADDR ...]
 
 Translate a System 22 / Super System 22 MASTER DSP program -- the C71 BIOS
@@ -38,7 +38,7 @@ chips run different programs at the same addresses, so cybsled generates one fun
 import argparse, os, re, sys
 
 ap = argparse.ArgumentParser()
-ap.add_argument('--game', required=True, choices=['pc', 'rr', 'tw', 'dd', 'tc', 'cs'])
+ap.add_argument('--game', required=True, choices=['pc', 'rr', 'tw', 'dd', 'tc', 'cs', 'am'])
 ap.add_argument('--roms', required=True)
 ap.add_argument('--cov', action='append', default=[])
 ap.add_argument('--out')
@@ -82,6 +82,13 @@ elif a.game == 'tc':
     # 0xBB616 follows the handshake (the slave's, as in Rave Racer / Ace Driver). --main-rom timecris_main.bin
     rom = open(a.main_rom, 'rb').read() if a.main_rom else open(os.path.join(os.path.dirname(os.path.abspath(a.roms)), 'timecris_main.bin'), 'rb').read()
     main_block = 0xABA8C
+elif a.game == 'am':
+    # Armadillo Racing (Super System 22): am2vera.rom1..4, ROM_LOAD32_BYTE (rom4 = byte 0 ... rom1 = byte 3). The master program's count word is at
+    # 0x204634 (0x187B: 6,268 words) -- WORD FOR WORD Dirt Dash's block at 0x57F00 (adillor/PLAN.md T4), so Dirt Dash's coverage applies with its tag renamed.
+    chips = [open(os.path.join(a.roms, f'am2vera.rom{k}'), 'rb').read() for k in (4, 3, 2, 1)]
+    rom = bytearray(4 * len(chips[0]))
+    for k in range(4): rom[k::4] = chips[k]
+    main_block = 0x204634
 elif a.game in ('pc', 'tw'):
     # Super System 22: <game>ver-a.1..4 byte-interleaved 4,3,2,1 (src/rom_loader.c; ROM_LOAD32_BYTE).
     #   Prop Cycle: pr2ver-a.*, the game program's count word at 0x43748 (src/master_dsp.c)

@@ -354,12 +354,84 @@ static void raise_due_pins(void)
 
 static uint64_t next_pin_time(void) { return (uint64_t)pin_time_n(pin_n); }
 
+/* ---- THE TRACKBALL (snd.trackball; Armadillo Racing), MAME's adillor_state rule step for step ------------------------------------------
+ * The two optical counters are free-running 16-bit ports (OPT.0 = X, OPT.1 = Y; the host adds the player's movement to them). Every 20 ms of
+ * board time the change since the last look is taken (wrapped to +-0x8000), added to a residual, clamped to +-0x7F as this period's speed and
+ * the rest carried over; the two speeds are rotated 45 degrees (the default "Natural" orientation: the cabinet's ball is mounted turned) and each
+ * axis becomes a pulse train at 20 + 1250 * |speed / 127| Hz into a timer input -- Y into Timer A2, X into Timer A3 -- with the direction on the
+ * timer's OUT pin (high for Y >= 0 and for X <= 0). MAME's comments call 20 / 1250 Hz "may need tweaking": they are its guess, not a measurement. */
+static uint16_t tb_count[2], tb_seen[2];
+static int      tb_resid[2];
+static uint64_t tb_next_look;                    /* board time of the next 20 ms look */
+static uint64_t tb_period[2], tb_next[2];        /* per axis: the pulse period (0 = still) and the next pulse */
+static int      tb_up[2];
+static int      tb_natural = -1;
+void ss22_snd_trackball(int dx, int dy)
+{
+    tb_count[0] = (uint16_t)(tb_count[0] + dx);
+    tb_count[1] = (uint16_t)(tb_count[1] + dy);
+}
+void ss22_snd_trackball_direct(bool on) { tb_natural = !on; }      /* the Controls page's Trackball orientation (MAME's DEV "Trackball Orientation") */
+static void tb_look(uint64_t t)
+{
+    if (tb_natural < 0) tb_natural = 1;
+    double v[2];
+    for (int a = 0; a < 2; a++) {
+        int d = (int)tb_count[a] - (int)tb_seen[a];
+        tb_seen[a] = tb_count[a];
+        if (d > 0x8000) d -= 0x10000; else if (d < -0x8000) d += 0x10000;
+        tb_resid[a] += d;
+        const int sp = tb_resid[a] > 0x7F ? 0x7F : tb_resid[a] < -0x7F ? -0x7F : tb_resid[a];
+        tb_resid[a] -= sp;
+        v[a] = sp / 127.0;
+    }
+    double x = v[0], y = v[1];
+    if (tb_natural) { const double c = 0.70710678118654752, ox = x, oy = y; x = ox * c - oy * c; y = ox * c + oy * c; }
+    const double sp[2] = { y < 0 ? -y : y, x < 0 ? -x : x };       /* axis 0 -> Timer A2 (y), axis 1 -> Timer A3 (x) */
+    const int up[2] = { y >= 0.0, x <= 0.0 };                          /* MAME: params (y >= 0) ? 2 : 0, (x <= 0) ? 3 : 1 -> bit 1 = the OUT pin:
+                                                                        * A2 counts up for y >= 0, A3 for x <= 0 (rolling the ball forward = both up) */
+    { static int dbg = -1; static unsigned n; if (dbg < 0) dbg = genv("TBLOG") != NULL;      /* <TAG>_TBLOG=1: the trackball once a second (50 looks) */
+      if (dbg && ++n % 50 == 0)
+          fprintf(stderr, "[TB] counters %04X %04X  speed x %+.2f y %+.2f  A2 mode %02X reg %02X%02X  A3 mode %02X reg %02X%02X  start %02X updown %02X\n",
+                  tb_count[0], tb_count[1], x, y, cpu.sfr[0x58], cpu.sfr[0x4B], cpu.sfr[0x4A], cpu.sfr[0x59], cpu.sfr[0x4D], cpu.sfr[0x4C], cpu.sfr[0x40], cpu.sfr[0x44]); }
+    for (int a = 0; a < 2; a++) {
+        tb_up[a] = up[a];
+        if (sp[a] > 1.0 / 1250.0) {
+            const uint64_t per = (uint64_t)((double)MCU_HZ / (20.0 + 1250.0 * sp[a]) + 0.5);
+            /* MAME: adjust(min(period, time left on the running one)) -- a faster speed takes effect at once, a slower one after the next pulse */
+            if (!tb_period[a] || tb_next[a] > t + per) tb_next[a] = t + per;
+            tb_period[a] = per;
+        } else tb_period[a] = 0;
+    }
+}
+static uint64_t tb_next_event(void)
+{
+    uint64_t e = tb_next_look;
+    for (int a = 0; a < 2; a++) if (tb_period[a] && tb_next[a] < e) e = tb_next[a];
+    return e;
+}
+static void tb_due(void)
+{
+    if (!g_ss22_game->snd.trackball) return;
+    const uint64_t t = now();
+    for (;;) {
+        const uint64_t e = tb_next_event();
+        if (e > t) return;
+        if (e == tb_next_look) { tb_look(e); tb_next_look = e + MCU_HZ / 50; continue; }
+        for (int a = 0; a < 2; a++)
+            if (tb_period[a] && tb_next[a] == e) {
+                m37710_timer_event(&cpu, a == 0 ? 2 : 3, tb_up[a]);
+                tb_next[a] += tb_period[a];
+            }
+    }
+}
+
 /* the 68K is polling a shared-RAM word: let the MCU run ahead a little so a pulse it raises and clears inside one slice is seen.
  * Cycle-neutral: the overrun is borrowed from the next slice (see ss22_snd_slice). */
 void ss22_snd_poll(void)
 {
     if (!ready || !running || cpu.unimpl_hit) return;
-    raise_due_pins();
+    raise_due_pins(); tb_due();
     snd_run(&cpu, 64);
 }
 void ss22_snd_slice(void)
@@ -372,9 +444,10 @@ void ss22_snd_slice(void)
     if (running && !cpu.unimpl_hit) {
         const uint64_t end = grid + cyc;                 /* a fixed grid: an overrun is borrowed from the next slice */
         while (base + cpu.cycles < end && !cpu.unimpl_hit) {
-            raise_due_pins();
+            raise_due_pins(); tb_due();
             uint64_t stop = end, np = next_pin_time();
             if (np < stop) stop = np;
+            if (g_ss22_game->snd.trackball) { const uint64_t te = tb_next_event(); if (te < stop) stop = te; }
             { extern uint64_t snd_spin_fast(m37710_t *, uint64_t); snd_spin_fast(&cpu, stop - base); }   /* a wait loop, jumped exactly */
             uint64_t n = stop - (base + cpu.cycles);
             if (n < 1) n = 1;

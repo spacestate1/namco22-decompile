@@ -1,4 +1,4 @@
-# Namco System 22 / 21 games for PC
+# Namco 2x Systems: Namco System 21 / 22 / 23 games for PC
 
 Namco arcade games from the 1990s, rebuilt so they run on a normal
 computer. You need your own copy of each game's files (the MAME versions);
@@ -23,6 +23,12 @@ where a MAME set has since renamed one (see [docs/ROM_CHECKSUMS.md](docs/ROM_CHE
 | Game | Year | Status | Online play | Game files you need | Linux | Windows |
 |---|---|---|---|---|---|---|
 | **Cyber Sled** | 1993 | Playable; developer test mode | **yes**, 2 players ([how](#playing-online)) | `cybsled.zip` + `namcoc67.zip` + `namcoc68.zip` | yes | yes |
+
+### System 23
+
+| Game | Year | Status | Online play | Game files you need | Linux | Windows |
+|---|---|---|---|---|---|---|
+| **Time Crisis II** | 1997 | Playable; mouse or light gun, gun recoil output ([its own README](tc2/README.md)) | no | `timecrs2.zip` | yes | yes |
 
 **Are you running the same ROMs as the authors?** The checksums of every ROM file the games use are in
 [docs/ROM_CHECKSUMS.md](docs/ROM_CHECKSUMS.md), with a list in `md5sum` format for each game.
@@ -59,6 +65,10 @@ Cyber Sled:
 
 ![Cyber Sled: a battle, in widescreen](docs/images/cybsled-widescreen.png)
 
+Time Crisis II:
+
+![Time Crisis II: the first stage's street, in widescreen](docs/images/timecrisis2-gameplay.png)
+
 Prop Cycle:
 
 ![Prop Cycle: gameplay, over the river](docs/images/propcycle-gameplay.png)
@@ -75,24 +85,26 @@ Each release on the [Releases page](https://github.com/spacestate1/namco22-decom
 
 | Package | For | How to install |
 |---|---|---|
-| `namco22_VERSION_amd64.deb` | Ubuntu 22.04 or newer, Linux Mint 21 or newer, LMDE 6, Debian 12 or newer | `sudo apt install ./namco22_*_amd64.deb` |
-| `namco22-VERSION-1.fc40.x86_64.rpm` | Fedora 40 or newer | `sudo dnf install ./namco22-*.x86_64.rpm` |
-| `PropCycle-x86_64.AppImage`, `RaveRacer-...`, `TokyoWars-...`, `DirtDash-...`, `TimeCrisis-...`, `AceDriver-...`, `CyberCommando-...`, `CyberSled-...` | **The Steam Deck**, and any 64-bit Linux without installing anything | `chmod +x` the file and run it (on a Deck: Desktop Mode, right-click it > Add to Steam) |
+| `namco-2x-systems_VERSION_amd64.deb` | Ubuntu 22.04 or newer, Linux Mint 21 or newer, LMDE 6, Debian 12 or newer | `sudo apt install ./namco-2x-systems_*_amd64.deb` |
+| `namco-2x-systems-VERSION-1.fc40.x86_64.rpm` | Fedora 40 or newer | `sudo dnf install ./namco-2x-systems-*.x86_64.rpm` |
+| `PropCycle-x86_64.AppImage`, `RaveRacer-...`, `TokyoWars-...`, `DirtDash-...`, `TimeCrisis-...`, `AceDriver-...`, `CyberCommando-...`, `CyberSled-...`, `TimeCrisis2-...` | **The Steam Deck**, and any 64-bit Linux without installing anything | `chmod +x` the file and run it (on a Deck: Desktop Mode, right-click it > Add to Steam) |
 | `windows-release-VERSION.zip` | Windows 10 or 11, 64-bit | Unzip it anywhere, put the game zips in its `roms` folder, double-click the game's `.exe` |
 
-On Linux, start a game from the applications menu (or type `propcycle`, `raveracer`, `tokyowars`, `dirtdash`, `timecrisis`, `acedriver`, `cybercommando` or `cybersled`). The first time, it makes the folder
-`~/.local/share/namco22/<game>/roms`, tells you which zip is missing and copies any it finds in `~/Downloads`. To uninstall: `sudo apt remove namco22`
-(or `sudo dnf remove namco22`); your game files, settings and scores stay in `~/.local/share/namco22/`.
+On Linux, start a game from the applications menu (or type `propcycle`, `raveracer`, `tokyowars`, `dirtdash`, `timecrisis`, `acedriver`, `cybercommando`, `cybersled` or `timecrisis2`). The first time, it makes the folder
+`~/.local/share/namco-2x-systems/<game>/roms`, tells you which zip is missing and copies any it finds in `~/Downloads`. To uninstall: `sudo apt remove namco-2x-systems`
+(or `sudo dnf remove namco-2x-systems`); your game files, settings and scores stay in `~/.local/share/namco-2x-systems/`.
+**Upgrading from 0.6 or older:** the package was called `namco22`; the new one replaces it, and the games keep using your old
+`~/.local/share/namco22/<game>/` folders (and `namco22-data` portable folders), so nothing has to be moved.
 
-**Steam Deck:** download the AppImage of each game you want, put your ROM zips in `~/.local/share/namco22/<game>/roms/` (Desktop Mode: Dolphin > Ctrl+H shows the
+**Steam Deck:** download the AppImage of each game you want, put your ROM zips in `~/.local/share/namco-2x-systems/<game>/roms/` (Desktop Mode: Dolphin > Ctrl+H shows the
 hidden `.local` folder; zips in `~/Downloads` are found automatically), then in Desktop Mode right-click the AppImage > *Add to Steam* (or Steam >
 *Add a Non-Steam Game*) and start it from Game Mode. The AppImages use the Deck's own SDL2, so Steam Input works: the menu opens with **R3** or by holding
 **Start** for a second. Each AppImage uses the same folders as the `.deb`, so the ROMs and settings are shared. If an AppImage will not start, run it from a
 terminal (`./DirtDash-x86_64.AppImage`) and read the message; on a system without FUSE, `--appimage-extract-and-run` works.
 
 The AppImage names carry no version number, so **updating is overwriting the file** and a Steam shortcut keeps working. ROM zips placed **next to the
-AppImage** (or in a `roms` folder beside it) are found too. **Portable mode:** make a folder named `namco22-data` next to the AppImages and each game
-keeps everything there (`namco22-data/<game>/`: its roms, the unpacked chips, settings, scores and recordings) instead of `~/.local/share/namco22` --
+AppImage** (or in a `roms` folder beside it) are found too. **Portable mode:** make a folder named `namco-2x-systems-data` next to the AppImages and each game
+keeps everything there (`namco-2x-systems-data/<game>/`: its roms, the unpacked chips, settings, scores and recordings) instead of `~/.local/share/namco-2x-systems` --
 one disk, e.g. a microSD card, then works the same on a Steam Deck and another PC. The AppImage standard's own portable folder works too: a folder
 named after the AppImage plus `.home` (`TimeCrisis-x86_64.AppImage.home`, or `TimeCrisis-x86_64.home`) keeps that game's data inside it. The Windows zip
 is portable already (everything lives in its folder).
@@ -135,6 +147,10 @@ and checked, piece by piece, against the arcade machine running in
   instruction by instruction against MAME's; the five DSP programs, the sound program and the I/O program are turned into
   C when you build, each checked against the interpreter it was made from. The sound chip (YM2151) is this project's own
   code. Online play links two cabinets the way the arcade's own cable did.
+- **Time Crisis II**: a Namco **System 23** board (a MIPS main CPU, an H8 sound / sub CPU, an H8 on the gun I/O board). The MIPS
+  program is translated to C (`tc2/gen/tc2_lifted_*.c`) and was checked instruction by instruction against MAME's; the two H8
+  programs are turned into C when you build. The 3D chips, the text layer, the C352 sound chip and the JVS link are its own code
+  (`tc2/`, a self-contained tree: see [tc2/README.md](tc2/README.md)).
 - The sound programs of all the games are turned into C when you build,
   from your own copy of the game files.
 
@@ -175,6 +191,7 @@ timecris/build.sh ~/Downloads/timecris.zip                                 # Tim
 acedriver/build.sh ~/Downloads/acedrive.zip ~/Downloads/namcoc74.zip       # Ace Driver
 cybrcomm/build.sh ~/Downloads/cybrcomm.zip ~/Downloads/namcoc74.zip        # Cyber Commando
 cybsled/build.sh ~/Downloads/cybsled.zip ~/Downloads/namcoc67.zip ~/Downloads/namcoc68.zip   # Cyber Sled
+tc2/build.sh ~/Downloads/timecrs2.zip                                                    # Time Crisis 2 (then tc2/launch.sh)
 ```
 
 Rave Racer's, Tokyo Wars', Dirt Dash's, Time Crisis', Ace Driver's, Cyber Commando's and Cyber Sled's first builds take a few minutes

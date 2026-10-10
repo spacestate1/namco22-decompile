@@ -1,2 +1,2 @@
 #!/bin/sh
-exec /usr/lib/namco22/namco22-launch ace "$@"
+exec /usr/lib/namco-2x-systems/namco-2x-launch ace "$@"

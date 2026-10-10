@@ -1,7 +1,7 @@
 #!/bin/sh
-# Build the eight games from an exported public tree and lay out the installed files.
+# Build the nine games from an exported public tree and lay out the installed files.
 #   build-stage.sh SRC ROMDIR STAGE
-# ROMDIR holds propcycl.zip, raverace.zip, namcoc74.zip, tokyowar.zip, dirtdash.zip, timecris.zip, acedrive.zip, cybrcomm.zip, cybsled.zip, namcoc67.zip and namcoc68.zip: each game's sound
+# ROMDIR holds propcycl.zip, raverace.zip, namcoc74.zip, tokyowar.zip, dirtdash.zip, timecris.zip, acedrive.zip, cybrcomm.zip, cybsled.zip, namcoc67.zip, namcoc68.zip and timecrs2.zip: each game's sound
 # program is translated to C from the ROM at BUILD time (tools/gen/snd_translate.py).
 # The ROMs are used only for that and are never copied into STAGE.
 set -e
@@ -49,14 +49,20 @@ cmake -S "$SRC/cybsled" -B "$SRC/cybsled/build" -DCMAKE_C_COMPILER=gcc -DCMAKE_B
 # cm_lifted.c (19 MB, ~3.2 GB of gcc), cs_lifted.c and the translated C67 / 6809 / C68 programs: one at a time
 cmake --build "$SRC/cybsled/build" --target cs21 -j1
 
+# Time Crisis 2 (System 23): the game program is committed as lifted C (tc2/gen/tc2_lifted_NN.c, ~100 MB, ~1 GB of gcc per part);
+# its two H8 programs are translated from the ROM at build time
+( cd "$SRC/tc2" && python3 tools/setup_roms.py "$ROMS/timecrs2.zip" && python3 tools/make_prog.py extracted >/dev/null )
+cmake -S "$SRC/tc2" -B "$SRC/tc2/build" -DCMAKE_C_COMPILER=gcc -DCMAKE_BUILD_TYPE=RelWithDebInfo -DPORTABLE=ON
+cmake --build "$SRC/tc2/build" --target tc2 -j"$J"
+
 rm -rf "$STAGE"
-install -d "$STAGE/usr/lib/namco22" "$STAGE/usr/bin" "$STAGE/usr/share/applications" \
-           "$STAGE/usr/share/icons/hicolor/256x256/apps" "$STAGE/usr/share/doc/namco22"
-install -m755 -s "$SRC/build/propcycl" "$SRC/raverace/build/rr" "$SRC/tokyowar/build/tw" "$SRC/dirtdash/build/dd" "$SRC/timecris/build/tc" "$SRC/acedriver/build/ad" "$SRC/cybrcomm/build/cc" "$SRC/cybsled/build/cs21" "$STAGE/usr/lib/namco22/"
-install -m755 "$PKG/namco22-launch" "$STAGE/usr/lib/namco22/"
-install -m755 "$PKG/propcycle" "$PKG/raveracer" "$PKG/tokyowars" "$PKG/dirtdash" "$PKG/timecrisis" "$PKG/acedriver" "$PKG/cybercommando" "$PKG/cybersled" "$STAGE/usr/bin/"
-install -m644 "$PKG/propcycle.desktop" "$PKG/raveracer.desktop" "$PKG/tokyowars.desktop" "$PKG/dirtdash.desktop" "$PKG/timecrisis.desktop" "$PKG/acedriver.desktop" "$PKG/cybercommando.desktop" "$PKG/cybersled.desktop" "$STAGE/usr/share/applications/"
-install -m644 "$PKG/propcycle.png" "$PKG/raveracer.png" "$PKG/tokyowars.png" "$PKG/dirtdash.png" "$PKG/timecrisis.png" "$PKG/acedriver.png" "$PKG/cybercommando.png" "$PKG/cybersled.png" "$STAGE/usr/share/icons/hicolor/256x256/apps/"
-install -m644 "$PKG/README.txt" "$PKG/rom-note.txt" "$STAGE/usr/share/doc/namco22/"
-install -m644 "$SRC/LICENSE" "$STAGE/usr/share/doc/namco22/LICENSE"
+install -d "$STAGE/usr/lib/namco-2x-systems" "$STAGE/usr/bin" "$STAGE/usr/share/applications" \
+           "$STAGE/usr/share/icons/hicolor/256x256/apps" "$STAGE/usr/share/doc/namco-2x-systems"
+install -m755 -s "$SRC/build/propcycl" "$SRC/raverace/build/rr" "$SRC/tokyowar/build/tw" "$SRC/dirtdash/build/dd" "$SRC/timecris/build/tc" "$SRC/acedriver/build/ad" "$SRC/cybrcomm/build/cc" "$SRC/cybsled/build/cs21" "$SRC/tc2/build/tc2" "$STAGE/usr/lib/namco-2x-systems/"
+install -m755 "$PKG/namco-2x-launch" "$STAGE/usr/lib/namco-2x-systems/"
+install -m755 "$PKG/propcycle" "$PKG/raveracer" "$PKG/tokyowars" "$PKG/dirtdash" "$PKG/timecrisis" "$PKG/acedriver" "$PKG/cybercommando" "$PKG/cybersled" "$PKG/timecrisis2" "$STAGE/usr/bin/"
+install -m644 "$PKG/propcycle.desktop" "$PKG/raveracer.desktop" "$PKG/tokyowars.desktop" "$PKG/dirtdash.desktop" "$PKG/timecrisis.desktop" "$PKG/acedriver.desktop" "$PKG/cybercommando.desktop" "$PKG/cybersled.desktop" "$PKG/timecrisis2.desktop" "$STAGE/usr/share/applications/"
+install -m644 "$PKG/propcycle.png" "$PKG/raveracer.png" "$PKG/tokyowars.png" "$PKG/dirtdash.png" "$PKG/timecrisis.png" "$PKG/acedriver.png" "$PKG/cybercommando.png" "$PKG/cybersled.png" "$PKG/timecrisis2.png" "$STAGE/usr/share/icons/hicolor/256x256/apps/"
+install -m644 "$PKG/README.txt" "$PKG/rom-note.txt" "$STAGE/usr/share/doc/namco-2x-systems/"
+install -m644 "$SRC/LICENSE" "$STAGE/usr/share/doc/namco-2x-systems/LICENSE"
 echo "staged into $STAGE"

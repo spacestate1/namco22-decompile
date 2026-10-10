@@ -1,0 +1,48 @@
+#!/bin/sh
+# Time Crisis 2's launcher for the AppImage (TC2's own; modelled on the System 22 games' namco22-launch).
+#   tc2-launch [1-9] [--fullscreen] [args]      a window (a number = window scale); other arguments go to the game
+# The game plays from its own folder, which holds roms/, the unpacked chips (extracted/), the settings (tc2.cfg), the backup RAM
+# (tc2_backup.nv: settings, bookkeeping, rankings) and screenshots:
+#   ~/.local/share/tc2/                          normally
+#   <folder of the AppImage>/tc2-data/           PORTABLE MODE, if that folder exists (one disk for a Steam Deck and a PC)
+#   <name>.AppImage.home/tc2/                    the AppImage standard's portable folder, if it exists
+# The ROM zip (MAME's timecrs2.zip) goes in that roms/ folder; ~/Downloads and the AppImage's folder are checked on first start.
+LIB=${TC2_LIB:-/usr/lib/tc2}
+appdir=""; [ -n "${APPIMAGE:-}" ] && appdir=$(dirname "$APPIMAGE")
+if [ -n "$appdir" ] && [ -d "$appdir/tc2-data" ]; then
+    data="$appdir/tc2-data"; echo "[launch] portable mode: $data" >&2
+elif [ -n "${APPIMAGE:-}" ] && { [ -d "$APPIMAGE.home" ] || [ -d "${APPIMAGE%.AppImage}.home" ]; }; then
+    h="$APPIMAGE.home"; [ -d "$h" ] || h="${APPIMAGE%.AppImage}.home"; data="$h/tc2"; echo "[launch] portable mode: $data" >&2
+else
+    data="${XDG_DATA_HOME:-$HOME/.local/share}/tc2"
+fi
+mkdir -p "$data/roms" || exit 1
+cd "$data" || exit 1
+for z in timecrs2.zip namco_tssio.zip; do
+    [ -f "roms/$z" ] && continue
+    for s in ${appdir:+"$appdir/$z" "$appdir/roms/$z"} "$HOME/Downloads/$z" "$HOME/$z"; do
+        if [ -f "$s" ]; then cp "$s" roms/ && echo "[launch] copied $s" >&2 && break; fi
+    done
+done
+if [ ! -f roms/timecrs2.zip ] && [ ! -f extracted/tss3verb.1 ]; then
+    hidden=""; case "$data" in "${XDG_DATA_HOME:-$HOME/.local/share}"/*) hidden=" (~/.local is hidden: press Ctrl+H in a file manager.)" ;; esac
+    msg="Time Crisis 2 needs its ROM file (no game data is included).
+
+Copy MAME's timecrs2.zip (Time Crisis II, US TSS3 Ver. B) into this folder, then start the game again:
+    $data/roms${appdir:+
+(or next to the AppImage: $appdir)}
+
+(This folder is now open.$hidden)"
+    echo "$msg" >&2
+    if [ -n "$DISPLAY$WAYLAND_DISPLAY" ]; then
+        if command -v zenity >/dev/null 2>&1; then zenity --error --title="Time Crisis 2" --text="$msg" 2>/dev/null
+        elif command -v kdialog >/dev/null 2>&1; then kdialog --title "Time Crisis 2" --error "$msg" 2>/dev/null
+        elif command -v notify-send >/dev/null 2>&1; then notify-send "Time Crisis 2" "$msg"; fi
+        command -v xdg-open >/dev/null 2>&1 && xdg-open "$data/roms" >/dev/null 2>&1 &
+    fi
+    exit 1
+fi
+if [ $# -eq 0 ] || expr "$1" : '[1-9]$' >/dev/null || [ "$1" = "--fullscreen" ]; then
+    exec "$LIB/tc2" --window "$@" 2>"$data/tc2.log"
+fi
+exec "$LIB/tc2" "$@"

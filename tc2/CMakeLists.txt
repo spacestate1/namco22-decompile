@@ -1,0 +1,71 @@
+cmake_minimum_required(VERSION 3.16)
+project(tc2 C)
+# Time Crisis 2 (Namco System 23): the lifted MIPS program on its own host. Independent of the System 22 project.
+# gen/tc2_lifted_NN.c + tc2_lifted_tab.c: python3 tools/lift/lift.py decompiled/pcode.txt gen tc2 prog.bin && python3 tools/lift/lift_split.py gen/tc2_lifted.c 16
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE RelWithDebInfo)
+endif()
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_EXTENSIONS ON)                      # gnu11: the lifted code uses computed labels / statement expressions
+add_compile_options(-fno-strict-aliasing -fwrapv)
+file(GLOB TC2_LIFTED CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/gen/tc2_lifted_*.c)
+if(NOT TC2_LIFTED)
+  message(FATAL_ERROR "gen/tc2_lifted_NN.c missing: run tools/lift/lift.py and lift_split.py (see the comment above)")
+endif()
+set_source_files_properties(${TC2_LIFTED} PROPERTIES COMPILE_OPTIONS "-O1;-w;-include;${CMAKE_CURRENT_SOURCE_DIR}/include/tc2_mips_rt.h")
+# THE TWO H8 PROGRAMS, translated at build time (tools/h8/h8_translate.py) from sub.bin / io.bin (tools/make_prog.py) and MAME's coverage of
+# them (cov/h8sub_*.pcs, cov/h8io_*.pcs: addresses only)
+file(GLOB H8SUB_COV CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/cov/h8sub_*.pcs)
+file(GLOB H8IO_COV CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/cov/h8io_*.pcs)
+string(REPLACE ".pcs" "" H8SUB_PREFIX "${H8SUB_COV}")
+string(REPLACE ".pcs" "" H8IO_PREFIX "${H8IO_COV}")
+set(H8_TOOLS ${CMAKE_CURRENT_SOURCE_DIR}/tools/h8/h8_translate.py ${CMAKE_CURRENT_SOURCE_DIR}/tools/h8/h8_decode.py
+    ${CMAKE_CURRENT_SOURCE_DIR}/tools/h8/h8_ops.txt ${CMAKE_CURRENT_SOURCE_DIR}/tools/h8/h8_timing.txt)
+add_custom_command(OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/gen/tc2_sub.c
+    COMMAND python3 tools/h8/h8_translate.py sub.bin 1 tc2sub gen/tc2_sub.c ${H8SUB_PREFIX}
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/sub.bin ${H8_TOOLS} ${H8SUB_COV} WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+add_custom_command(OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/gen/tc2_io.c
+    COMMAND ${CMAKE_COMMAND} -E env H8_ROMSIZE=0x4000 python3 tools/h8/h8_translate.py io.bin 0 tc2io gen/tc2_io.c ${H8IO_PREFIX}
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/io.bin ${H8_TOOLS} ${H8IO_COV} WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+set(TC2_SRC src/tc2_cpu.c src/tc2_mem.c src/tc2_ctl.c src/tc2_chips.c src/tc2_screen.c src/tc2_text.c src/tc2_window.c src/tc2_main.c
+    src/eng/eng_ui.c src/eng/eng_cfg.c src/eng/eng_display.c src/eng/ss22_input.c src/eng/eng_ffb.c src/tc2_input.c
+    src/tc2_c435.c src/tc2_render.c src/tc2_gl.c src/h8_periph.c src/tc2_h8.c src/tc2_audio.c src/tc2_rom.c src/tc2_out.c src/eng/romzip.c src/eng/c352.c gen/tc2_sub.c gen/tc2_io.c ${TC2_LIFTED})
+# PORTABLE (default ON): pin glibc symbol versions so a binary built here runs on older systems -- the Steam Deck included
+option(PORTABLE "Bind glibc symbols to baseline versions (runs on glibc >= 2.34)" ON)
+if(PORTABLE AND NOT WIN32 AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
+  add_compile_options(-include ${CMAKE_CURRENT_SOURCE_DIR}/include/glibc_compat.h)
+endif()
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(SDL2 REQUIRED sdl2)
+if(WIN32)
+  set(ZLIB_USE_STATIC_LIBS ON)
+endif()
+find_package(ZLIB REQUIRED)
+find_package(Threads REQUIRED)
+if(WIN32)
+  # Windows (MinGW-w64, ./build-windows.sh): no console, everything static (one .exe), OpenGL from opengl32 (the GL 3 functions are
+  # loaded at run time, src/tc2_gl.c), Winsock for the recoil output (src/tc2_out.c)
+  add_compile_options(-include ${CMAKE_CURRENT_SOURCE_DIR}/include/win_compat.h)
+  set(TC2_TARGETS tc2)
+  set(TC2_SYS_LIBS opengl32 ws2_32)
+  set(TC2_LINK_OPTS -mwindows -static -static-libgcc)
+else()
+  set(OpenGL_GL_PREFERENCE GLVND)
+  find_package(OpenGL REQUIRED)
+  set(TC2_TARGETS tc2 tc2_trace)
+  set(TC2_SYS_LIBS OpenGL::GL m)
+  set(TC2_LINK_OPTS "")
+endif()
+foreach(t ${TC2_TARGETS})
+  add_executable(${t} ${TC2_SRC})
+  target_include_directories(${t} PRIVATE include gen src src/eng ${SDL2_INCLUDE_DIRS})
+  if(WIN32)
+    target_link_libraries(${t} ${SDL2_STATIC_LDFLAGS} ZLIB::ZLIB Threads::Threads ${TC2_SYS_LIBS})
+  else()
+    target_link_libraries(${t} ${SDL2_LIBRARIES} ZLIB::ZLIB Threads::Threads ${TC2_SYS_LIBS})
+  endif()
+  target_link_options(${t} PRIVATE ${TC2_LINK_OPTS})
+endforeach()
+if(TARGET tc2_trace)
+  target_compile_definitions(tc2_trace PRIVATE RR_TRACE)
+endif()

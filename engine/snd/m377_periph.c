@@ -251,6 +251,18 @@ void m377_sfr_w(m37710_t *c, uint32_t a, uint8_t v)
     }
 }
 
+void m37710_timer_event(m37710_t *c, int n, int out_pin)
+{
+    if (n < 0 || n > 7 || !(c->sfr[0x40] & (1u << n))) return;
+    const unsigned mode = c->sfr[0x56 + n];
+    if ((mode & 3) != 1) return;
+    int up = 0;
+    if (n <= 4) up = (mode & 0x10) ? (out_pin != 0) : ((c->sfr[0x44] >> n) & 1);
+    uint16_t r = (uint16_t)(c->sfr[0x46 + n * 2] | (c->sfr[0x47 + n * 2] << 8));
+    r = (uint16_t)(up ? r + 1 : r - 1);
+    c->sfr[0x46 + n * 2] = (uint8_t)r; c->sfr[0x47 + n * 2] = (uint8_t)(r >> 8);
+}
+
 /* Finish a conversion that is due. Mirrors MAME's ad_timer_cb: convert the
  * selected channel, advance it in sweep mode, and interrupt only once the
  * run stops. */

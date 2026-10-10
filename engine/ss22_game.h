@@ -37,6 +37,10 @@ typedef struct {
      * Audio page's mixer, and its level against the front pair. Mixed into both sides of the stereo output. NULL name = not wired
      * here: dropped, as before. Dirt Dash: output 3 is the "road" speaker at 0.5 -- the tyres' skid and the road noise play there alone */
     struct { const char *name; float gain; } aux[2];
+    /* A TRACKBALL on the sound MCU's timer pins (Armadillo Racing; MAME adillor_state::trackball_update/_interrupt): two free-running 16-bit
+     * counters (ss22_snd_trackball), differenced every 20 ms, clamped to +-0x7F, rotated 45 degrees (the cabinet's "Natural" orientation),
+     * each axis a pulse train on a timer input -- Y -> Timer A2, X -> Timer A3, the direction on the timer's OUT pin. false = none. */
+    bool        trackball;
 } ss22_snd_cfg;
 
 /* the picture: where the ROM chips are and what they are called (the RAM is the board's) */
@@ -127,6 +131,7 @@ int  ss22_snd_mix_get(int row);
 void ss22_snd_mix_set(int row, int pct);
 void ss22_snd_mix_load(void);            /* after the settings file is loaded */
 void ss22_snd_inputs(uint16_t pressed, unsigned wheel, unsigned pedal1, unsigned pedal2);   /* pressed: INPUTS bits; A-D 10-bit */
+void ss22_snd_trackball(int dx, int dy);  /* the trackball moved (counts, MAME's OPT.0 / OPT.1 port units): added to the two counters */
 uint16_t ss22_snd_outputs(void);         /* the MCU's output latches (lamps, motors) */
 void ss22_snd_debug(char *buf, int n);
 

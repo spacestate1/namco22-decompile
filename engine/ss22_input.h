@@ -39,6 +39,9 @@ typedef struct {
     bool kick_wheel;                         /* a cabinet whose HANDLE has a solenoid but no steering motor (Tokyo Wars: MAME "4 = handle solenoid",
                                               * fired with the cannon): each recoil edge (ss22_game.recoil_mask) is a short jolt on a force-feedback
                                               * wheel (ss22_input_kick); the Controls page gets a Force feedback strength row */
+    bool trackball;                          /* a TRACKBALL cabinet (Armadillo Racing): the mouse -- a USB trackball is one -- captured while playing, the left stick and
+                                              * the arrow keys roll the ball -> ss22_snd_trackball (the sound MCU's Timer A2/A3 pulses, engine/ss22_snd.c). The Controls
+                                              * page gets Trackball sensitivity and Trackball orientation rows */
     bool light_gun;                          /* a LIGHT GUN cabinet: the mouse pointer (or the right stick, or the arrow keys) aims -> g_ss22_gun_x/_y (engine/ss22_board.h) */
     /* the steering torque as the 68K builds it (0 = use the motor byte alone): a work-RAM word written once a frame as a running
      * sum of `parts` terms -- the first write the first term, each later one adding the next -- clamped to +-`limit` and then

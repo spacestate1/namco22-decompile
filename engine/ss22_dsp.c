@@ -194,6 +194,11 @@ void ss22_dsp_run(long steps)
     if (nm == 1) {                        /* the shipped game: same result as `steps` calls of c71_step, a halted DSP fast-forwarded */
         if (!c71_run(m[0], steps)) {
             fprintf(stderr, "[DSP] master stopped at %04X: %s\n", m[0]->cur_pc, m[0]->error);
+            fprintf(stderr, "[DSP] program memory 0x4000:");            /* which uploaded program: search the 68K ROM for these words */
+            for (int k = 0; k < 16; k++) fprintf(stderr, " %04X", m[0]->prog[0x4000 + k]);
+            fprintf(stderr, "\n[DSP] around the stop:");
+            for (int k = -4; k < 8; k++) fprintf(stderr, " %04X", m[0]->prog[(m[0]->cur_pc + k) & 0xFFFF]);
+            fprintf(stderr, "\n");
             faulted = true; return;
         }
         return;

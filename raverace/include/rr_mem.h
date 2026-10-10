@@ -1,5 +1,5 @@
 /*
- * rr_mem.h -- Rave Racer's ONE memory model (pc-reverse GUARDRAILS.md R1-R5).
+ * rr_mem.h -- Rave Racer's ONE memory model (namco-2x-systems GUARDRAILS.md R1-R5).
  *
  * Every 68020 memory access in generated code is a vrd / vwr call at the
  * ORIGINAL 32-bit address, big-endian, with the width the instruction used.

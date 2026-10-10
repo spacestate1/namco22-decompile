@@ -137,5 +137,10 @@ void m37710_service(m37710_t *c);
 void m37710_irq  (m37710_t *c, int vector_offset);
 
 uint64_t m37710_next_event(const m37710_t *c);
+/* An EXTERNAL EDGE on timer n's input pin (TAnIN), as MAME's m37710_external_tick: in event-counter mode (mode & 3 == 1, the timer counting)
+ * the timer register steps by one -- up when the TAnOUT pin is high (mode bit 4: direction from the pin) or the up-down register's bit n
+ * says so, else down; Timer B always counts down. No interrupt (MAME raises none here). Nothing else calls it: Armadillo Racing's trackball
+ * (engine/ss22_snd.c) is the only user, so every other game is unchanged. */
+void m37710_timer_event(m37710_t *c, int n, int out_pin);
 
 #endif /* PROPCYCL_M37710_H */

@@ -1,0 +1,40 @@
+TIME CRISIS 2 -- a decompiled engine for Namco's 1997 arcade game (System 23)
+===========================================================================
+
+NO GAME DATA IS INCLUDED. You need MAME's ROM set timecrs2.zip (Time Crisis II, US TSS3 Ver. B). Keep it zipped.
+
+  Windows:    put timecrs2.zip in the "roms" folder next to TimeCrisis2.exe, then double-click TimeCrisis2.exe.
+  Linux /     make TimeCrisis2-x86_64.AppImage executable (right-click > Properties > Permissions, or chmod +x) and run it.
+  Steam Deck  Put timecrs2.zip next to the AppImage or in ~/Downloads: the first start copies it to ~/.local/share/tc2/roms/.
+              On a Deck, in Desktop Mode: right-click the AppImage > Add to Steam, then play from Game Mode.
+              PORTABLE MODE: make a folder named tc2-data next to the AppImage and everything (ROMs, settings, scores) is kept there.
+
+The first start unpacks the zip (a few seconds; every chip is checked against MAME's checksums).
+
+PLAYING
+-------
+  Mouse / light gun   aim (the pointer); LEFT button = shoot, RIGHT (or middle) button = the foot pedal (come out of cover)
+  Reload              shoot off the edge of the screen, or hold R / a gun's side button, or release the pedal (take cover)
+  5                   insert a coin (the default is 4 coins a game; Free Play is in the test menu, COIN OPTIONS)
+  Space / Enter       shoot           Z / X   the pedal          Arrow keys   aim
+  Game pad            either stick or the D-pad aims, A or RB shoots, B or LB is the pedal, Back = coin; rumble on each shot
+  F2                  the operator's TEST switch (press again to leave): coin options, game options, I/O test, sound test
+  Page Up / Page Down / Home    the operator's buttons in the test menu (up / down / enter)
+  9                   the service button
+  F8                  a white border around the picture, for light guns that need one (Sinden)
+  F11                 fullscreen       F12   screenshot (screenshots/)       P   pause
+  Esc                 the menu: Display (window size, fullscreen, widescreen, resolution, frame rate), Audio (volume),
+                      Controls (rebind keys, mouse and pad buttons), gun options
+
+LIGHT GUNS: any gun that works as an absolute mouse (Sinden, GUN4IR, OpenFIRE, Blamcon, AimTrak) aims with the pointer.
+RECOIL: the game's gun solenoid is sent out like MAME's network output (tcp 127.0.0.1:8000, "gun_recoil"), so MAMEHooker or
+Hook Of The Reaper can drive a recoil gun; a pad rumbles instead.
+
+Settings are kept in tc2.cfg, the machine's settings, bookkeeping and rankings in tc2_backup.nv (the arcade board's battery RAM),
+both in the game's folder (Windows: next to the .exe; Linux: ~/.local/share/tc2/). The log of the last start is tc2.log there.
+
+PROBLEMS?
+---------
+"needs its ROM file"      timecrs2.zip is missing, or it is a different set/version: the message names the chip and why.
+Black screen / no start   update your graphics driver (OpenGL 3.0 is needed). Read tc2.log.
+"Windows protected your PC"  click "More info", then "Run anyway" (the game is not signed).

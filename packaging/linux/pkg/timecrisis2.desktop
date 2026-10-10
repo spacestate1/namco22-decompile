@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Time Crisis 2
+Comment=Namco's 1997 arcade light-gun shooter Time Crisis II (decompiled engine)
+Exec=timecrisis2
+Icon=timecrisis2
+Terminal=false
+Categories=Game;ArcadeGame;

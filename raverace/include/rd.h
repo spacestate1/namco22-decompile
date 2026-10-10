@@ -4,7 +4,7 @@
  * Each readable function replaces one lifted function (gen/rr_lifted.c) at its
  * entry point. It works on the SAME machine state the lifted code does -- the
  * 68K registers in R[] and memory through vrd/vwr at original addresses (one
- * memory model, pc-reverse GUARDRAILS R1-R5) -- but is written as ordinary C.
+ * memory model, namco-2x-systems GUARDRAILS R1-R5) -- but is written as ordinary C.
  *
  * Every replacement is proven against its lifted twin, not trusted:
  * RR_RD=check runs BOTH on every real call from real play, with the memory

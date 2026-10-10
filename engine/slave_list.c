@@ -16,10 +16,13 @@
  */
 #include <stdint.h>
 #include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include "eng.h"
 #include "geo_hw.h"
 #include "slave_list.h"
 
+int g_objlog_on;                                   /* ENG_OBJLOG: geo_hw.c prints the quads while it is set */
 static int32_t sext_n(uint32_t v, int bits)
 {
     uint32_t m = 1u << (bits - 1);
@@ -145,7 +148,14 @@ int eng_walk_list(eng_word_fn pw, const eng_list_cfg *cfg, geo_quad_cb cb, void 
                 gv.objectflags = objectflags;
                 geo_hw_set_view(&gv);
                 g_bbox_cur = (int)code;
+                { static int olog = -2; if (olog == -2) { const char *e = getenv("ENG_OBJLOG"); olog = e ? (int)strtol(e, NULL, 0) : -1; }
+                  if (olog == (int)code || olog == 0) {     /* ENG_OBJLOG=<code>: that model's record and every quad it gives; 0 = every model */
+                      fprintf(stderr, "[OBJ] code %d t %d %d %d  ap %d objshift %06X cz %06X\n", (int)code, gv.t[0], gv.t[1], gv.t[2],
+                              absolute_priority, (unsigned)objectshift & 0xFFFFFF, (unsigned)cz_adjust & 0xFFFFFF);
+                      g_objlog_on = 1;
+                  } }
                 geo_hw_object((int32_t)code, cb, user);
+                g_objlog_on = 0;
                 g_bbox_cur = -1;
                 objectflags &= ~2;             /* blit_polyobject: per object */
                 prims++;

@@ -18,7 +18,7 @@ LOUDLY (the sound stops and says where) -- never silently skipped.
 import sys, os, collections, argparse
 _ap = argparse.ArgumentParser()
 _ap.add_argument('coverage', nargs='?', default='tools/gen/snd.cov')
-_ap.add_argument('--game', choices=['pc', 'tw', 'dd', 'tc'], default='pc')
+_ap.add_argument('--game', choices=['pc', 'tw', 'dd', 'tc', 'am'], default='pc')
 _ap.add_argument('--roms')
 _ap.add_argument('--out', default='gen/snd_driver.c')
 _a = _ap.parse_args()

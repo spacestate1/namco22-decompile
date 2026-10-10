@@ -1,20 +1,22 @@
 #!/bin/sh
-# Installed-package launcher for the Namco System 22 / 21 decompilations (Cyber Sled is System 21).
-#   namco22-launch prop [0-3] [args]     Prop Cycle (a number = straight to that level)
-#   namco22-launch rave [1-9] [args]     Rave Racer (a number = window scale)
-#   namco22-launch tokyo [1-9] [args]    Tokyo Wars (a number = window scale)
-#   namco22-launch dirt [1-9] [args]     Dirt Dash (a number = window scale)
-#   namco22-launch tc [1-9] [args]       Time Crisis (a number = window scale; the mouse is the gun)
-#   namco22-launch ace [1-9] [args]      Ace Driver (a number = window scale)
-#   namco22-launch cc [1-9] [args]       Cyber Commando (a number = window scale)
-#   namco22-launch cs [1-9] [args]       Cyber Sled (a number = window scale)
-# Each game plays from its own folder under ~/.local/share/namco22/, which holds
+# Installed-package launcher for the Namco System 2x decompilations (System 22 / Super 22; Cyber Sled is System 21, Time Crisis 2 System 23).
+#   namco-2x-launch prop [0-3] [args]     Prop Cycle (a number = straight to that level)
+#   namco-2x-launch rave [1-9] [args]     Rave Racer (a number = window scale)
+#   namco-2x-launch tokyo [1-9] [args]    Tokyo Wars (a number = window scale)
+#   namco-2x-launch dirt [1-9] [args]     Dirt Dash (a number = window scale)
+#   namco-2x-launch tc [1-9] [args]       Time Crisis (a number = window scale; the mouse is the gun)
+#   namco-2x-launch ace [1-9] [args]      Ace Driver (a number = window scale)
+#   namco-2x-launch cc [1-9] [args]       Cyber Commando (a number = window scale)
+#   namco-2x-launch cs [1-9] [args]       Cyber Sled (a number = window scale)
+#   namco-2x-launch tc2 [1-9] [args]      Time Crisis 2 (a number = window scale; the mouse is the gun)
+# Each game plays from its own folder under ~/.local/share/namco-2x-systems/ (or the older
+# ~/.local/share/namco22/ when that exists, so 0.6 settings and scores carry over), which holds
 # its roms/, the unpacked chips, the settings, scores and recordings. The ROM zips
 # (MAME sets) go in that roms/ folder; ~/Downloads is checked on first start.
 # AppImage: zips next to the .AppImage (or in a roms/ folder beside it) are found too,
-# and PORTABLE MODE -- a folder named namco22-data next to the .AppImage, or the AppImage standard's
+# and PORTABLE MODE -- a folder named namco-2x-systems-data (or the older namco22-data) next to the .AppImage, or the AppImage standard's
 # <name>.AppImage.home -- keeps everything there instead of ~/.local/share (one disk for a Steam Deck and a PC).
-LIB=${NAMCO22_LIB:-/usr/lib/namco22}      # an AppImage points this at its own copy
+LIB=${NAMCO2X_LIB:-${NAMCO22_LIB:-/usr/lib/namco-2x-systems}}      # an AppImage points this at its own copy
 game="$1"; [ $# -gt 0 ] && shift
 extra=""                                    # optional companion zips, copied when present (never "missing")
 case "$game" in
@@ -27,22 +29,31 @@ case "$game" in
     ace|acedriver|ad) title="Ace Driver"; dir=acedriver; zips="acedrive.zip namcoc74.zip" ;;
     cc|cybrcomm|cybercommando|commando) title="Cyber Commando"; dir=cybrcomm; zips="cybrcomm.zip namcoc74.zip" ;;
     cs|cybsled|cybersled|sled) title="Cyber Sled"; dir=cybsled; zips="cybsled.zip namcoc67.zip namcoc68.zip" ;;
-    *) sed -n '2,14p' "$0" | sed 's/^# \?//'; exit 1 ;;
+    tc2|timecrs2|timecrisis2|crisis2) title="Time Crisis 2"; dir=tc2; zips="timecrs2.zip"; extra="namco_tssio.zip" ;;
+    *) sed -n '2,17p' "$0" | sed 's/^# \?//'; exit 1 ;;
 esac
 # $APPIMAGE is the .AppImage's own path (set by the AppImage runtime, also with --appimage-extract-and-run)
 appdir=""; [ -n "${APPIMAGE:-}" ] && appdir=$(dirname "$APPIMAGE")
-if [ -n "$appdir" ] && [ -d "$appdir/namco22-data" ]; then
-    data="$appdir/namco22-data/$dir"                   # portable: the folder travels with the AppImage
+# the folders are named namco-2x-systems since 0.7; one named namco22 (0.6 and before) is used when it is there, so nothing is lost
+pdir=""; [ -n "$appdir" ] && for p in "$appdir/namco-2x-systems-data" "$appdir/namco22-data"; do [ -d "$p" ] && { pdir=$p; break; }; done
+if [ -n "$pdir" ]; then
+    data="$pdir/$dir"                                  # portable: the folder travels with the AppImage
     echo "[launch] portable mode: $data" >&2
 elif [ -n "${APPIMAGE:-}" ] && { [ -d "$APPIMAGE.home" ] || [ -d "${APPIMAGE%.AppImage}.home" ]; }; then
     # the AppImage standard's portable folder, GitHub #23: <name>.AppImage.home (or <name>.home, as users name it). The
     # runtime moves $HOME into it, but the user who tried it still found the data under ~/.local/share (an
     # $XDG_DATA_HOME in the environment, or a runtime without the feature), so the launcher looks for it itself.
     h="$APPIMAGE.home"; [ -d "$h" ] || h="${APPIMAGE%.AppImage}.home"
-    data="$h/namco22/$dir"
+    data="$h/namco-2x-systems/$dir"; [ ! -d "$data" ] && [ -d "$h/namco22/$dir" ] && data="$h/namco22/$dir"
     echo "[launch] portable mode: $data" >&2
 else
-    data="${XDG_DATA_HOME:-$HOME/.local/share}/namco22/$dir"
+    share="${XDG_DATA_HOME:-$HOME/.local/share}"
+    data="$share/namco-2x-systems/$dir"
+    if [ ! -d "$data" ]; then
+        if [ -d "$share/namco22/$dir" ]; then data="$share/namco22/$dir"
+        elif [ "$dir" = tc2 ] && [ -d "$share/tc2" ]; then data="$share/tc2"     # Time Crisis 2's own AppImage (0.1.0-rc1) kept it here
+        fi
+    fi
 fi
 mkdir -p "$data/roms" || exit 1
 cd "$data" || exit 1
@@ -125,4 +136,9 @@ case "$dir" in
             exec "$LIB/cs21" extracted --window ${1:+"$1"}
         fi
         exec "$LIB/cs21" extracted "$@" ;;
+    tc2)                                            # finds extracted/ and roms/ itself; it unpacks on first start
+        if [ $# -eq 0 ] || expr "$1" : '[1-9]$' >/dev/null || [ "$1" = "--fullscreen" ]; then
+            exec "$LIB/tc2" --window "$@" 2>"$data/tc2.log"
+        fi
+        exec "$LIB/tc2" "$@" ;;
 esac

@@ -1,0 +1,22 @@
+# Game files are yours and never belong in git.
+/extracted/
+/roms/
+*.zip
+# Made by the build or the game.
+/build/
+/build-win/
+/windows-release/
+/boot.bin
+/prog.bin
+/sub.bin
+/io.bin
+/gen/tc2_sub.c
+/gen/tc2_io.c
+/tc2.cfg
+/tc2.log
+/tc2_backup.nv
+/tc2_backup.nv.tmp
+/tc2_last.rec
+/tc2_prev.rec
+/screenshots/
+__pycache__/
