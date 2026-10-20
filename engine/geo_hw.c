@@ -205,14 +205,17 @@ static void quad_fixed(int32_t color, uint32_t addr, int32_t polyshift,
     }
     if (zmax < 0) { g_geo_stats.rej_behind++; return; }   /* wholly behind */
 
-    /* backface cull, two cross products, verbatim from the oracle */
+    /* backface cull, two cross products, verbatim from the oracle -- in __int128 (see mulshr128): a triple product of
+     * coordinates in the millions overflows int64, and the flipped sign culled FRONT faces of distant models (Cyber Commando's
+     * sky panels at z ~4.4M: c1 ~8.5e18, past INT64_MAX, so the sky straight ahead was missing). The oracle's ints are unbounded. */
     if (flags & 0x20) {
-        int64_t c1 = (int64_t)vx[2] * ((int64_t)vz[0] * vy[1] - (int64_t)vy[0] * vz[1])
-                   + (int64_t)vy[2] * ((int64_t)vx[0] * vz[1] - (int64_t)vz[0] * vx[1])
-                   + (int64_t)vz[2] * ((int64_t)vy[0] * vx[1] - (int64_t)vx[0] * vy[1]);
-        int64_t c2 = (int64_t)vx[0] * ((int64_t)vz[2] * vy[3] - (int64_t)vy[2] * vz[3])
-                   + (int64_t)vy[0] * ((int64_t)vx[2] * vz[3] - (int64_t)vz[2] * vx[3])
-                   + (int64_t)vz[0] * ((int64_t)vy[2] * vx[3] - (int64_t)vx[2] * vy[3]);
+        typedef __int128 w128;
+        const w128 c1 = (w128)vx[2] * ((w128)vz[0] * vy[1] - (w128)vy[0] * vz[1])
+                      + (w128)vy[2] * ((w128)vx[0] * vz[1] - (w128)vz[0] * vx[1])
+                      + (w128)vz[2] * ((w128)vy[0] * vx[1] - (w128)vx[0] * vy[1]);
+        const w128 c2 = (w128)vx[0] * ((w128)vz[2] * vy[3] - (w128)vy[2] * vz[3])
+                      + (w128)vy[0] * ((w128)vx[2] * vz[3] - (w128)vz[2] * vx[3])
+                      + (w128)vz[0] * ((w128)vy[2] * vx[3] - (w128)vx[2] * vy[3]);
         if (( g_view.cullflip && c1 <= 0 && c2 <= 0) ||
             (!g_view.cullflip && c1 >= 0 && c2 >= 0))
         { g_geo_stats.rej_cull++;

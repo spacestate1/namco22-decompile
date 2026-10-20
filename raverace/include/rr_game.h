@@ -52,6 +52,9 @@ typedef struct {
      * low). Keys drive both sticks as "tank" controls through the existing actions (gas = forward, brake = back, steer = turn: the
      * sticks pushed opposite ways); a gamepad's two sticks are the cabinet's two sticks. 0 = the driving model (every other game). */
     int twin_stick;
+    /* WIDESCREEN: the game's full-screen effects (a camera-facing quad sized to the 640 x 480 screen, e.g. Cyber Commando's hit flash)
+     * reach the wide picture's edges (rr_gl.c wide_screen_quad). 0 = off (every other game). */
+    int wide_screen_quads;
     const char *const *act_label;           /* per-action names for the Controls page (NULL entries / NULL table = the action's own name) */
     const struct rr_bind_default { int act; const char *keys, *pad; } *bind_defaults;   /* default keys / pad button replacing the
                                              * driving defaults for these actions (keys: SDL names, comma-separated; pad NULL = none) */

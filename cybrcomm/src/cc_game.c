@@ -74,6 +74,7 @@ static const rr_game_t cc = {
     .gamma = { "rr1gam.2d", "rr1gam.3d", "rr1gam.4d" },
     .eeprom = "cy1eeprm.9e",                          /* the set's default EEPROM image */
     .keycus_off = 1, .keycus_val = 0x0185,            /* namcos22_keycus_r: NAMCOS22_CYBER_COMMANDO, offset 1 */
+    .wide_screen_quads = 1,                           /* widescreen: the hit flash covers the whole picture (rr_gl.c) */
     .twin_stick = 1, .act_label = cc_labels, .bind_defaults = cc_binds, .nbind_defaults = (int)(sizeof cc_binds / sizeof cc_binds[0]),          /* handle_cybrcomm_io: four 8-bit stick ADCs x 0x10 at shared RAM 0x32..0x38 */
     .steer_add = 0, .gas_add = 0, .brake_add = 0,
     .inputs_idle = 0xFFFF,                            /* INPUT_PORTS_START(cybrcomm): every bit active-low, nothing pressed */

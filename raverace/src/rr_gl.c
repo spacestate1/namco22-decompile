@@ -18,6 +18,7 @@
  * one is measured against (--render-dump with --gl vs without).
  */
 #include <stdio.h>
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 #include <SDL.h>
@@ -110,6 +111,45 @@ static void push_quad(const geo_quad *q, void *user)
 }
 
 static uint32_t poly_word(int i) { return g_rr.poly[i & 0x7fff]; }
+
+/* Widescreen: the game's full-screen effects (Cyber Commando's hit flash) reach the picture's edges. The flash is a quad facing the
+ * camera -- an upright rectangle at ONE depth in a full-frame viewport -- that the game sizes to its own 640 x 480 screen: it covers the
+ * whole 4:3 picture and one side ends right at the 4:3 edge (the flash: x -6 .. far off to the right), so in a wider picture that side
+ * stopped short and left a strip of the scene unflashed. Such an edge, within 16 px outside the 4:3 frame, goes out to the picture's
+ * edge. Scenery is never one-depth AND screen-covering AND cut at the 4:3 edge. Games ask with rr_game_t.wide_screen_quads;
+ * ENG_WIDE_SCREENQ=0 turns it off. */
+static bool wide_screen_quad(const geo_quad *q, geo_quad *w)
+{
+    if (!g_rr_game->wide_screen_quads || g_scene_x0 > -0.5f) return false;
+    static int on = -1;
+    if (on < 0) { const char *e = getenv("ENG_WIDE_SCREENQ"); on = !(e && *e == '0'); }
+    if (!on || q->nrv != 4 || q->clip[0] > 0 || q->clip[1] < NW - 1) return false;
+    int x0 = 1 << 30, x1 = -(1 << 30), y0 = 1 << 30, y1 = -(1 << 30);
+    for (int k = 0; k < 4; k++) {
+        const geo_vert *v = &q->rv[k];
+        if (v->z <= 0 || v->z != q->rv[0].z) return false;                          /* not one depth: a piece of the world */
+        if (v->sx16 < x0) x0 = v->sx16; if (v->sx16 > x1) x1 = v->sx16;
+        if (v->sy16 < y0) y0 = v->sy16; if (v->sy16 > y1) y1 = v->sy16;
+    }
+    for (int k = 0; k < 4; k++) {                                                     /* an upright rectangle */
+        const geo_vert *v = &q->rv[k];
+        if ((v->sx16 - x0 > 16 && x1 - v->sx16 > 16) || (v->sy16 - y0 > 16 && y1 - v->sy16 > 16)) return false;
+    }
+    if (x0 > 0 || x1 < (NW - 1) * 16 || y0 > 0 || y1 < (NH - 1) * 16) return false;  /* covers the whole 4:3 picture */
+    const int out0 = (int)floorf(g_scene_x0) * 16, out1 = (int)ceilf(g_scene_x1) * 16;
+    const bool left = x0 >= -16 * 16 && x0 > out0, right = x1 <= (NW + 16) * 16 && x1 < out1;
+    if (!left && !right) return false;
+    *w = *q;
+    for (int k = 0; k < 4; k++) {
+        if (left && w->rv[k].sx16 - x0 <= 16) w->rv[k].sx16 = out0;
+        if (right && x1 - w->rv[k].sx16 <= 16) w->rv[k].sx16 = out1;
+    }
+    for (int k = 0; k < w->ndv; k++) {                                                /* the guard-band polygon the rasteriser draws */
+        if (left && w->dv[k].sx16 - x0 <= 16) w->dv[k].sx16 = out0;
+        if (right && x1 - w->dv[k].sx16 <= 16) w->dv[k].sx16 = out1;
+    }
+    return true;
+}
 
 /* A direct poly (namcos22_v.cpp draw_direct_poly): four screen-space vertices
  * with a per-vertex 1/z already worked out by the master. */
@@ -423,7 +463,8 @@ void rr_gl_draw(int vw, int vh)
                             qbuf[i].uvbox[0], qbuf[i].uvbox[1], qbuf[i].uvbox[2], qbuf[i].uvbox[3]);
             }
         }
-        eng_draw_quad(&qbuf[i], &dc);
+        geo_quad wq;
+        eng_draw_quad(wide_screen_quad(&qbuf[i], &wq) ? &wq : &qbuf[i], &dc);
     }
     eng_draw_end();
 
