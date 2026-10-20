@@ -2,6 +2,7 @@
  * One C function per Ghidra function; registers in R[], memory via vrd/vwr. */
 #include "lift_rt.h"
 #include "cm_lifted.h"
+uint32_t cs_wide_cull(uint32_t limit);   /* WIDESCREEN (hand-added): src/dsp/s21_dsp.c, the 17 bearing-cull compares */
 extern int rd_on;
 int rd_hook(uint32_t ep);
 extern int rd_stop_on;
@@ -310608,12 +310609,12 @@ A_2BA4A: RR_INS(0x2BA4AU); /* neg.w D0w */
   P_2BA4A_6: RS1(0x43, RG1(0x47));
   P_2BA4A_7: RS1(0x45, ((u5ba00 & 0xFFFFULL) == 0x0ULL));
   A_END_2BA4A: ;
-A_2BA4C: RR_INS(0x2BA4CU); /* cmpi.w #0x2500,D0w */
+A_2BA4C: RR_INS(0x2BA4CU); /* cmpi.w #0x2500,D0w */   /* WIDESCREEN: bearing cull, src/dsp/s21_dsp.c cs_wide_cull */
   P_2BA4C_0: u41700 = (RG2(0x2)) & 0xFFFFULL;
-  P_2BA4C_1: RS1(0x47, ((u41700 & 0xFFFFULL) < 0x2500ULL));
-  P_2BA4C_2: RS1(0x46, SBORROW((u41700 & 0xFFFFULL), 0x2500ULL, 2));
+  P_2BA4C_1: RS1(0x47, ((u41700 & 0xFFFFULL) < (uint64_t)cs_wide_cull(0x2500U)));
+  P_2BA4C_2: RS1(0x46, SBORROW((u41700 & 0xFFFFULL), (uint64_t)cs_wide_cull(0x2500U), 2));
   P_2BA4C_3: RS1(0x43, RG1(0x47));
-  P_2BA4C_4: u41900 = ((u41700 & 0xFFFFULL) - 0x2500ULL) & 0xFFFFULL;
+  P_2BA4C_4: u41900 = ((u41700 & 0xFFFFULL) - (uint64_t)cs_wide_cull(0x2500U)) & 0xFFFFULL;
   P_2BA4C_5: RS1(0x44, (SX2((u41900 & 0xFFFFULL)) < SX2(0x0ULL)));
   P_2BA4C_6: RS1(0x45, ((u41900 & 0xFFFFULL) == 0x0ULL));
   A_END_2BA4C: ;
@@ -318211,12 +318212,12 @@ A_2C89C: RR_INS(0x2C89CU); /* neg.w D0w */
   P_2C89C_6: RS1(0x43, RG1(0x47));
   P_2C89C_7: RS1(0x45, ((u5ba00 & 0xFFFFULL) == 0x0ULL));
   A_END_2C89C: ;
-A_2C89E: RR_INS(0x2C89EU); /* cmpi.w #0x2500,D0w */
+A_2C89E: RR_INS(0x2C89EU); /* cmpi.w #0x2500,D0w */   /* WIDESCREEN: bearing cull, src/dsp/s21_dsp.c cs_wide_cull */
   P_2C89E_0: u41700 = (RG2(0x2)) & 0xFFFFULL;
-  P_2C89E_1: RS1(0x47, ((u41700 & 0xFFFFULL) < 0x2500ULL));
-  P_2C89E_2: RS1(0x46, SBORROW((u41700 & 0xFFFFULL), 0x2500ULL, 2));
+  P_2C89E_1: RS1(0x47, ((u41700 & 0xFFFFULL) < (uint64_t)cs_wide_cull(0x2500U)));
+  P_2C89E_2: RS1(0x46, SBORROW((u41700 & 0xFFFFULL), (uint64_t)cs_wide_cull(0x2500U), 2));
   P_2C89E_3: RS1(0x43, RG1(0x47));
-  P_2C89E_4: u41900 = ((u41700 & 0xFFFFULL) - 0x2500ULL) & 0xFFFFULL;
+  P_2C89E_4: u41900 = ((u41700 & 0xFFFFULL) - (uint64_t)cs_wide_cull(0x2500U)) & 0xFFFFULL;
   P_2C89E_5: RS1(0x44, (SX2((u41900 & 0xFFFFULL)) < SX2(0x0ULL)));
   P_2C89E_6: RS1(0x45, ((u41900 & 0xFFFFULL) == 0x0ULL));
   A_END_2C89E: ;
@@ -319475,12 +319476,12 @@ A_2CB4E: RR_INS(0x2CB4EU); /* neg.w D0w */
   P_2CB4E_6: RS1(0x43, RG1(0x47));
   P_2CB4E_7: RS1(0x45, ((u5ba00 & 0xFFFFULL) == 0x0ULL));
   A_END_2CB4E: ;
-A_2CB50: RR_INS(0x2CB50U); /* cmpi.w #0x2500,D0w */
+A_2CB50: RR_INS(0x2CB50U); /* cmpi.w #0x2500,D0w */   /* WIDESCREEN: bearing cull, src/dsp/s21_dsp.c cs_wide_cull */
   P_2CB50_0: u41700 = (RG2(0x2)) & 0xFFFFULL;
-  P_2CB50_1: RS1(0x47, ((u41700 & 0xFFFFULL) < 0x2500ULL));
-  P_2CB50_2: RS1(0x46, SBORROW((u41700 & 0xFFFFULL), 0x2500ULL, 2));
+  P_2CB50_1: RS1(0x47, ((u41700 & 0xFFFFULL) < (uint64_t)cs_wide_cull(0x2500U)));
+  P_2CB50_2: RS1(0x46, SBORROW((u41700 & 0xFFFFULL), (uint64_t)cs_wide_cull(0x2500U), 2));
   P_2CB50_3: RS1(0x43, RG1(0x47));
-  P_2CB50_4: u41900 = ((u41700 & 0xFFFFULL) - 0x2500ULL) & 0xFFFFULL;
+  P_2CB50_4: u41900 = ((u41700 & 0xFFFFULL) - (uint64_t)cs_wide_cull(0x2500U)) & 0xFFFFULL;
   P_2CB50_5: RS1(0x44, (SX2((u41900 & 0xFFFFULL)) < SX2(0x0ULL)));
   P_2CB50_6: RS1(0x45, ((u41900 & 0xFFFFULL) == 0x0ULL));
   A_END_2CB50: ;
@@ -320321,12 +320322,12 @@ A_2CC72: RR_INS(0x2CC72U); /* neg.w D0w */
   P_2CC72_6: RS1(0x43, RG1(0x47));
   P_2CC72_7: RS1(0x45, ((u5ba00 & 0xFFFFULL) == 0x0ULL));
   A_END_2CC72: ;
-A_2CC74: RR_INS(0x2CC74U); /* cmpi.w #0x2500,D0w */
+A_2CC74: RR_INS(0x2CC74U); /* cmpi.w #0x2500,D0w */   /* WIDESCREEN: bearing cull, src/dsp/s21_dsp.c cs_wide_cull */
   P_2CC74_0: u41700 = (RG2(0x2)) & 0xFFFFULL;
-  P_2CC74_1: RS1(0x47, ((u41700 & 0xFFFFULL) < 0x2500ULL));
-  P_2CC74_2: RS1(0x46, SBORROW((u41700 & 0xFFFFULL), 0x2500ULL, 2));
+  P_2CC74_1: RS1(0x47, ((u41700 & 0xFFFFULL) < (uint64_t)cs_wide_cull(0x2500U)));
+  P_2CC74_2: RS1(0x46, SBORROW((u41700 & 0xFFFFULL), (uint64_t)cs_wide_cull(0x2500U), 2));
   P_2CC74_3: RS1(0x43, RG1(0x47));
-  P_2CC74_4: u41900 = ((u41700 & 0xFFFFULL) - 0x2500ULL) & 0xFFFFULL;
+  P_2CC74_4: u41900 = ((u41700 & 0xFFFFULL) - (uint64_t)cs_wide_cull(0x2500U)) & 0xFFFFULL;
   P_2CC74_5: RS1(0x44, (SX2((u41900 & 0xFFFFULL)) < SX2(0x0ULL)));
   P_2CC74_6: RS1(0x45, ((u41900 & 0xFFFFULL) == 0x0ULL));
   A_END_2CC74: ;
@@ -321741,12 +321742,12 @@ A_2CFB6: RR_INS(0x2CFB6U); /* neg.w D0w */
   P_2CFB6_6: RS1(0x43, RG1(0x47));
   P_2CFB6_7: RS1(0x45, ((u5ba00 & 0xFFFFULL) == 0x0ULL));
   A_END_2CFB6: ;
-A_2CFB8: RR_INS(0x2CFB8U); /* cmpi.w #0x2500,D0w */
+A_2CFB8: RR_INS(0x2CFB8U); /* cmpi.w #0x2500,D0w */   /* WIDESCREEN: bearing cull, src/dsp/s21_dsp.c cs_wide_cull */
   P_2CFB8_0: u41700 = (RG2(0x2)) & 0xFFFFULL;
-  P_2CFB8_1: RS1(0x47, ((u41700 & 0xFFFFULL) < 0x2500ULL));
-  P_2CFB8_2: RS1(0x46, SBORROW((u41700 & 0xFFFFULL), 0x2500ULL, 2));
+  P_2CFB8_1: RS1(0x47, ((u41700 & 0xFFFFULL) < (uint64_t)cs_wide_cull(0x2500U)));
+  P_2CFB8_2: RS1(0x46, SBORROW((u41700 & 0xFFFFULL), (uint64_t)cs_wide_cull(0x2500U), 2));
   P_2CFB8_3: RS1(0x43, RG1(0x47));
-  P_2CFB8_4: u41900 = ((u41700 & 0xFFFFULL) - 0x2500ULL) & 0xFFFFULL;
+  P_2CFB8_4: u41900 = ((u41700 & 0xFFFFULL) - (uint64_t)cs_wide_cull(0x2500U)) & 0xFFFFULL;
   P_2CFB8_5: RS1(0x44, (SX2((u41900 & 0xFFFFULL)) < SX2(0x0ULL)));
   P_2CFB8_6: RS1(0x45, ((u41900 & 0xFFFFULL) == 0x0ULL));
   A_END_2CFB8: ;
@@ -324237,12 +324238,12 @@ A_2DBF0: RR_INS(0x2DBF0U); /* neg.w D0w */
   P_2DBF0_6: RS1(0x43, RG1(0x47));
   P_2DBF0_7: RS1(0x45, ((u5ba00 & 0xFFFFULL) == 0x0ULL));
   A_END_2DBF0: ;
-A_2DBF2: RR_INS(0x2DBF2U); /* cmpi.w #0x2500,D0w */
+A_2DBF2: RR_INS(0x2DBF2U); /* cmpi.w #0x2500,D0w */   /* WIDESCREEN: bearing cull, src/dsp/s21_dsp.c cs_wide_cull */
   P_2DBF2_0: u41700 = (RG2(0x2)) & 0xFFFFULL;
-  P_2DBF2_1: RS1(0x47, ((u41700 & 0xFFFFULL) < 0x2500ULL));
-  P_2DBF2_2: RS1(0x46, SBORROW((u41700 & 0xFFFFULL), 0x2500ULL, 2));
+  P_2DBF2_1: RS1(0x47, ((u41700 & 0xFFFFULL) < (uint64_t)cs_wide_cull(0x2500U)));
+  P_2DBF2_2: RS1(0x46, SBORROW((u41700 & 0xFFFFULL), (uint64_t)cs_wide_cull(0x2500U), 2));
   P_2DBF2_3: RS1(0x43, RG1(0x47));
-  P_2DBF2_4: u41900 = ((u41700 & 0xFFFFULL) - 0x2500ULL) & 0xFFFFULL;
+  P_2DBF2_4: u41900 = ((u41700 & 0xFFFFULL) - (uint64_t)cs_wide_cull(0x2500U)) & 0xFFFFULL;
   P_2DBF2_5: RS1(0x44, (SX2((u41900 & 0xFFFFULL)) < SX2(0x0ULL)));
   P_2DBF2_6: RS1(0x45, ((u41900 & 0xFFFFULL) == 0x0ULL));
   A_END_2DBF2: ;
@@ -325069,12 +325070,12 @@ A_2DD0C: RR_INS(0x2DD0CU); /* neg.w D0w */
   P_2DD0C_6: RS1(0x43, RG1(0x47));
   P_2DD0C_7: RS1(0x45, ((u5ba00 & 0xFFFFULL) == 0x0ULL));
   A_END_2DD0C: ;
-A_2DD0E: RR_INS(0x2DD0EU); /* cmpi.w #0x2500,D0w */
+A_2DD0E: RR_INS(0x2DD0EU); /* cmpi.w #0x2500,D0w */   /* WIDESCREEN: bearing cull, src/dsp/s21_dsp.c cs_wide_cull */
   P_2DD0E_0: u41700 = (RG2(0x2)) & 0xFFFFULL;
-  P_2DD0E_1: RS1(0x47, ((u41700 & 0xFFFFULL) < 0x2500ULL));
-  P_2DD0E_2: RS1(0x46, SBORROW((u41700 & 0xFFFFULL), 0x2500ULL, 2));
+  P_2DD0E_1: RS1(0x47, ((u41700 & 0xFFFFULL) < (uint64_t)cs_wide_cull(0x2500U)));
+  P_2DD0E_2: RS1(0x46, SBORROW((u41700 & 0xFFFFULL), (uint64_t)cs_wide_cull(0x2500U), 2));
   P_2DD0E_3: RS1(0x43, RG1(0x47));
-  P_2DD0E_4: u41900 = ((u41700 & 0xFFFFULL) - 0x2500ULL) & 0xFFFFULL;
+  P_2DD0E_4: u41900 = ((u41700 & 0xFFFFULL) - (uint64_t)cs_wide_cull(0x2500U)) & 0xFFFFULL;
   P_2DD0E_5: RS1(0x44, (SX2((u41900 & 0xFFFFULL)) < SX2(0x0ULL)));
   P_2DD0E_6: RS1(0x45, ((u41900 & 0xFFFFULL) == 0x0ULL));
   A_END_2DD0E: ;
@@ -326489,12 +326490,12 @@ A_2E050: RR_INS(0x2E050U); /* neg.w D0w */
   P_2E050_6: RS1(0x43, RG1(0x47));
   P_2E050_7: RS1(0x45, ((u5ba00 & 0xFFFFULL) == 0x0ULL));
   A_END_2E050: ;
-A_2E052: RR_INS(0x2E052U); /* cmpi.w #0x2500,D0w */
+A_2E052: RR_INS(0x2E052U); /* cmpi.w #0x2500,D0w */   /* WIDESCREEN: bearing cull, src/dsp/s21_dsp.c cs_wide_cull */
   P_2E052_0: u41700 = (RG2(0x2)) & 0xFFFFULL;
-  P_2E052_1: RS1(0x47, ((u41700 & 0xFFFFULL) < 0x2500ULL));
-  P_2E052_2: RS1(0x46, SBORROW((u41700 & 0xFFFFULL), 0x2500ULL, 2));
+  P_2E052_1: RS1(0x47, ((u41700 & 0xFFFFULL) < (uint64_t)cs_wide_cull(0x2500U)));
+  P_2E052_2: RS1(0x46, SBORROW((u41700 & 0xFFFFULL), (uint64_t)cs_wide_cull(0x2500U), 2));
   P_2E052_3: RS1(0x43, RG1(0x47));
-  P_2E052_4: u41900 = ((u41700 & 0xFFFFULL) - 0x2500ULL) & 0xFFFFULL;
+  P_2E052_4: u41900 = ((u41700 & 0xFFFFULL) - (uint64_t)cs_wide_cull(0x2500U)) & 0xFFFFULL;
   P_2E052_5: RS1(0x44, (SX2((u41900 & 0xFFFFULL)) < SX2(0x0ULL)));
   P_2E052_6: RS1(0x45, ((u41900 & 0xFFFFULL) == 0x0ULL));
   A_END_2E052: ;
@@ -328829,12 +328830,12 @@ A_2EC38: RR_INS(0x2EC38U); /* neg.w D0w */
   P_2EC38_6: RS1(0x43, RG1(0x47));
   P_2EC38_7: RS1(0x45, ((u5ba00 & 0xFFFFULL) == 0x0ULL));
   A_END_2EC38: ;
-A_2EC3A: RR_INS(0x2EC3AU); /* cmpi.w #0x2500,D0w */
+A_2EC3A: RR_INS(0x2EC3AU); /* cmpi.w #0x2500,D0w */   /* WIDESCREEN: bearing cull, src/dsp/s21_dsp.c cs_wide_cull */
   P_2EC3A_0: u41700 = (RG2(0x2)) & 0xFFFFULL;
-  P_2EC3A_1: RS1(0x47, ((u41700 & 0xFFFFULL) < 0x2500ULL));
-  P_2EC3A_2: RS1(0x46, SBORROW((u41700 & 0xFFFFULL), 0x2500ULL, 2));
+  P_2EC3A_1: RS1(0x47, ((u41700 & 0xFFFFULL) < (uint64_t)cs_wide_cull(0x2500U)));
+  P_2EC3A_2: RS1(0x46, SBORROW((u41700 & 0xFFFFULL), (uint64_t)cs_wide_cull(0x2500U), 2));
   P_2EC3A_3: RS1(0x43, RG1(0x47));
-  P_2EC3A_4: u41900 = ((u41700 & 0xFFFFULL) - 0x2500ULL) & 0xFFFFULL;
+  P_2EC3A_4: u41900 = ((u41700 & 0xFFFFULL) - (uint64_t)cs_wide_cull(0x2500U)) & 0xFFFFULL;
   P_2EC3A_5: RS1(0x44, (SX2((u41900 & 0xFFFFULL)) < SX2(0x0ULL)));
   P_2EC3A_6: RS1(0x45, ((u41900 & 0xFFFFULL) == 0x0ULL));
   A_END_2EC3A: ;
@@ -329433,12 +329434,12 @@ A_2ECFC: RR_INS(0x2ECFCU); /* neg.w D0w */
   P_2ECFC_6: RS1(0x43, RG1(0x47));
   P_2ECFC_7: RS1(0x45, ((u5ba00 & 0xFFFFULL) == 0x0ULL));
   A_END_2ECFC: ;
-A_2ECFE: RR_INS(0x2ECFEU); /* cmpi.w #0x2500,D0w */
+A_2ECFE: RR_INS(0x2ECFEU); /* cmpi.w #0x2500,D0w */   /* WIDESCREEN: bearing cull, src/dsp/s21_dsp.c cs_wide_cull */
   P_2ECFE_0: u41700 = (RG2(0x2)) & 0xFFFFULL;
-  P_2ECFE_1: RS1(0x47, ((u41700 & 0xFFFFULL) < 0x2500ULL));
-  P_2ECFE_2: RS1(0x46, SBORROW((u41700 & 0xFFFFULL), 0x2500ULL, 2));
+  P_2ECFE_1: RS1(0x47, ((u41700 & 0xFFFFULL) < (uint64_t)cs_wide_cull(0x2500U)));
+  P_2ECFE_2: RS1(0x46, SBORROW((u41700 & 0xFFFFULL), (uint64_t)cs_wide_cull(0x2500U), 2));
   P_2ECFE_3: RS1(0x43, RG1(0x47));
-  P_2ECFE_4: u41900 = ((u41700 & 0xFFFFULL) - 0x2500ULL) & 0xFFFFULL;
+  P_2ECFE_4: u41900 = ((u41700 & 0xFFFFULL) - (uint64_t)cs_wide_cull(0x2500U)) & 0xFFFFULL;
   P_2ECFE_5: RS1(0x44, (SX2((u41900 & 0xFFFFULL)) < SX2(0x0ULL)));
   P_2ECFE_6: RS1(0x45, ((u41900 & 0xFFFFULL) == 0x0ULL));
   A_END_2ECFE: ;
@@ -330026,12 +330027,12 @@ A_2EDD2: RR_INS(0x2EDD2U); /* neg.w D0w */
   P_2EDD2_6: RS1(0x43, RG1(0x47));
   P_2EDD2_7: RS1(0x45, ((u5ba00 & 0xFFFFULL) == 0x0ULL));
   A_END_2EDD2: ;
-A_2EDD4: RR_INS(0x2EDD4U); /* cmpi.w #0x2500,D0w */
+A_2EDD4: RR_INS(0x2EDD4U); /* cmpi.w #0x2500,D0w */   /* WIDESCREEN: bearing cull, src/dsp/s21_dsp.c cs_wide_cull */
   P_2EDD4_0: u41700 = (RG2(0x2)) & 0xFFFFULL;
-  P_2EDD4_1: RS1(0x47, ((u41700 & 0xFFFFULL) < 0x2500ULL));
-  P_2EDD4_2: RS1(0x46, SBORROW((u41700 & 0xFFFFULL), 0x2500ULL, 2));
+  P_2EDD4_1: RS1(0x47, ((u41700 & 0xFFFFULL) < (uint64_t)cs_wide_cull(0x2500U)));
+  P_2EDD4_2: RS1(0x46, SBORROW((u41700 & 0xFFFFULL), (uint64_t)cs_wide_cull(0x2500U), 2));
   P_2EDD4_3: RS1(0x43, RG1(0x47));
-  P_2EDD4_4: u41900 = ((u41700 & 0xFFFFULL) - 0x2500ULL) & 0xFFFFULL;
+  P_2EDD4_4: u41900 = ((u41700 & 0xFFFFULL) - (uint64_t)cs_wide_cull(0x2500U)) & 0xFFFFULL;
   P_2EDD4_5: RS1(0x44, (SX2((u41900 & 0xFFFFULL)) < SX2(0x0ULL)));
   P_2EDD4_6: RS1(0x45, ((u41900 & 0xFFFFULL) == 0x0ULL));
   A_END_2EDD4: ;
@@ -330639,12 +330640,12 @@ A_2EE9E: RR_INS(0x2EE9EU); /* neg.w D0w */
   P_2EE9E_6: RS1(0x43, RG1(0x47));
   P_2EE9E_7: RS1(0x45, ((u5ba00 & 0xFFFFULL) == 0x0ULL));
   A_END_2EE9E: ;
-A_2EEA0: RR_INS(0x2EEA0U); /* cmpi.w #0x3000,D0w */
+A_2EEA0: RR_INS(0x2EEA0U); /* cmpi.w #0x3000,D0w */   /* WIDESCREEN: bearing cull, src/dsp/s21_dsp.c cs_wide_cull */
   P_2EEA0_0: u41700 = (RG2(0x2)) & 0xFFFFULL;
-  P_2EEA0_1: RS1(0x47, ((u41700 & 0xFFFFULL) < 0x3000ULL));
-  P_2EEA0_2: RS1(0x46, SBORROW((u41700 & 0xFFFFULL), 0x3000ULL, 2));
+  P_2EEA0_1: RS1(0x47, ((u41700 & 0xFFFFULL) < (uint64_t)cs_wide_cull(0x3000U)));
+  P_2EEA0_2: RS1(0x46, SBORROW((u41700 & 0xFFFFULL), (uint64_t)cs_wide_cull(0x3000U), 2));
   P_2EEA0_3: RS1(0x43, RG1(0x47));
-  P_2EEA0_4: u41900 = ((u41700 & 0xFFFFULL) - 0x3000ULL) & 0xFFFFULL;
+  P_2EEA0_4: u41900 = ((u41700 & 0xFFFFULL) - (uint64_t)cs_wide_cull(0x3000U)) & 0xFFFFULL;
   P_2EEA0_5: RS1(0x44, (SX2((u41900 & 0xFFFFULL)) < SX2(0x0ULL)));
   P_2EEA0_6: RS1(0x45, ((u41900 & 0xFFFFULL) == 0x0ULL));
   A_END_2EEA0: ;
@@ -331134,10 +331135,10 @@ A_2EF3A: RR_INS(0x2EF3AU); /* neg.w D0w */
   P_2EF3A_6: RS1(0x43, RG1(0x47));
   P_2EF3A_7: RS1(0x45, ((u5ba00 & 0xFFFFULL) == 0x0ULL));
   A_END_2EF3A: ;
-A_2EF3C: RR_INS(0x2EF3CU); /* cmp.w (0x6,A2),D0w */
+A_2EF3C: RR_INS(0x2EF3CU); /* cmp.w (0x6,A2),D0w */   /* WIDESCREEN: bearing cull (the scenery entry's own limit), src/dsp/s21_dsp.c cs_wide_cull */
   P_2EF3C_0: ua500 = (RG4(0x28) + 0x6ULL) & 0xFFFFFFFFULL;
   P_2EF3C_1: ua600 = ((uint64_t)MRD2((uint32_t)(ua500 & 0xFFFFFFFFULL))) & 0xFFFFULL;
-  P_2EF3C_2: u40700 = ((ua600 & 0xFFFFULL)) & 0xFFFFULL;
+  P_2EF3C_2: u40700 = ((uint64_t)cs_wide_cull((uint32_t)(ua600 & 0xFFFFULL))) & 0xFFFFULL;
   P_2EF3C_3: RS1(0x47, (RG2(0x2) < (u40700 & 0xFFFFULL)));
   P_2EF3C_4: RS1(0x46, SBORROW(RG2(0x2), (u40700 & 0xFFFFULL), 2));
   P_2EF3C_5: RS1(0x43, RG1(0x47));
@@ -333375,12 +333376,12 @@ A_2F3FA: RR_INS(0x2F3FAU); /* neg.w D0w */
   P_2F3FA_6: RS1(0x43, RG1(0x47));
   P_2F3FA_7: RS1(0x45, ((u5ba00 & 0xFFFFULL) == 0x0ULL));
   A_END_2F3FA: ;
-A_2F3FC: RR_INS(0x2F3FCU); /* cmpi.w #0x2500,D0w */
+A_2F3FC: RR_INS(0x2F3FCU); /* cmpi.w #0x2500,D0w */   /* WIDESCREEN: bearing cull, src/dsp/s21_dsp.c cs_wide_cull */
   P_2F3FC_0: u41700 = (RG2(0x2)) & 0xFFFFULL;
-  P_2F3FC_1: RS1(0x47, ((u41700 & 0xFFFFULL) < 0x2500ULL));
-  P_2F3FC_2: RS1(0x46, SBORROW((u41700 & 0xFFFFULL), 0x2500ULL, 2));
+  P_2F3FC_1: RS1(0x47, ((u41700 & 0xFFFFULL) < (uint64_t)cs_wide_cull(0x2500U)));
+  P_2F3FC_2: RS1(0x46, SBORROW((u41700 & 0xFFFFULL), (uint64_t)cs_wide_cull(0x2500U), 2));
   P_2F3FC_3: RS1(0x43, RG1(0x47));
-  P_2F3FC_4: u41900 = ((u41700 & 0xFFFFULL) - 0x2500ULL) & 0xFFFFULL;
+  P_2F3FC_4: u41900 = ((u41700 & 0xFFFFULL) - (uint64_t)cs_wide_cull(0x2500U)) & 0xFFFFULL;
   P_2F3FC_5: RS1(0x44, (SX2((u41900 & 0xFFFFULL)) < SX2(0x0ULL)));
   P_2F3FC_6: RS1(0x45, ((u41900 & 0xFFFFULL) == 0x0ULL));
   A_END_2F3FC: ;
@@ -334873,12 +334874,12 @@ A_2F76E: RR_INS(0x2F76EU); /* neg.w D0w */
   P_2F76E_6: RS1(0x43, RG1(0x47));
   P_2F76E_7: RS1(0x45, ((u5ba00 & 0xFFFFULL) == 0x0ULL));
   A_END_2F76E: ;
-A_2F770: RR_INS(0x2F770U); /* cmpi.w #0x2500,D0w */
+A_2F770: RR_INS(0x2F770U); /* cmpi.w #0x2500,D0w */   /* WIDESCREEN: bearing cull, src/dsp/s21_dsp.c cs_wide_cull */
   P_2F770_0: u41700 = (RG2(0x2)) & 0xFFFFULL;
-  P_2F770_1: RS1(0x47, ((u41700 & 0xFFFFULL) < 0x2500ULL));
-  P_2F770_2: RS1(0x46, SBORROW((u41700 & 0xFFFFULL), 0x2500ULL, 2));
+  P_2F770_1: RS1(0x47, ((u41700 & 0xFFFFULL) < (uint64_t)cs_wide_cull(0x2500U)));
+  P_2F770_2: RS1(0x46, SBORROW((u41700 & 0xFFFFULL), (uint64_t)cs_wide_cull(0x2500U), 2));
   P_2F770_3: RS1(0x43, RG1(0x47));
-  P_2F770_4: u41900 = ((u41700 & 0xFFFFULL) - 0x2500ULL) & 0xFFFFULL;
+  P_2F770_4: u41900 = ((u41700 & 0xFFFFULL) - (uint64_t)cs_wide_cull(0x2500U)) & 0xFFFFULL;
   P_2F770_5: RS1(0x44, (SX2((u41900 & 0xFFFFULL)) < SX2(0x0ULL)));
   P_2F770_6: RS1(0x45, ((u41900 & 0xFFFFULL) == 0x0ULL));
   A_END_2F770: ;
@@ -335853,12 +335854,12 @@ A_300A2: RR_INS(0x300A2U); /* neg.w D0w */
   P_300A2_6: RS1(0x43, RG1(0x47));
   P_300A2_7: RS1(0x45, ((u5ba00 & 0xFFFFULL) == 0x0ULL));
   A_END_300A2: ;
-A_300A4: RR_INS(0x300A4U); /* cmpi.w #0x2500,D0w */
+A_300A4: RR_INS(0x300A4U); /* cmpi.w #0x2500,D0w */   /* WIDESCREEN: bearing cull, src/dsp/s21_dsp.c cs_wide_cull */
   P_300A4_0: u41700 = (RG2(0x2)) & 0xFFFFULL;
-  P_300A4_1: RS1(0x47, ((u41700 & 0xFFFFULL) < 0x2500ULL));
-  P_300A4_2: RS1(0x46, SBORROW((u41700 & 0xFFFFULL), 0x2500ULL, 2));
+  P_300A4_1: RS1(0x47, ((u41700 & 0xFFFFULL) < (uint64_t)cs_wide_cull(0x2500U)));
+  P_300A4_2: RS1(0x46, SBORROW((u41700 & 0xFFFFULL), (uint64_t)cs_wide_cull(0x2500U), 2));
   P_300A4_3: RS1(0x43, RG1(0x47));
-  P_300A4_4: u41900 = ((u41700 & 0xFFFFULL) - 0x2500ULL) & 0xFFFFULL;
+  P_300A4_4: u41900 = ((u41700 & 0xFFFFULL) - (uint64_t)cs_wide_cull(0x2500U)) & 0xFFFFULL;
   P_300A4_5: RS1(0x44, (SX2((u41900 & 0xFFFFULL)) < SX2(0x0ULL)));
   P_300A4_6: RS1(0x45, ((u41900 & 0xFFFFULL) == 0x0ULL));
   A_END_300A4: ;
@@ -337347,12 +337348,12 @@ A_302AC: RR_INS(0x302ACU); /* neg.w D0w */
   P_302AC_6: RS1(0x43, RG1(0x47));
   P_302AC_7: RS1(0x45, ((u5ba00 & 0xFFFFULL) == 0x0ULL));
   A_END_302AC: ;
-A_302AE: RR_INS(0x302AEU); /* cmpi.w #0x2500,D0w */
+A_302AE: RR_INS(0x302AEU); /* cmpi.w #0x2500,D0w */   /* WIDESCREEN: bearing cull, src/dsp/s21_dsp.c cs_wide_cull */
   P_302AE_0: u41700 = (RG2(0x2)) & 0xFFFFULL;
-  P_302AE_1: RS1(0x47, ((u41700 & 0xFFFFULL) < 0x2500ULL));
-  P_302AE_2: RS1(0x46, SBORROW((u41700 & 0xFFFFULL), 0x2500ULL, 2));
+  P_302AE_1: RS1(0x47, ((u41700 & 0xFFFFULL) < (uint64_t)cs_wide_cull(0x2500U)));
+  P_302AE_2: RS1(0x46, SBORROW((u41700 & 0xFFFFULL), (uint64_t)cs_wide_cull(0x2500U), 2));
   P_302AE_3: RS1(0x43, RG1(0x47));
-  P_302AE_4: u41900 = ((u41700 & 0xFFFFULL) - 0x2500ULL) & 0xFFFFULL;
+  P_302AE_4: u41900 = ((u41700 & 0xFFFFULL) - (uint64_t)cs_wide_cull(0x2500U)) & 0xFFFFULL;
   P_302AE_5: RS1(0x44, (SX2((u41900 & 0xFFFFULL)) < SX2(0x0ULL)));
   P_302AE_6: RS1(0x45, ((u41900 & 0xFFFFULL) == 0x0ULL));
   A_END_302AE: ;

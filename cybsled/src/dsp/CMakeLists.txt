@@ -40,6 +40,7 @@ endforeach()
 # the game library: the board glue + the C67 bus on the engine's C25 core + the translated programs. No interpreter.
 add_library(s21_dsp STATIC s21_dsp.c ${S21_ENGINE_C25}/c25_core.c ${S21_C67_GEN})
 target_include_directories(s21_dsp PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${S21_ENGINE_C25})
+target_include_directories(s21_dsp PRIVATE ${S21_REPO}/engine)   # wide_cull.h
 target_compile_options(s21_dsp PRIVATE -Wall -fno-strict-aliasing -fwrapv)
 
 # DEV: the same with the interpreter oracle (tools/c25oracle) and the engine's dev hooks: s21_dsp_use_oracle(), s21_dsp_lockstep()

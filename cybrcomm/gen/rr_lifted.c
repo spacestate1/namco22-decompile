@@ -3,6 +3,7 @@
 #include "rr_lift_rt.h"
 #include "rr_lifted.h"
 extern int rd_on;
+uint32_t cc_wide_cull(uint32_t limit);   /* WIDESCREEN (hand-added): src/cc_game.c, used at 0xA6FA2 */
 int rd_hook(uint32_t ep);
 extern int rd_stop_on;
 int rd_jump_stop(uint32_t t, uint32_t at);   /* src/rd: stop a checked run at its tail jump */
@@ -227853,12 +227854,12 @@ A_A6FA0: RR_INS(0xA6FA0U); /* neg.w D0w */
   P_A6FA0_6: RS1(0x43, RG1(0x47));
   P_A6FA0_7: RS1(0x45, ((u59800 & 0xFFFFULL) == 0x0ULL));
   A_END_A6FA0: ;
-A_A6FA2: RR_INS(0xA6FA2U); /* cmpi.w #0x1d00,D0w */
+A_A6FA2: RR_INS(0xA6FA2U); /* cmpi.w #0x1d00,D0w */   /* WIDESCREEN: the bearing cull widened with the picture (src/cc_game.c cc_wide_cull) */
   P_A6FA2_0: u41700 = (RG2(0x2)) & 0xFFFFULL;
-  P_A6FA2_1: RS1(0x47, ((u41700 & 0xFFFFULL) < 0x1D00ULL));
-  P_A6FA2_2: RS1(0x46, SBORROW((u41700 & 0xFFFFULL), 0x1D00ULL, 2));
+  P_A6FA2_1: RS1(0x47, ((u41700 & 0xFFFFULL) < (uint64_t)cc_wide_cull(0x1D00U)));
+  P_A6FA2_2: RS1(0x46, SBORROW((u41700 & 0xFFFFULL), (uint64_t)cc_wide_cull(0x1D00U), 2));
   P_A6FA2_3: RS1(0x43, RG1(0x47));
-  P_A6FA2_4: u41900 = ((u41700 & 0xFFFFULL) - 0x1D00ULL) & 0xFFFFULL;
+  P_A6FA2_4: u41900 = ((u41700 & 0xFFFFULL) - (uint64_t)cc_wide_cull(0x1D00U)) & 0xFFFFULL;
   P_A6FA2_5: RS1(0x44, (SX2((u41900 & 0xFFFFULL)) < SX2(0x0ULL)));
   P_A6FA2_6: RS1(0x45, ((u41900 & 0xFFFFULL) == 0x0ULL));
   A_END_A6FA2: ;

@@ -25,6 +25,7 @@
 
 #include "eng_display.h"
 void s21_dsp_set_view_extra(int px);             /* src/dsp/s21_dsp.h */
+void s21_set_wide_cull_px(int px);               /* src/dsp/s21_dsp.h */
 
 int g_eng_hud_edges_on = 1;      /* engine/hud_edges.c's Display-menu switch (eng_display.c sets it); System 21 has no HUD to move */
 
@@ -56,6 +57,7 @@ void s21_view_for(int fw, int fh)
      * reaches the edge instead of popping in on the picture; Widescreen off keeps the arcade's own window (CS_WIDE_MARGIN=<px>) */
     static int margin = -1; if (margin < 0) { const char *v = getenv("CS_WIDE_MARGIN"); margin = v ? atoi(v) : 48; }
     s21_dsp_set_view_extra(dsp_on && e > 0 ? e + margin : 0);
+    s21_set_wide_cull_px(dsp_on ? e : 0);              /* the master 68000's bearing cull follows the picture too */
     s21_video_set_wide_extra(bd_on ? e : 0);
 }
 
@@ -156,8 +158,17 @@ bool eng_gl_open_headless(int w, int h)
     eng_gl_context_attributes();
     hl_win = SDL_CreateWindow("engine", 0, 0, w, h, SDL_WINDOW_OPENGL | SDL_WINDOW_HIDDEN);
     if (!hl_win) { fprintf(stderr, "[GL] no window: %s\n", SDL_GetError()); return false; }
+#ifdef _WIN32
+    {   /* Windows: the GL entry points are resolved at run time (engine/gl_dyn.c), as the window does */
+        extern SDL_GLContext eng_gl_create_win(SDL_Window **win, const char **missing);
+        const char *miss = NULL;
+        hl_ctx = eng_gl_create_win(&hl_win, &miss);
+        if (!hl_ctx) { fprintf(stderr, "[GL] no context: %s%s\n", SDL_GetError(), miss ? miss : ""); return false; }
+    }
+#else
     hl_ctx = SDL_GL_CreateContext(hl_win);
     if (!hl_ctx) { fprintf(stderr, "[GL] no context: %s\n", SDL_GetError()); return false; }
+#endif
     fprintf(stderr, "[GL] headless: %s\n", (const char *)glGetString(GL_RENDERER));
     return true;
 }

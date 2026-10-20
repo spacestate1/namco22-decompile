@@ -24,6 +24,7 @@
 #include <string.h>
 #include "c25.h"
 #include "s21_dsp.h"
+#include "wide_cull.h"
 #ifdef C25_DEV_HOOKS
 #include "c25_oracle.h"
 void (*c25_hook_acc)(int kind, int space, uint32_t a, uint32_t v);
@@ -358,6 +359,14 @@ static uint16_t cuskey_r(c71_t *d)
  * check the program's own value, so the gates compare the programs, not the setting. */
 static int view_extra;
 void s21_dsp_set_view_extra(int px) { view_extra = px > 0 ? (px < 0x3000 ? px : 0x3000) : 0; }
+
+/* WIDESCREEN, the 68000 side: the master program also culls objects by bearing before they reach this board (gen/cm_lifted.c, the
+ * `cmpi.w #0x2500` after the atan at 0x2A0B4, minus the camera heading at 0x100B02: 52 deg against the arcade's horizontal half-view
+ * of 36.7 deg -- view word 2 = 0x3333, 72 deg, over the window's 242 rows gives focal 333; the 248 columns each side then span
+ * atan(248 / 333)). Those compares ask cs_wide_cull, which moves the limit out by what the half-view gained in the wide picture. */
+static int wide_cull_px;
+void s21_set_wide_cull_px(int px) { wide_cull_px = px > 0 ? px : 0; }
+uint32_t cs_wide_cull(uint32_t limit) { return eng_wide_cull(limit, 36.67, (248.0 + wide_cull_px) / 248.0); }
 
 uint16_t c25_dr(c71_t *d, uint32_t a)
 {
