@@ -59,6 +59,8 @@ void s21_set_wide_cull_px(int px);
  * 0x2EF3C whose entries carry their own), widened with the
  * picture: engine/wide_cull.h. */
 uint32_t cs_wide_cull(uint32_t limit);
+/* Widescreen: neighbouring heading sectors whose scenery cells the master 68000 also emits (gen/cm_lifted.c cs_wide_cells), 0 at 4:3. */
+int cs_wide_sectors(void);
 
 /* outputs */
 extern void (*s21_quad_out)(const s21_quad *q);     /* every finished quad, in submission order */

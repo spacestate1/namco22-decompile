@@ -367,6 +367,15 @@ void s21_dsp_set_view_extra(int px) { view_extra = px > 0 ? (px < 0x3000 ? px : 
 static int wide_cull_px;
 void s21_set_wide_cull_px(int px) { wide_cull_px = px > 0 ? px : 0; }
 uint32_t cs_wide_cull(uint32_t limit) { return eng_wide_cull(limit, 36.67, (248.0 + wide_cull_px) / 248.0); }
+/* ...and the scenery: the master program emits the stage's cells from a list chosen by the heading rounded to one of 16 sectors
+ * (22.5 deg each, gen/cm_lifted.c 0xBAB2), a visible set made for the 4:3 view, so cells past it never reached the DSPs and the
+ * distant scenery ended short of a wide picture's edges. cm_lifted.c cs_wide_cells adds the cells of this many neighbouring
+ * sectors on each side: enough sectors to cover what the half-view gained (0 at 4:3, 1 at 16:9 and 21:9). */
+int cs_wide_sectors(void)
+{
+    const uint32_t gain = eng_wide_cull(0, 36.67, (248.0 + wide_cull_px) / 248.0);   /* 68K angle units, 0x10000 to the turn */
+    return gain ? (int)((gain + 0x0FFF) / 0x1000) : 0;                                /* a sector is 0x1000 */
+}
 
 uint16_t c25_dr(c71_t *d, uint32_t a)
 {
