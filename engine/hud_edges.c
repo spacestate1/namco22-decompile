@@ -172,7 +172,7 @@ void eng_hud_quads_scan(const geo_quad *buf, int n, int band, bool zero_depth)
     if (!g_eng_hud_e) return;
     for (int i = 0; i < n; i++) {
         const int32_t *c = buf[i].clip;
-        if (c[0] <= 0 && c[1] >= ENG_SCREEN_W - 1) continue;            // a full-frame viewport is not a window
+        if (eng_clip_full(c)) continue;            // a full-frame viewport is not a window
         int k;
         for (k = 0; k < nwin; k++) if (!memcmp(win[k].r, c, sizeof win[k].r)) break;
         if (k == nwin && nwin < MAXWIN) { memcpy(win[nwin].r, c, sizeof win[0].r); win[nwin].dx = eng_hud_dx((c[0] + c[1]) / 2.0); nwin++; }
@@ -183,7 +183,7 @@ int eng_hud_quad_dx(const geo_quad *q)
 {
     if (!g_eng_hud_e) return 0;
     const int32_t *c = q->clip;
-    if (!(c[0] <= 0 && c[1] >= ENG_SCREEN_W - 1)) return eng_hud_dx((c[0] + c[1]) / 2.0);       // in a sub-window: with the window
+    if (!eng_clip_full(c)) return eng_hud_dx((c[0] + c[1]) / 2.0);       // in a sub-window: with the window
     const bool hud_piece = (hud_band >= 0 && ((q->zsort >> 21) & 7) == hud_band) || (hud_zero_depth && (q->zsort & 0x1FFFFF) == 0);
     if (!hud_piece) return 0;                                                                     // the world's
     int x0 = 1 << 30, x1 = -(1 << 30), y0 = 1 << 30, y1 = -(1 << 30);

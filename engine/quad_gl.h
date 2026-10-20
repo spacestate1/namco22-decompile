@@ -15,6 +15,11 @@
  * the widescreen mode (Hor+: full-frame viewports widen to fill it). */
 extern float g_scene_x0, g_scene_x1;
 
+/* A FULL-FRAME viewport: its clip window spans the 640 width (widescreen widens it to the scene's extent; anything narrower is a
+ * real sub-window and keeps its own). Within 2 px: the window is the game's float half-width times the zoom, truncated, and Cyber
+ * Commando's title comes out 0..638 -- with an exact test its starburst stayed in the 4:3 centre. */
+static inline int eng_clip_full(const int32_t *clip) { return clip[0] <= 2 && clip[1] >= ENG_SCREEN_W - 3; }
+
 /* Widescreen HUD (engine/hud_edges.h): how far a game moves this quad (scene units, whole), or NULL / 0 = where the game put it. A quad in
  * a sub-window viewport takes its clip window along. */
 extern int (*g_eng_quad_dx)(const geo_quad *q);
