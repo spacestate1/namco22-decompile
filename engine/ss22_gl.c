@@ -36,6 +36,20 @@ static int       qn, qcap, qorder;
 static void push_quad(const geo_quad *q, void *user)
 {
     (void)user;
+    /* The guard-band-clipped draw polygon (geo_hw.c, register row 187) in place of rv when the near-clipped polygon saturates -- as
+     * Prop Cycle (src/renderer_3d.c) and Rave Racer (rr_gl.c) draw it. Without it a quad with corners behind the eye kept rv's
+     * clamped +-2^27 px corners and could smear across the whole picture (Tokyo Wars' intro: one flat grey frame in the harbour
+     * shot). ndv < 0: wholly outside the guard band, nothing to draw. ENG_GUARDBAND_OFF=1: the old way (A/B). */
+    static int gb_off = -1;
+    if (gb_off < 0) gb_off = getenv("ENG_GUARDBAND_OFF") != NULL;
+    static geo_quad gq;
+    if (q->ndv != 0 && !gb_off) {
+        if (q->ndv < 0) return;
+        gq = *q;
+        memcpy(gq.rv, q->dv, sizeof(geo_vert) * (size_t)q->ndv);
+        gq.nrv = q->ndv;
+        q = &gq;
+    }
     if (qn == qcap) {
         int nc = qcap ? qcap * 2 : 8192;
         geo_quad *nb = realloc(qbuf, (size_t)nc * sizeof *qbuf);
