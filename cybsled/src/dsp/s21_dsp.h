@@ -53,6 +53,14 @@ const char *s21_dsp_error(void);
 /* Widescreen (Hor+): widen the slave's object-reject window by `px` board pixels on each side (the projection is unchanged;
  * s21_dsp.c "WIDESCREEN"). 0 = the board as is (default). Takes effect at the next 3D frame. */
 void s21_dsp_set_view_extra(int px);
+/* Widescreen (Hor+): the picture's extra board pixels on each side (0 = 4:3), for the 68000's bearing cull (cs_wide_cull below). */
+void s21_set_wide_cull_px(int px);
+/* The master 68000's object cull |bearing - heading| < limit (gen/cm_lifted.c: 16 sites with limit 0x2500 or 0x3000, and the scenery table walk at
+ * 0x2EF3C whose entries carry their own), widened with the
+ * picture: engine/wide_cull.h. */
+uint32_t cs_wide_cull(uint32_t limit);
+/* Widescreen: neighbouring heading sectors whose scenery cells the master 68000 also emits (gen/cm_lifted.c cs_wide_cells), 0 at 4:3. */
+int cs_wide_sectors(void);
 
 /* outputs */
 extern void (*s21_quad_out)(const s21_quad *q);     /* every finished quad, in submission order */

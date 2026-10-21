@@ -3,6 +3,14 @@
 #include "rr_game.h"
 #include "rr_lifted.h"
 #include "rr_input.h"
+#include "quad_gl.h"
+#include "wide_cull.h"
+
+/* WIDESCREEN: 0xA6F6A, the cull every scenery object goes through, keeps an object within 1024 units of the camera or within
+ * 0x1D00 (40.8 deg) of its heading -- the arcade's 30 deg half-view (view block FOV 60, half-width 320 at focal 554.25) plus slack.
+ * The compare at 0xA6FA2 (gen/rr_lifted.c) asks here: the limit moves out by what the half-view gained in the scene's width
+ * (g_scene_x0..x1, 640 at 4:3, set by rr_gl_draw for the picture it draws). */
+uint32_t cc_wide_cull(uint32_t limit) { return eng_wide_cull(limit, 30.0, (g_scene_x1 - g_scene_x0) / 640.0); }
 
 /* A player's first run: every chip taken out of MAME's zips by name, size and CRC (engine/romzip.c), the list as
  * ../acedriver/tools/setup_roms.py's GAMES["cybrcomm"] plus the sound BIOS. The board carries a second copy of every texture and
@@ -66,6 +74,7 @@ static const rr_game_t cc = {
     .gamma = { "rr1gam.2d", "rr1gam.3d", "rr1gam.4d" },
     .eeprom = "cy1eeprm.9e",                          /* the set's default EEPROM image */
     .keycus_off = 1, .keycus_val = 0x0185,            /* namcos22_keycus_r: NAMCOS22_CYBER_COMMANDO, offset 1 */
+    .wide_screen_quads = 1,                           /* widescreen: the hit flash covers the whole picture (rr_gl.c) */
     .twin_stick = 1, .act_label = cc_labels, .bind_defaults = cc_binds, .nbind_defaults = (int)(sizeof cc_binds / sizeof cc_binds[0]),          /* handle_cybrcomm_io: four 8-bit stick ADCs x 0x10 at shared RAM 0x32..0x38 */
     .steer_add = 0, .gas_add = 0, .brake_add = 0,
     .inputs_idle = 0xFFFF,                            /* INPUT_PORTS_START(cybrcomm): every bit active-low, nothing pressed */

@@ -289,6 +289,14 @@ void rr_tick(void)
       for (int i = 0; i < np; i++) if (frame >= pf[i] && frame <= pt[i]) rr_write(pa[i], ps[i], pv[i]); }
     for (int i = 0; i < n_steer; i++) if (frame >= (uint32_t)test_steer[i].at) g_hw.steer = (uint16_t)test_steer[i].value;
     for (int i = 0; i < n_adc; i++) if (frame >= (uint32_t)test_adc[i].at) g_hw.adc[test_adc[i].idx & 3] = (uint8_t)test_adc[i].value;
+    { static long pf = -2; if (pf == -2) { const char *e = getenv("RR_TEST_PLAY"); pf = e ? atol(e) : -1; }   /* RR_TEST_PLAY=F (twin-stick games, headless
+      * tests): from frame F the gun pulses and both sticks turn left / centre / right in turn, so a match runs (with --coin);
+      * RR_TEST_FIREONLY=1 keeps the sticks centred */
+      if (pf >= 0 && frame >= (uint32_t)pf) {
+          if (frame % 20 < 6) g_hw.inputs &= (uint16_t)~0x0001; else g_hw.inputs |= 0x0001;
+          const int t = getenv("RR_TEST_FIREONLY") ? 0 : (int)((frame / 90) % 4);
+          g_hw.adc[0] = (uint8_t)(t == 1 ? 0x47 : t == 3 ? 0xB7 : 0x7F); g_hw.adc[1] = (uint8_t)(t == 1 ? 0xB7 : t == 3 ? 0x47 : 0x7F);
+          g_hw.adc[2] = 0x7F; g_hw.adc[3] = 0x7F; } }
     if (windowed) {
         if (frame % 120 == 0) rr_hw_eeprom_save();     /* the test menu's settings and the records, once the game has changed them */
         do {

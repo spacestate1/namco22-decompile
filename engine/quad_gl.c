@@ -589,7 +589,7 @@ static void draw_quad_one(const geo_quad *q, const eng_draw_cfg *cfg)
      * FULL-FRAME one and widens to the scene's edges; a real sub-window (the
      * results map, the name-entry lens, the credits window) keeps its own. */
     const int sx0 = (int)g_scene_x0, sx1 = (int)g_scene_x1 - 1;
-    const int fullw = q->clip[0] <= 0 && q->clip[1] >= ENG_SCREEN_W - 1;
+    const int fullw = eng_clip_full(q->clip);
     const int hdx = g_eng_quad_dx ? g_eng_quad_dx(q) : 0;      /* widescreen HUD: this quad's move outward (0 = stays) */
     int cminx = fullw ? sx0 : (q->clip[0] < 0 ? 0 : q->clip[0]) + hdx;
     int cmaxx = fullw ? sx1 : (q->clip[1] > ENG_SCREEN_W - 1 ? ENG_SCREEN_W - 1 : q->clip[1]) + hdx;
@@ -909,7 +909,7 @@ fog_pass:
  * artwork in the middle is never stretched. Off unless the game asks (eng_draw_cfg.wide_backdrop); ENG_WIDE_BACKDROP=0 turns it off. */
 static bool backdrop_rect(const geo_quad *q, int L[2], int R[2])
 {
-    if (q->nrv != 4 || !(q->clip[0] <= 0 && q->clip[1] >= ENG_SCREEN_W - 1)) return false;
+    if (q->nrv != 4 || !eng_clip_full(q->clip)) return false;
     int xmin = 1 << 30, xmax = -(1 << 30), ymin = 1 << 30, ymax = -(1 << 30);
     for (int i = 0; i < 4; i++) {
         if (q->rv[i].z <= 0 || q->rv[i].z != q->rv[0].z) return false;               /* not one depth: a piece of the world */

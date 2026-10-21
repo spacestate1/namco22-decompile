@@ -31,6 +31,7 @@ void rr_host_set_hud_edges(int on);                /* widescreen: the HUD at the
 void rr_host_set_draw(int level);           /* draw distance 0 original .. 3 maximum */
 const char *rr_host_draw_name(int level);
 void rr_host_set_aspect(int a);          /* 0 stretch, 1 4:3, 2 8:7, 3 16:9 */
+void rr_host_set_wide_169(int on);       /* widescreen's shape: 0 the window's, 1 16:9 (saved as wide_aspect) */
 void rr_host_set_scaling(int s);         /* 0 smooth, 1 sharp, 2 integer */
 void rr_host_set_volume(int percent);
 void rr_host_set_freeplay(bool on);
