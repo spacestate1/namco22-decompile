@@ -143,6 +143,7 @@ void ss22_prepare(const ss22_regs *r)
 
     { static int hold;                                                /* widescreen: is the race HUD up? */
       hud_on = hud_cfg && hud_cfg->marks && eng_hud_marks_up(r->textram, hud_cfg->marks, hud_cfg->n_marks, &hold); }
+    g_tex_budget_paused = hud_cfg && hud_cfg->bake_all_without_hud && !hud_on;     /* attract and menus: no coarse placeholders */
 
     ni = 0; have_spr = false;
     if (!spr_off && g_sprite_tiles && r->spriteram &&

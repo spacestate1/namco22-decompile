@@ -165,7 +165,7 @@ static const ss22_game game = {
     .snd = { "tw1data.8k", { "tw1wavea.2l", NULL }, { 0, 0 }, 0x400000, 0xFFFF, { 2, 3 } },
     .video = { { "tw1cg0.8d", "tw1cg1.10d", "tw1cg2.12d", "tw1cg3.13d", "tw1cg4.14d", "tw1cg5.16d", "tw1cg6.18d", "tw1cg7.19d" },
                "tw1ccrl.3d", "tw1ccrh.1d", { "tw1scg0.12f", "tw1scg1.10f", "tw1scg2.8f", "tw1scg3.7f" }, 4, 4 * 0x200000, 0x00,
-               .hud = { hud_marks, 2, 0x10, -1 } },
+               .hud = { hud_marks, 2, 0x10, -1, .bake_all_without_hud = true } },
     .input = &input,
     .roms = k_roms, .n_roms = NROMS,
     .entry = L_4000,
