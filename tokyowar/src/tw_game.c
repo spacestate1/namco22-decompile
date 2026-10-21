@@ -17,7 +17,7 @@
 bool tw_c25_exec(c71_t *d, int pc);          /* gen/tw_c25.c */
 
 static const eng_rom_t k_roms[] = {
-    {"tokyowar_defaults.nv", 0x2000},
+    {"tokyowar_defaults.nv", 0x2000, NULL, NULL, true},   /* the default EEPROM image: older MAME sets lack it; without it the EEPROM starts blank */
     {"tw1ccrh.1d", 0x80000},
     {"tw1ccrl.3d", 0x200000},
     {"tw1cg0.8d", 0x200000},
@@ -108,6 +108,19 @@ static const ss22_action actions[] = {
     { "Left trigger",    "trigger_left",   SDL_SCANCODE_Z,      SDL_SCANCODE_LCTRL,    IN_LTRIG,   0,                   SS22_PAD(SDL_CONTROLLER_BUTTON_X) | SS22_PAD(SDL_CONTROLLER_BUTTON_LEFTSHOULDER) },
     { "Right trigger",   "trigger_right",  SDL_SCANCODE_X,      SDL_SCANCODE_LALT,     IN_RTRIG,   0,                   SS22_PAD(SDL_CONTROLLER_BUTTON_B) | SS22_PAD(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER) },
 };
+/* TWO STICKS (ss22_input_game.tank): the tank driven as Cyber Sled's sled, a lever per track -- for two joysticks (or a pad's two sticks,
+ * once bound). Unbound on a pad by default: its left stick steers and its triggers are the pedals, as before. Each stick's trigger has
+ * its own row, so the left joystick's fires the left trigger and the right's the right even when the two are the same model. */
+enum { TWT_LTRIG = SS22_TANK_LEVERS, TWT_RTRIG, TWT_START, TWT_N };
+static const ts_def tank[TWT_N] = {
+    [SS22_TANK_L_FWD]  = { "Left stick forward",  "left_forward",  "R", NULL }, [SS22_TANK_L_BACK] = { "Left stick back",  "left_back",  "F", NULL },
+    [SS22_TANK_R_FWD]  = { "Right stick forward", "right_forward", "I", NULL }, [SS22_TANK_R_BACK] = { "Right stick back", "right_back", "K", NULL },
+    [TWT_LTRIG] = { "Left stick trigger",  "left_trigger",  NULL, NULL },
+    [TWT_RTRIG] = { "Right stick trigger", "right_trigger", NULL, NULL },
+    [TWT_START] = { "Stick start / view",  "stick_start",   NULL, NULL },
+};
+static const uint16_t tank_bits[TWT_N] = { [TWT_LTRIG] = IN_LTRIG, [TWT_RTRIG] = IN_RTRIG, [TWT_START] = IN_START };
+
 static const ss22_input_game input = {
     actions, (int)(sizeof actions / sizeof *actions),
     0x100, 0x300, 0x100, 20,
@@ -116,6 +129,7 @@ static const ss22_input_game input = {
     ss22_snd_inputs,
     IN_TEST, IN_SERVICE,
     .kick_wheel = true,                      /* the handle solenoid (mcuout4, recoil_mask): a jolt on a force-feedback wheel */
+    .tank = tank, .ntank = TWT_N, .tank_bits = tank_bits,
 };
 
 /* widescreen: the battle HUD is up while the tank-count labels are on screen (text cells row 2: col 1 on the left, col 29 on the right). Its

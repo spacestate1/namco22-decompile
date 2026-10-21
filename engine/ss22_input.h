@@ -9,7 +9,10 @@
 #include <stdint.h>
 #include <SDL2/SDL.h>
 #include "eng_ui.h"
+#include "twin_stick.h"
 
+/* a TANK game on two sticks (ss22_input_game.tank): the first four rows of its table are the two levers, forward and back */
+enum { SS22_TANK_L_FWD, SS22_TANK_L_BACK, SS22_TANK_R_FWD, SS22_TANK_R_BACK, SS22_TANK_LEVERS };
 enum { SS22_AX_NONE = 0, SS22_AX_WHEEL_LEFT, SS22_AX_WHEEL_RIGHT, SS22_AX_PEDAL1, SS22_AX_PEDAL2 };
 #define SS22_PAD(b) (1u << (b))              /* an SDL_CONTROLLER_BUTTON_* in an action's pad mask */
 
@@ -49,6 +52,12 @@ typedef struct {
      * wheel's position, damping on its speed); the others are the road. Tapping the sum gives the force in full resolution,
      * and the two groups their own gains (the Controls page's FFB centering / FFB road effects). */
     struct { uint32_t addr; int parts; unsigned centre; int limit; } torque;
+    /* TWO STICKS DRIVING A WHEEL-AND-PEDALS TANK (Tokyo Wars), as Cyber Sled is driven: each stick is one track's lever. Both forward = the
+     * forward pedal, both back = the backward pedal, one against the other = the wheel (left forward, right back turns right). Rows
+     * through engine/twin_stick.c (a key, a pad input, two joystick slots each -- two joysticks of one model told apart): the four
+     * SS22_TANK_* levers first, then buttons, each pressing tank_bits[row]. NULL = not a tank game. */
+    const ts_def *tank; int ntank;
+    const uint16_t *tank_bits;
 } ss22_input_game;
 
 void ss22_input_init(const ss22_input_game *g);         /* after the settings file is loaded: the key bindings, the pads */
