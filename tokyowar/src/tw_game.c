@@ -139,6 +139,35 @@ static const eng_hud_mark hud_marks[] = { { 2, 1, 0x92D0 }, { 2, 29, 0x82D0 } };
 static const ss22_press_name presses[] = {
     {"coin", IN_COIN}, {"start", IN_START}, {"service", IN_SERVICE}, {"test", IN_TEST}, {"ltrig", IN_LTRIG}, {"rtrig", IN_RTRIG} };
 
+/* THE FAR CHASE VIEW (hand-added hooks in gen/tw_lifted_05.c). The view button (start) flips work RAM word 0xE00118 between 0 (the chase
+ * camera behind the turret) and 1 (the cockpit) at 0x1EC9E; the routine then copies the camera offset for this tank from a table in
+ * the ROM (chase 0x1ECFC, cockpit 0x1ECEC: 8 bytes a tank, index 0xE08C1C) into 0xE00422 (distance behind, chase 0x102) / 0xE00424
+ * (height, chase 0x97) / 0xE00426 (chase -0x150, not part of the offset). 0x10BD2 / 0x10C1A turn (0, height, -distance) by the tank's
+ * heading into the camera position. tw_view_cycle runs after the flip: chase -> FAR chase (the flip undone) -> cockpit -> chase.
+ * tw_far_cam runs after the chase copy: distance x2, height x1.5 (x2 hid the tank behind the energy bar). TW_FAR_VIEW=0: the arcade's two views. */
+static int tw_far, tw_view_prev = -1;
+static unsigned rd16(uint32_t o) { return (unsigned)g_ss22.wram[o] << 8 | g_ss22.wram[o + 1]; }
+static void wr16(uint32_t o, unsigned v) { g_ss22.wram[o] = (uint8_t)(v >> 8); g_ss22.wram[o + 1] = (uint8_t)v; }
+void tw_view_cycle(void)
+{
+    static int on = -1;
+    if (on < 0) on = !getenv("TW_FAR_VIEW") || atoi(getenv("TW_FAR_VIEW")) != 0;
+    unsigned f = rd16(0x118);
+    if (on && tw_view_prev == 0 && f == 1 && !tw_far) { tw_far = 1; wr16(0x118, 0); f = 0; }   /* chase -> far chase: stay on the chase camera */
+    else if (f == 1) tw_far = 0;                                                               /* far chase -> cockpit */
+    tw_view_prev = (int)f;
+}
+void tw_far_cam(void)
+{
+    if (!tw_far) return;
+    static int h = -1, d, p;                         /* tests: TW_FAR_H / TW_FAR_D / TW_FAR_P percent of the chase height / distance / 0xE00426 */
+    if (h < 0) { h = getenv("TW_FAR_H") ? atoi(getenv("TW_FAR_H")) : 150; d = getenv("TW_FAR_D") ? atoi(getenv("TW_FAR_D")) : 200;
+                 p = getenv("TW_FAR_P") ? atoi(getenv("TW_FAR_P")) : 100; }
+    wr16(0x422, (unsigned)((int16_t)rd16(0x422) * d / 100) & 0xFFFF);
+    wr16(0x424, (unsigned)((int16_t)rd16(0x424) * h / 100) & 0xFFFF);
+    wr16(0x426, (unsigned)((int16_t)rd16(0x426) * p / 100) & 0xFFFF);
+}
+
 /* tools/mame/cov_trace_play.lua, frame for frame */
 static void autoplay(long n, uint16_t *p, unsigned *wheel, unsigned *pedal1, unsigned *pedal2)
 {
