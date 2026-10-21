@@ -67,6 +67,7 @@ void eng_disp_render_size(int *w, int *h)
     out_size(&dw, &dh);
     double ar = 4.0 / 3.0;
     if (g_eng_disp.wide && (double)dw / dh > ar) ar = (double)dw / dh;
+    if (g_eng_disp.wide && g_eng_disp.wide_169) ar = 16.0 / 9.0;    /* Aspect ratio 16:9: that shape in any window, bars round it */
     int H = g_eng_disp.res_h;
     if (H <= 0) H = g_eng_disp.wide ? dh : (dh < dw * 3 / 4 ? dh : dw * 3 / 4);   /* native */
     if (H < 240) H = 240;
@@ -152,6 +153,7 @@ void eng_disp_load(const char *cfg_path, int scale, bool fullscreen)
     const char *s = eng_cfg_get("scaling");
     for (int i = 0; s && i < 3; i++) if (!strcmp(s, scaling_cfg[i])) d->scaling = i;
     d->hud_edges = eng_cfg_int("wide_hud", 1) != 0;
+    { const char *wa = eng_cfg_get("wide_aspect"); d->wide_169 = wa && !strcmp(wa, "16:9"); }
     { extern int g_eng_hud_edges_on; g_eng_hud_edges_on = d->hud_edges; }
     d->gun_border = eng_cfg_int("gun_border", 0);
     if (d->gun_border < 0 || d->gun_border > 6) d->gun_border = 0;
@@ -234,6 +236,7 @@ void eng_disp_set_wide(int on)
     eng_cfg_set("widescreen", g_eng_disp.wide ? "1" : "0");
     if (!g_eng_disp.winmode) apply_window();              /* a window takes the new shape */
 }
+void eng_disp_set_wide_169(int on) { g_eng_disp.wide_169 = on != 0; eng_cfg_set("wide_aspect", g_eng_disp.wide_169 ? "16:9" : "window"); }
 void eng_disp_set_aspect(int a) { g_eng_disp.aspect = a < 0 ? 0 : a > 3 ? 3 : a; eng_cfg_set("aspect", aspect_cfg[g_eng_disp.aspect]); }
 void eng_disp_set_scaling(int s) { g_eng_disp.scaling = s < 0 ? 0 : s > 2 ? 2 : s; eng_cfg_set("scaling", scaling_cfg[g_eng_disp.scaling]); }
 void eng_disp_set_volume_hook(void (*fn)(int)) { volume_hook = fn; }

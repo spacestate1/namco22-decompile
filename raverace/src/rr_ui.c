@@ -108,7 +108,6 @@ static bool has_value(int t, int r)
 static bool row_enabled(int t, int r)
 {
     if (t == T_DISPLAY && r == D_SIZE) return g_cfg_winmode == 0;
-    if (t == T_DISPLAY && r == D_ASPECT) return !g_cfg_wide;
     if (t == T_DISPLAY && r == D_HUD) return g_cfg_wide;
     return true;
 }
@@ -127,7 +126,7 @@ static void row_text(int t, int r, char *label, size_t ln, char *value, size_t v
     case T_DISPLAY:
         switch (r) {
         case D_DRAW:    snprintf(label, ln, "Draw distance"); snprintf(value, vn, "%s", rr_host_draw_name(g_cfg_draw)); break;
-        case D_WIDE:    snprintf(label, ln, "Widescreen"); snprintf(value, vn, "%s", g_cfg_wide ? "ON (fill the window)" : "OFF (4:3)"); break;
+        case D_WIDE:    snprintf(label, ln, "Widescreen"); snprintf(value, vn, "%s", !g_cfg_wide ? "OFF (4:3)" : g_cfg_wide_169 ? "ON (16:9)" : "ON (fill the window)"); break;
         case D_MODE:    snprintf(label, ln, "Window mode"); snprintf(value, vn, "%s", wm[g_cfg_winmode]); break;
         case D_SIZE:    snprintf(label, ln, "Window size"); { extern int rr_host_win_w(int), rr_host_win_h(int);
                           snprintf(value, vn, "%dx  (%d x %d)", g_cfg_scale, rr_host_win_w(g_cfg_scale), rr_host_win_h(g_cfg_scale)); } break;
@@ -136,7 +135,8 @@ static void row_text(int t, int r, char *label, size_t ln, char *value, size_t v
                         else if (g_cfg_res_w == 640 && g_cfg_res_h == 480) snprintf(value, vn, "640 x 480  (arcade)");
                         else snprintf(value, vn, "%d x %d", g_cfg_res_w, g_cfg_res_h);
                         break;
-        case D_ASPECT:  snprintf(label, ln, "Aspect ratio"); snprintf(value, vn, "%s", asp[g_cfg_aspect]); break;
+        case D_ASPECT:  snprintf(label, ln, "Aspect ratio");   /* widescreen on: the wide picture's shape; off: how the 4:3 picture is shown */
+                        snprintf(value, vn, "%s", g_cfg_wide ? (g_cfg_wide_169 ? "16:9" : "Fill the window") : asp[g_cfg_aspect]); break;
         case D_SCALING: snprintf(label, ln, "Scaling"); snprintf(value, vn, "%s", sc[g_cfg_scaling]); break;
         case D_FPS:     snprintf(label, ln, "Frame rate"); snprintf(value, vn, "%s", eng_vsync_rate_name(g_cfg_fps)); break;
         case D_HUD:     { extern int g_eng_hud_edges_on; snprintf(label, ln, "Widescreen HUD"); snprintf(value, vn, "%s", g_eng_hud_edges_on ? "at the screen edges" : "original (4:3 centre)"); break; }
@@ -257,7 +257,7 @@ static void row_change(int t, int r, int dir)
             rr_host_res_get(cyc(i, d, n), &w, &h);
             rr_host_set_res(w, h);
             break; }
-        case D_ASPECT:  rr_host_set_aspect(cyc(g_cfg_aspect, d, 4)); break;
+        case D_ASPECT:  if (g_cfg_wide) rr_host_set_wide_169(!g_cfg_wide_169); else rr_host_set_aspect(cyc(g_cfg_aspect, d, 4)); break;
         case D_SCALING: rr_host_set_scaling(cyc(g_cfg_scaling, d, 3)); break;
         case D_HUD:     { extern int g_eng_hud_edges_on; rr_host_set_hud_edges(!g_eng_hud_edges_on); break; }
         case D_FPS:     { extern void rr_host_set_fps(int); rr_host_set_fps(eng_vsync_rate_step(g_cfg_fps, d)); break; }

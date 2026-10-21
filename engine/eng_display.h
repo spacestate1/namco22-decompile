@@ -26,6 +26,7 @@ typedef struct {
     int aspect;                  /* 0 stretch, 1 4:3, 2 8:7, 3 16:9 */
     int scaling;                 /* 0 smooth, 1 sharp, 2 integer */
     int volume;                  /* 0..100 */
+    int wide_169;                /* widescreen's shape (Display > Aspect ratio while widescreen is on): 0 = the window's (the default), 1 = 16:9 */
     int hud_edges;               /* widescreen: 1 = the HUD slides out to the screen edges (default), 0 = the original HUD stays in the 4:3 centre */
     int gun_border;              /* light-gun games: a white border round the picture, 0..6 % of the window (Sinden-style guns need it), F8 cycles */
     int crosshair;               /* light-gun games: 1 = draw the aiming cross (default), 0 = none */
@@ -59,6 +60,7 @@ void eng_disp_set_winmode(int m);
 void eng_disp_set_scale(int k);
 void eng_disp_set_res(int w, int h);
 void eng_disp_set_aspect(int a);
+void eng_disp_set_wide_169(int on);       /* saved as wide_aspect: "16:9" or "window" */
 void eng_disp_set_scaling(int s);
 void eng_disp_set_volume(int pct);         /* also calls the hook below */
 void eng_disp_set_volume_hook(void (*fn)(int pct));

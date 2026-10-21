@@ -134,6 +134,7 @@ static void render_size(int *w, int *h)
     if (dw < 1 || dh < 1) { dw = 640; dh = 480; }
     double ar = 4.0 / 3.0;
     if (g_cfg_wide && (double)dw / dh > ar) ar = (double)dw / dh;
+    if (g_cfg_wide && g_cfg_wide_169) ar = 16.0 / 9.0;            /* Aspect ratio 16:9: that shape in any window, bars round it */
     int H = g_cfg_res_h;
     if (H <= 0) H = g_cfg_wide ? dh : (dh < dw * 3 / 4 ? dh : dw * 3 / 4);   /* native */
     if (H < 240) H = 240;
@@ -198,6 +199,7 @@ void rr_host_set_wide(int on)
     apply_render_size();
 }
 void rr_host_set_fps(int fps) { g_cfg_fps = eng_vsync_rate_valid(fps); char v[8]; snprintf(v, sizeof v, "%d", g_cfg_fps); save_opt("frame_rate", v); }
+void rr_host_set_wide_169(int on) { g_cfg_wide_169 = on != 0; save_opt("wide_aspect", g_cfg_wide_169 ? "16:9" : "window"); apply_render_size(); }
 void rr_host_set_aspect(int a) { g_cfg_aspect = a < 0 ? 0 : a > 3 ? 3 : a; save_opt("aspect", aspect_name[g_cfg_aspect]); }
 void rr_host_set_scaling(int sc) { g_cfg_scaling = sc < 0 ? 0 : sc > 2 ? 2 : sc; apply_scaling(); save_opt("scaling", scaling_name[g_cfg_scaling]); }
 void rr_host_set_volume(int pct)
