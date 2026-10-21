@@ -170,6 +170,7 @@ static const ss22_game game = {
     .roms = k_roms, .n_roms = NROMS,
     .entry = L_4000,
     .polls_per_frame = 66772,           /* 68K instructions per frame: MAME's average over its first 300 frames */
+    .dsp_vblank_lead = 1000,            /* the master reads its list before the 68K's vblank handler: no black frame at the attract cuts (as MAME) */
     .presses = presses, .n_presses = (int)(sizeof presses / sizeof *presses),
     .autoplay = autoplay,
     .pedal_full = { 0x100, 0x100 },

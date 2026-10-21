@@ -58,6 +58,7 @@ static bool video_on;
 #define SLICES 16
 static uint32_t slice;
 static int vblank_slices;
+static long dsp_lead;                             /* DSP steps of this vblank already run before the 68K's first slice (SS22_DSP_LEAD) */
 static long dsp_steps_per_frame = 166667;  /* the C71 at 40 MHz retires 10 M instructions/s: 1/59.9 s */
 static long serial_acc;                    /* MAME's dsp_serial timer: 100 Hz */
 
@@ -350,9 +351,11 @@ void rr_tick(void)
         long vb = dsp_steps_per_frame * 45 / 525 - (long)(2 - vblank_slices) * full;   /* the vblank INT0 inside it, and its PDP begin then */
         if (vb > full) vb = full;                       /* marks the NEXT update's list current (engine/frame_rule.h) */
         if (vb < 0) vb = 0;
-        ss22_dsp_run(vb);
+        long lead = dsp_lead < vb ? dsp_lead : vb;      /* already run at the vblank, before the 68K's slice */
+        dsp_lead -= lead;
+        ss22_dsp_run(vb - lead);
         g_ss22_in_vblank = false;
-        ss22_dsp_run(full - vb);
+        { long rest = full - vb, l2 = dsp_lead < rest ? dsp_lead : rest; dsp_lead -= l2; ss22_dsp_run(rest - l2); }
         vblank_slices--;
     } else
         ss22_dsp_run(dsp_steps_per_frame / SLICES);       /* the master DSP runs beside the 68K */
@@ -424,6 +427,9 @@ void rr_tick(void)
         ss22_hw_vblank();
         rr_deliver_irqs(ss22_hw_irq_level);
     }
+    {   static long lead_cfg = -1;                       /* the master's vblank work before the 68K's vblank handler (ss22_game.dsp_vblank_lead) */
+        if (lead_cfg < 0) lead_cfg = getenv("SS22_DSP_LEAD") ? atol(getenv("SS22_DSP_LEAD")) : g_ss22_game->dsp_vblank_lead;
+        if (lead_cfg > 0) { g_ss22_in_vblank = true; ss22_dsp_run(lead_cfg); dsp_lead = lead_cfg; } }
     if (rr_frame % 60 == 0) {
         char dbg[200]; ss22_dsp_debug(dbg, sizeof dbg);
         fprintf(stderr, "[%s] %s\n", g_ss22_game->tag, dbg);
