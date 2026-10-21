@@ -42,9 +42,12 @@ KEYS -- TOKYO WARS
   5             insert a coin           Enter      start
   Left / Right  steer (or A / D)        Up / Down  forward / backward pedal (or W / S)
   X / Z         right / left trigger    9          service
+  Enter (in a battle)  view: chase -> far chase -> cockpit
+  R / F         left stick forward / back   I / K   right stick forward / back (tank style, as Cyber Sled)
   Esc           menu: Display (widescreen, window mode, resolution, frame rate ...),
                 Audio (volume), Controls (rebind the keys)
   F11           fullscreen              F12        screenshot
+  Two joysticks: Esc -> Controls, the rows at the bottom (see TWO STICKS below).
 
 KEYS -- TIME CRISIS
 -------------------
@@ -119,8 +122,11 @@ KEYS -- CYBER SLED
   Pad: the left and right sticks are the two levers, A / RT gun, B / LT missile, Y view.
   Two joysticks: Esc -> Controls (see TWO STICKS below).
 
-TWO STICKS -- CYBER SLED AND CYBER COMMANDO
--------------------------------------------
+TWO STICKS -- CYBER SLED, CYBER COMMANDO AND TOKYO WARS
+-------------------------------------------------------
+  Tokyo Wars drives the tank the same way: each stick is one track. Both forward = forward, both back =
+  backward, one forward and one back = turn on the spot (half and half = a curve). Its rows are each
+  stick's forward / back, each stick's trigger and a start / view button; the wheel and pedals keep working.
   Esc -> Controls binds each stick's up / down / left / right, the tank rows and every button.
   Enter on a row, then press a key or button, push a hat or move a stick (Esc cancels).
   Left clears a row, Right puts its defaults back.
