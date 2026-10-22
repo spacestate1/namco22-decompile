@@ -6,7 +6,14 @@
 #ifdef _WIN32
 #include <windows.h>
 #endif
+#ifdef __APPLE__
+#include <OpenGL/gl.h>
+#ifndef APIENTRY
+#define APIENTRY
+#endif
+#else
 #include <GL/gl.h>
+#endif
 #ifndef GL_CLAMP_TO_EDGE
 #define GL_CLAMP_TO_EDGE 0x812F
 #endif

@@ -247,6 +247,7 @@ typedef struct {
     GLuint   gl_texture;       /* per-quad path (PROPCYCL_TEXATLAS=0) */
     uint16_t a_page, a_x, a_y; /* atlas: the slot's page and position */
     float    ou, ov;           /* atlas: the slot's texcoord origin */
+    uint32_t ccrc;             /* ENG_SLOTCHECK: CRC of the slot's shadow pixels at bake time */
 } TexCacheEntry;
 
 static TexCacheEntry tex_cache[TEX_CACHE_SIZE];
@@ -341,12 +342,74 @@ int tex_bake_atlas_active(void) { return atlas_on(); }
  * (tex_bake_commit). A scene change's hundreds of bakes become a handful of
  * uploads -- per-call, a glTexSubImage2D costs ~18 us on a Mesa/i965 mobile
  * driver, and 1700 of them were the 30 ms frame at Dirt Dash's race start. */
+void tex_bake_pages_crc(void)                  /* ENG_BBLOG diagnostics: CRC of each page's CPU shadow */
+{
+    extern unsigned long crc32(unsigned long, const unsigned char *, unsigned);
+    for (int i = 0; i < ap_n; i++) {
+        apage *p = &apages[i];
+        unsigned long c = crc32(0, p->shadow, (unsigned)((size_t)ATLAS_DIM * ATLAS_DIM * 4 > 0xFFFFFFFFu ? 0xFFFFFFFFu : (size_t)ATLAS_DIM * ATLAS_DIM * 4));
+        fprintf(stderr, "[PAGE] %d tex=%u shelf=(%d,%d,%d) nfr=%d ndr=%d crc=%08lx\n",
+                i, p->tex, p->cx, p->cy, p->row_h, p->nfr, p->ndr, c);
+    }
+}
+void tex_bake_atlas_view(int vw, int vh)       /* ENG_ATLASVIEW=<page>: draw that page over the frame */
+{
+    static int page = -2;
+    if (page == -2) { const char *e = getenv("ENG_ATLASVIEW"); page = e ? atoi(e) : -1; }
+    if (page < 0 || page >= ap_n) return;
+    glDisable(GL_BLEND); glDisable(GL_ALPHA_TEST); glDisable(GL_DEPTH_TEST); glDisable(GL_SCISSOR_TEST);
+    glEnable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, apages[page].tex);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+    glViewport(0, 0, vw, vh);
+    glMatrixMode(GL_PROJECTION); glPushMatrix(); glLoadIdentity(); glOrtho(0, 1, 1, 0, -1, 1);
+    glMatrixMode(GL_MODELVIEW); glPushMatrix(); glLoadIdentity();
+    glColor4f(1, 1, 1, 1);
+    glBegin(GL_QUADS);
+    glTexCoord2f(0, 0); glVertex2f(0, 0);
+    glTexCoord2f(1, 0); glVertex2f(1, 0);
+    glTexCoord2f(1, 1); glVertex2f(1, 1);
+    glTexCoord2f(0, 1); glVertex2f(0, 1);
+    glEnd();
+    glPopMatrix(); glMatrixMode(GL_PROJECTION); glPopMatrix(); glMatrixMode(GL_MODELVIEW);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+    glDisable(GL_TEXTURE_2D);
+}
 void tex_bake_commit(GLuint tex)               /* upload tex's page if bakes dirtied it */
 {
+#ifdef __EMSCRIPTEN__
+    { static int nobake = -1;                  /* ENG_NOBAKE=1: bisect -- freeze the pages after their first upload */
+      if (nobake < 0) nobake = getenv("ENG_NOBAKE") != NULL;
+      if (nobake) { static int warned; if (!warned++) fprintf(stderr, "[BAKE] uploads frozen (ENG_NOBAKE)\n"); return; } }
+#endif
     for (int i = 0; i < ap_n; i++) {
         apage *p = &apages[i];
         if (p->tex != tex || !p->ndr) continue;
         glBindTexture(GL_TEXTURE_2D, tex);
+#ifdef __EMSCRIPTEN__
+        { static int fullup = -1;              /* ENG_FULLUP=1: bisect -- whole page every commit */
+          if (fullup < 0) fullup = getenv("ENG_FULLUP") != NULL;
+          if (fullup) {
+              glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, ATLAS_DIM, ATLAS_DIM, GL_RGBA, GL_UNSIGNED_BYTE, p->shadow);
+              p->ndr = 0; p->dirty_x0 = p->dirty_y0 = ATLAS_DIM; p->dirty_x1 = p->dirty_y1 = 0;
+              return;
+          } }
+#endif
+#if defined(__EMSCRIPTEN__) || defined(TEX_BAKE_BANDS)
+        /* WebGL1 has no GL_UNPACK_ROW_LENGTH: upload full-width BANDS, whose
+         * rows are contiguous in the shadow at stride ATLAS_DIM. Wider than
+         * the dirty rects, but correct; rects would need a repack copy. */
+        if (p->ndr > 0) {
+            for (int r = 0; r < p->ndr; r++) {
+                const arect *d = &p->dr[r];
+                glTexSubImage2D(GL_TEXTURE_2D, 0, 0, d->y, ATLAS_DIM, d->h, GL_RGBA, GL_UNSIGNED_BYTE,
+                                p->shadow + (size_t)d->y * ATLAS_DIM * 4);
+            }
+        } else {
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, p->dirty_y0, ATLAS_DIM, p->dirty_y1 - p->dirty_y0,
+                            GL_RGBA, GL_UNSIGNED_BYTE, p->shadow + (size_t)p->dirty_y0 * ATLAS_DIM * 4);
+        }
+#else
         glPixelStorei(GL_UNPACK_ROW_LENGTH, ATLAS_DIM);
         if (p->ndr > 0) {
             for (int r = 0; r < p->ndr; r++) {
@@ -359,6 +422,7 @@ void tex_bake_commit(GLuint tex)               /* upload tex's page if bakes dir
                             GL_RGBA, GL_UNSIGNED_BYTE, p->shadow + ((size_t)p->dirty_y0 * ATLAS_DIM + p->dirty_x0) * 4);
         }
         glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+#endif
         p->ndr = 0; p->dirty_x0 = p->dirty_y0 = ATLAS_DIM; p->dirty_x1 = p->dirty_y1 = 0;
         return;
     }
@@ -400,7 +464,8 @@ static void atlas_page_init(int i)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, ATLAS_DIM, ATLAS_DIM, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
     apages[i].shadow = malloc((size_t)ATLAS_DIM * ATLAS_DIM * 4);
-    if (!apages[i].shadow) fprintf(stderr, "[TEX] atlas shadow: out of memory\n");
+    if (!apages[i].shadow) fprintf(stderr, "[TEX] atlas shadow %d: OUT OF MEMORY (frame %u) -- bakes on this page will be LOST\n", i, g_eng_frame);
+    else fprintf(stderr, "[TEX] atlas page %d created (frame %u)\n", i, g_eng_frame);
     apages[i].ndr = 0; apages[i].dirty_x0 = apages[i].dirty_y0 = ATLAS_DIM; apages[i].dirty_x1 = apages[i].dirty_y1 = 0;
     apages[i].cx = apages[i].cy = apages[i].row_h = 0;
     apages[i].nfr = 0;
@@ -539,6 +604,7 @@ long g_tex_page_resets;
 static void atlas_page_reset(int p)
 {
     g_tex_page_resets++;
+    fprintf(stderr, "[TEX] atlas page %d RESET (frame %u, reset #%ld)\n", p, g_eng_frame, g_tex_page_resets);
     /* the reset DISCARDS the page's unuploaded dirty band and reuses the space:
      * upload it and draw any buffered quads referencing it first -- a band
      * cleared before its slots ever reached the GL texture draws as garbage
@@ -559,6 +625,143 @@ static void atlas_page_reset(int p)
     apages[p].nfr = 0;
     apages[p].ndr = 0; apages[p].dirty_x0 = apages[p].dirty_y0 = ATLAS_DIM; apages[p].dirty_x1 = apages[p].dirty_y1 = 0;
     page_dirty(p, 0, 0, 1, 1);          /* keep the white slot uploaded */
+}
+
+/* ---------------------------------------------------------- diagnostics ----
+ * The attract-flyover bug (web only): quads visibly sample the WRONG slot
+ * content. Three layers could be lying, and these separate them:
+ *   ENG_SLOTCHECK=<from>  every frame >= from, re-CRC every occupied entry's
+ *                         shadow rect against the CRC taken at bake time.
+ *                         Mismatch = the CPU shadow was corrupted after the
+ *                         bake (overlapping allocs / stale slot).
+ *   ENG_PAGEVERIFY=<f>    at exactly frame f (web only), read each page back
+ *                         from the GPU and memcmp every occupied entry's rect
+ *                         against the shadow. Mismatch = upload loss.
+ *   ENG_ATLASDUMP=<f>     at exactly frame f, write each page's shadow,
+ *                         downsampled 4x, as nd/atlas_s<i>.ppm.
+ * Both checks clean => the error is at draw time (texcoords / binding). */
+static long diag_slotcheck = -2, diag_pagever = -2, diag_dump = -2;
+static int  diag_env_read;
+static void diag_env(void)
+{
+    const char *e;
+    diag_env_read = 1;
+    diag_slotcheck = (e = getenv("ENG_SLOTCHECK"))  ? atol(e) : -1;
+    diag_pagever   = (e = getenv("ENG_PAGEVERIFY")) ? atol(e) : -1;
+    diag_dump      = (e = getenv("ENG_ATLASDUMP"))  ? atol(e) : -1;
+}
+static int slot_crc_on(void) { if (!diag_env_read) diag_env(); return diag_slotcheck >= 0; }
+extern unsigned long crc32(unsigned long, const unsigned char *, unsigned);
+static uint32_t slot_crc(const apage *p, int x, int y, int w, int h)
+{
+    unsigned long c = 0;
+    if (!p->shadow) return 0xDEADBEEF;        /* no shadow: the bake never landed */
+    for (int r = 0; r < h; r++)
+        c = crc32(c, p->shadow + ((size_t)(y + r) * ATLAS_DIM + x) * 4, (unsigned)w * 4);
+    return (uint32_t)c;
+}
+static void diag_slotcheck_run(void)
+{
+    int bad = 0, n = 0, printed = 0;
+    for (int i = 0; i < TEX_CACHE_SIZE; i++) {
+        TexCacheEntry *e = &tex_cache[i];
+        if (!e->occupied) continue;
+        n++;
+        uint32_t c = slot_crc(&apages[e->a_page], e->a_x, e->a_y, e->alloc_w, e->alloc_h);
+        if (c != e->ccrc) {
+            bad++;
+            if (printed++ < 8)
+                fprintf(stderr, "[SLOTCHK] BAD uv=(%u,%u %ux%u) bank=%u pal=%u cm=%u cap=%u page=%u at(%u,%u %ux%u) crc %08x != baked %08x\n",
+                        e->min_u, e->min_v, e->range_u, e->range_v, e->texbank, e->pal_group, e->cmode, e->cap,
+                        e->a_page, e->a_x, e->a_y, e->alloc_w, e->alloc_h, c, e->ccrc);
+        }
+    }
+    fprintf(stderr, "[SLOTCHK] frame %u: %d entries, %d shadow mismatches\n", g_eng_frame, n, bad);
+}
+#ifdef __EMSCRIPTEN__
+/* GLES2 framebuffer calls: present in emscripten's GL library but not in the
+ * legacy GL/gl.h this file sees. */
+#ifndef GL_FRAMEBUFFER
+#define GL_FRAMEBUFFER 0x8D40
+#define GL_COLOR_ATTACHMENT0 0x8CE0
+#define GL_FRAMEBUFFER_COMPLETE 0x8CD5
+#endif
+extern void glGenFramebuffers(GLsizei, GLuint *);
+extern void glBindFramebuffer(GLenum, GLuint);
+extern void glFramebufferTexture2D(GLenum, GLenum, GLenum, GLuint, GLint);
+extern GLenum glCheckFramebufferStatus(GLenum);
+extern void glDeleteFramebuffers(GLsizei, const GLuint *);
+static void diag_pageverify_run(void)
+{
+    uint8_t *band = malloc((size_t)ATLAS_DIM * 256 * 4);
+    if (!band) { fprintf(stderr, "[PAGEV] no memory for readback band\n"); return; }
+    GLuint fbo = 0;
+    glGenFramebuffers(1, &fbo);
+    for (int pi = 0; pi < ap_n; pi++) {
+        apage *p = &apages[pi];
+        if (!p->shadow) { fprintf(stderr, "[PAGEV] page %d HAS NO SHADOW\n", pi); continue; }
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, p->tex, 0);
+        GLenum st = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        if (st != GL_FRAMEBUFFER_COMPLETE) { fprintf(stderr, "[PAGEV] page %d fbo status %x\n", pi, st); continue; }
+        int bad = 0, n = 0, printed = 0;
+        for (int y0 = 0; y0 < ATLAS_DIM; y0 += 256) {
+            int bh2 = ATLAS_DIM - y0 < 256 ? ATLAS_DIM - y0 : 256;
+            glReadPixels(0, y0, ATLAS_DIM, bh2, GL_RGBA, GL_UNSIGNED_BYTE, band);
+            for (int i = 0; i < TEX_CACHE_SIZE; i++) {
+                TexCacheEntry *e = &tex_cache[i];
+                if (!e->occupied || e->a_page != pi) continue;
+                int ey0 = e->a_y > y0 ? e->a_y : y0;
+                int ey1 = (e->a_y + e->alloc_h) < (y0 + bh2) ? (e->a_y + e->alloc_h) : (y0 + bh2);
+                if (ey0 >= ey1) continue;
+                if (ey0 == e->a_y) n++;
+                for (int r = ey0; r < ey1; r++) {
+                    if (memcmp(band + ((size_t)(r - y0) * ATLAS_DIM + e->a_x) * 4,
+                               p->shadow + ((size_t)r * ATLAS_DIM + e->a_x) * 4,
+                               (size_t)e->alloc_w * 4)) {
+                        bad++;
+                        if (printed++ < 8)
+                            fprintf(stderr, "[PAGEV] BAD page=%d at(%u,%u %ux%u) row %d uv=(%u,%u %ux%u) pal=%u\n",
+                                    pi, e->a_x, e->a_y, e->alloc_w, e->alloc_h, r,
+                                    e->min_u, e->min_v, e->range_u, e->range_v, e->pal_group);
+                        break;
+                    }
+                }
+            }
+        }
+        fprintf(stderr, "[PAGEV] frame %u page %d: %d entries, %d GL!=shadow\n", g_eng_frame, pi, n, bad);
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glDeleteFramebuffers(1, &fbo);
+    free(band);
+}
+#endif
+static void diag_dump_run(void)
+{
+    for (int pi = 0; pi < ap_n; pi++) {
+        apage *p = &apages[pi];
+        if (!p->shadow) continue;
+        char name[64];
+        snprintf(name, sizeof name, "nd/atlas_s%d.ppm", pi);
+        FILE *f = fopen(name, "wb");
+        if (!f) { fprintf(stderr, "[ADUMP] cannot open %s\n", name); return; }
+        const int d = ATLAS_DIM / 4;
+        fprintf(f, "P6\n%d %d\n255\n", d, d);
+        for (int y = 0; y < d; y++)
+            for (int x = 0; x < d; x++)
+                fwrite(p->shadow + ((size_t)y * 4 * ATLAS_DIM + x * 4) * 4, 1, 3, f);
+        fclose(f);
+        fprintf(stderr, "[ADUMP] wrote %s\n", name);
+    }
+}
+void tex_bake_diag_frame(void)
+{
+    if (!diag_env_read) diag_env();
+    if (diag_slotcheck >= 0 && g_eng_frame >= (unsigned)diag_slotcheck) diag_slotcheck_run();
+#ifdef __EMSCRIPTEN__
+    if (diag_pagever >= 0 && g_eng_frame == (unsigned)diag_pagever) diag_pageverify_run();
+#endif
+    if (diag_dump >= 0 && g_eng_frame == (unsigned)diag_dump) diag_dump_run();
 }
 
 /* Static pixel buffer for baking (TEX_BAKE_MAX^2 RGBA, reused each bake) */
@@ -1074,6 +1277,7 @@ static GLuint bake_impl(int min_u, int min_v, int range_u, int range_v,
         slotp->alloc_w = (uint16_t)bw; slotp->alloc_h = (uint16_t)bh;
         slotp->a_page = (uint16_t)slot_page; slotp->a_x = (uint16_t)slot_x; slotp->a_y = (uint16_t)slot_y;
         slotp->ou = (float)slot_x / ATLAS_DIM; slotp->ov = (float)slot_y / ATLAS_DIM;
+        slotp->ccrc = slot_crc_on() ? slot_crc(&apages[slot_page], slot_x, slot_y, bw, bh) : 0;
     } else {
         slotp->alloc_w = (uint16_t)tw; slotp->alloc_h = (uint16_t)th;
     }
@@ -1111,7 +1315,19 @@ static double   now_ns(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC,
 /* The budgets are in texels sized for the reference speed; a slower machine (a 1440p GTX 1660 measured 12 ns) gets proportionally less per frame,
  * a faster one is never given more than configured. The floor matters: a 1.8 GHz mobile i5 bakes cold tilemap at ~50 ns a texel, where the old
  * 0.25 floor still allowed 150k texels -- 30 ms -- in one frame (Dirt Dash's race start). Let it scale to 1/20th. */
-static double budget_scale(void) { double k = REF_NS_PER_TEXEL / ns_per_texel; return k < 0.05 ? 0.05 : k > 1.0 ? 1.0 : k; }
+static double budget_scale(void) {
+#ifdef __EMSCRIPTEN__
+    /* clock_gettime is performance.now() quantized to ~100 us in the browser:
+     * tiny bakes measure as zero or enormous, ns_per_texel inflates on the
+     * noise, and the scale collapses to its floor -- a cold scene (the castle
+     * flyover) then CANNOT bake its textures and draws black placeholder
+     * slots. The budgets are texel counts; wasm bakes fast enough to take
+     * them at face value. */
+    return 1.0;
+#else
+    double k = REF_NS_PER_TEXEL / ns_per_texel; return k < 0.05 ? 0.05 : k > 1.0 ? 1.0 : k;
+#endif
+}
 static long     g_budget_draw, g_budget_pump;
 static int      budget_env_done;
 static double   frame_spent;
