@@ -33,6 +33,8 @@ static const struct { const char *name; double curve; } steer_levels[] = {
 static int steer_level = STEER_DEFAULT;
 static bool test_latch, test_prev[MAX_ACTIONS];
 static int service_frames;
+static double tank_lev[2];                       /* tank games: the left and right levers, -1 back .. +1 forward */
+static bool tank_keyed[2];                       /* a key / button / hat moved that lever: it springs back at the keys' pace */
 
 /* ---- raw wheels / joysticks -------------------------------------------------
  * SDL game controllers keep their standard layout. Everything else (wheels,
@@ -473,12 +475,61 @@ static bool tb_swap;                                            /* trackball: th
 static const struct { const char *name; int frames; } tb_smooth_levels[] = { {"off (instant)", 1}, {"light", 6}, {"normal", 12}, {"heavy", 24} };
 void ss22_snd_trackball_direct(bool on);
 void ss22_snd_trackball(int dx, int dy);                         /* engine/ss22_snd.c */
-static int pg_n(void) { return nsw() + nffb() + ngun() + 2 + game->n; }    /* the switches, the FFB rows, the gun rows, Reset, Stick steering, the actions */
-static bool pg_val(int r) { return (r >= nsw() && r < nsw() + nffb() + ngun()) || r == nsw() + nffb() + ngun() + 1; }
+static int ntank_rows(void) { return game->tank ? game->ntank + 1 : 0; }   /* a tank game: its twin-stick rows and the Stick deadzone */
+static int tank_row0(void) { return nsw() + nffb() + ngun() + 2 + game->n; }
+static int pg_n(void) { return tank_row0() + ntank_rows(); }    /* the switches, the FFB rows, the gun rows, Reset, Stick steering, the actions, the tank rows */
+static bool pg_val(int r) { return (r >= nsw() && r < nsw() + nffb() + ngun()) || r == nsw() + nffb() + ngun() + 1 || r >= tank_row0(); }
+static void tank_save(const char *k, const char *v) { eng_cfg_set(k, v); }
+/* SS22_FAKESTICKS=F (TEST, tank games): two SDL virtual joysticks of ONE model (same GUID: two of the same arcade stick), 2 axes and 3
+ * buttons each, attached at start; from frame F: both forward 120 f, left forward + right back 120 f, both back 120 f, centre 60 f,
+ * button 0 of the second stick 20 f; before that button 1 of stick 1 at 400 and 800 (coin), button 2 of stick 2 at 1000-1200 (start), both forward 20 f at 1400 and 1600. Bind them in the cfg (ja:-1.0@1@<guid> ...; the GUID is logged) and read SS22_INLOG=1. */
+static SDL_Joystick *fake_js[2];
+static long fake_from = -1, fake_f;
+static void fakesticks_init(void)
+{
+    const char *e = getenv("SS22_FAKESTICKS");
+    if (!e) return;
+    fake_from = atol(e);
+#if SDL_VERSION_ATLEAST(2, 24, 0)
+    for (int i = 0; i < 2; i++) {
+        SDL_VirtualJoystickDesc d; SDL_zero(d);
+        d.version = SDL_VIRTUAL_JOYSTICK_DESC_VERSION; d.type = SDL_JOYSTICK_TYPE_ARCADE_STICK;
+        d.naxes = 2; d.nbuttons = 3; d.vendor_id = 0x1234; d.product_id = 0x5678; d.name = "Fake arcade stick (SS22_FAKESTICKS)";
+        const int idx = SDL_JoystickAttachVirtualEx(&d);
+        if (idx >= 0) fake_js[i] = SDL_JoystickOpen(idx);
+        char g[40] = ""; if (fake_js[i]) SDL_JoystickGetGUIDString(SDL_JoystickGetGUID(fake_js[i]), g, sizeof g);
+        fprintf(stderr, "[INPUT] SS22_FAKESTICKS: stick %d %s %s\n", i + 1, fake_js[i] ? "attached" : SDL_GetError(), g);
+    }
+#endif
+}
+static void fakesticks_frame(void)
+{
+#if SDL_VERSION_ATLEAST(2, 24, 0)
+    if (!fake_js[0] || !fake_js[1]) return;
+    const long t = fake_f++ - fake_from;
+    int l = 0, r = 0;
+    SDL_JoystickSetVirtualButton(fake_js[0], 1, (Uint8)(fake_f % 400 < 6 && fake_f >= 300 && fake_f < 900));     /* button 1: bind coin / start to try a match */
+    SDL_JoystickSetVirtualButton(fake_js[1], 2, (Uint8)(fake_f % 100 < 6 && fake_f >= 1000 && fake_f < 1300));
+    if (fake_f >= 1400 && fake_f < 1800 && fake_f % 200 < 20) l = r = -32767;                                          /* the battlefield select's pedal */
+    if (t >= 0 && t < 120) l = r = -32767;
+    else if (t >= 120 && t < 240) { l = -32767; r = 32767; }
+    else if (t >= 240 && t < 360) l = r = 32767;
+    SDL_JoystickSetVirtualAxis(fake_js[0], 1, (Sint16)l); SDL_JoystickSetVirtualAxis(fake_js[1], 1, (Sint16)r);
+    SDL_JoystickSetVirtualButton(fake_js[1], 0, (Uint8)(t >= 420 && t < 440));
+    SDL_JoystickUpdate();
+#endif
+}
+static bool tank_capture(const SDL_Event *e, void *u) { (void)u; return ts_capture_event(e); }
 
 static void pg_text(int r, char *l, size_t ln, char *v, size_t vn)
 {
     *v = 0;
+    if (game->tank && r >= tank_row0()) {
+        const int c = r - tank_row0();
+        if (c < game->ntank) { snprintf(l, ln, "%s", ts_label(c)); ts_value_text(c, v, vn); }
+        else { snprintf(l, ln, "Stick deadzone"); snprintf(v, vn, "%d%%", ts_deadzone()); }
+        return;
+    }
     if (game->test_bit && r == 0) { snprintf(l, ln, "Test mode"); snprintf(v, vn, "%s", test_latch ? "ON" : "OFF"); return; }
     if (game->service_bit && r == (game->test_bit ? 1 : 0)) { snprintf(l, ln, "Service button"); snprintf(v, vn, "press"); return; }
     r -= nsw();
@@ -532,6 +583,12 @@ static void pg_text(int r, char *l, size_t ln, char *v, size_t vn)
 
 static void pg_change(int r, int dir)
 {
+    if (game->tank && r >= tank_row0()) {                /* a twin-stick row: Enter binds, Left clears, Right puts its defaults back */
+        const int c = r - tank_row0();
+        if (c < game->ntank) { ts_change(c, dir); if (dir == 0) eng_ui_capture_input(tank_capture, NULL); }
+        else { int v = ts_deadzone() + (dir ? dir : 1) * 5; if (!dir && v > 50) v = 0; ts_set_deadzone(v); }   /* Enter cycles */
+        return;
+    }
     if (r == nsw() + nffb() + ngun() + 1) {              /* Stick steering: left/right step through the levels, a press moves on (wrapping) */
         const int lv = dir < 0 ? steer_level - 1 : dir > 0 ? steer_level + 1 : (steer_level + 1) % STEER_N;
         if (lv >= 0 && lv < STEER_N) steer_set(lv);
@@ -621,6 +678,7 @@ static void pg_change(int r, int dir)
             eng_cfg_set(axis_cfg_name(k), ""); eng_cfg_set(guid_cfg_name(k), ""); eng_cfg_set(shape_cfg_name(k), "");
         }
         memset(&gas_cal, 0, sizeof gas_cal); memset(&brake_cal, 0, sizeof brake_cal);
+        if (game->tank) for (int c = 0; c < game->ntank; c++) ts_change(c, +1);
         return;
     }
     r -= 2;
@@ -636,6 +694,7 @@ static void pg_notes(void (*line)(const char *fmt, ...))
     line("Pedal direction is learned automatically and saved.");
     if (game->wheel_motor) line("Force feedback: the cabinet's wheel motor, on the bound steering wheel.");
     if (game->kick_wheel) line("Force feedback: the cannon's kick in the handle, on the bound wheel (and pad rumble).");
+    if (game->tank) line("Two sticks (the rows at the bottom): both forward / back drive, one against the other turns. Two joysticks of one model are told apart (#2).");
     if (game->trackball) line("Trackball: the mouse (a USB trackball is a mouse) is captured while playing. Keys: arrows / WASD. Pad: left stick (or D-pad), RT rolls forward, LT back.");
     for (int i = 1; i < 3; i++) if (game->notes[i]) line("%s", game->notes[i]);
 }
@@ -699,11 +758,13 @@ void ss22_input_init(const ss22_input_game *g)
     SDL_GameControllerAddMappingsFromFile("gamecontrollerdb.txt");
     pad_scan();
     raw_scan();
+    if (g->tank) { fakesticks_init(); ts_init(g->tank, g->ntank, tank_save); ts_load_from(eng_cfg_get); }
 }
 
 static int tb_mx, tb_my;                                         /* trackball: mouse motion since the last frame (relative mode) */
 void ss22_input_event(const SDL_Event *e)
 {
+    if (game && game->tank) ts_event(e);
     if (e->type == SDL_MOUSEMOTION && game && game->trackball && SDL_GetRelativeMouseMode()) { tb_mx += e->motion.xrel; tb_my += e->motion.yrel; }
     if (e->type == SDL_JOYDEVICEADDED || e->type == SDL_CONTROLLERDEVICEADDED) {
         pad_scan(); raw_scan();
@@ -809,6 +870,7 @@ static bool raw_wheel_value(int *out)
 {
     SDL_Joystick *js = bind_js(&joy_steer);
     if (!js || joy_steer.axis < 0 || joy_steer.axis >= SDL_JoystickNumAxes(js)) return false;
+    if (game->tank && !joy_steer.guid[0] && ts_uses_joystick(js)) return false;   /* the unbound default wheel is no joystick that IS a tank stick */
     int v = SDL_JoystickGetAxis(js, joy_steer.axis);
     if (joy_steer.invert) v = -v;
     if (v > -WHEEL_DEADZONE && v < WHEEL_DEADZONE) v = 0;
@@ -1083,6 +1145,34 @@ void ss22_input_update(void)
         if (v > pedal[1]) pedal[1] = v;
     }
 
+    /* THE TWO STICKS (a tank game): each a track's lever. An axis sets its lever, a key / button / hat ramps it 1/8 a frame and it
+     * springs back. While either lever is off centre they drive: the mean is the forward / backward pedal, half the difference the
+     * wheel (left forward, right back = full right) -- the wheel and pedals above stay usable when the sticks are let go. */
+    if (game->tank) {
+        fakesticks_frame();
+        for (int i = 0; i < 2; i++) {
+            bool dig;
+            const double v = ts_lever(i ? SS22_TANK_R_BACK : SS22_TANK_L_BACK, i ? SS22_TANK_R_FWD : SS22_TANK_L_FWD, &dig);
+            if (dig) tank_keyed[i] = true;
+            if (tank_keyed[i]) {
+                const double t = dig ? v : 0;
+                tank_lev[i] = tank_lev[i] < t ? (tank_lev[i] + 0.125 > t ? t : tank_lev[i] + 0.125) : (tank_lev[i] - 0.125 < t ? t : tank_lev[i] - 0.125);
+                if (!dig && tank_lev[i] == 0) tank_keyed[i] = false;
+            } else tank_lev[i] = v;
+        }
+        static bool tank_drove;
+        if (tank_drove && tank_lev[0] == 0 && tank_lev[1] == 0 && dir == 0 && !stick) wheel = centre;   /* let go: the tank stops turning now */
+        tank_drove = tank_lev[0] != 0 || tank_lev[1] != 0;
+        if (tank_drove) {
+            const double fwd = (tank_lev[0] + tank_lev[1]) / 2, turn = (tank_lev[0] - tank_lev[1]) / 2;
+            const int c = (game->wheel_min + game->wheel_max) / 2;
+            wheel = (unsigned)(c + (int)lround(turn * (turn > 0 ? game->wheel_max - c : c - game->wheel_min)));
+            const unsigned f = (unsigned)lround(fwd * game->pedal_max[0]), b = (unsigned)lround(-fwd * game->pedal_max[1]);
+            pedal[0] = fwd > 0 ? f : 0; pedal[1] = fwd < 0 ? b : 0;      /* the sticks say how far: no pedal key's ramp lingering */
+        }
+        for (int c = SS22_TANK_LEVERS; c < game->ntank; c++) if (game->tank_bits[c] && ts_held(c)) p |= game->tank_bits[c];
+    }
+
     if ((int)wheel < game->wheel_min) wheel = (unsigned)game->wheel_min;
     if ((int)wheel > game->wheel_max) wheel = (unsigned)game->wheel_max;
     for (int i = 0; i < 2; i++) if ((int)pedal[i] > game->pedal_max[i]) pedal[i] = (unsigned)game->pedal_max[i];
@@ -1107,6 +1197,7 @@ void ss22_input_neutral(void)
     swallow_arm = true;                                      /* the buttons held when the menu closes are ignored until released */
     const unsigned centre = (unsigned)((game->wheel_min + game->wheel_max) / 2);
     wheel = centre; pedal[0] = pedal[1] = 0;
+    tank_lev[0] = tank_lev[1] = 0; tank_keyed[0] = tank_keyed[1] = false;
     force = 0; ffb_apply();                                  /* the next byte from the game restores the force */
     if (kick_left > 0) {                                     /* a kick cut short: the frames that would end it do not run while paused or in the menu */
         kick_left = 0;

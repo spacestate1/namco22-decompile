@@ -33,6 +33,7 @@ set(NAMCO22_ENGINE_SS22_HOST_SRC
     ${NAMCO22_ENGINE_DIR}/ss22_host.c
     ${NAMCO22_ENGINE_DIR}/ss22_out.c
     ${NAMCO22_ENGINE_DIR}/ss22_input.c
+    ${NAMCO22_ENGINE_DIR}/twin_stick.c
     ${NAMCO22_ENGINE_FFB_SRC}
     ${NAMCO22_ENGINE_DIR}/ss22_board.c
     ${NAMCO22_ENGINE_DIR}/ss22_link.c

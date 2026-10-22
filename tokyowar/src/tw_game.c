@@ -17,7 +17,7 @@
 bool tw_c25_exec(c71_t *d, int pc);          /* gen/tw_c25.c */
 
 static const eng_rom_t k_roms[] = {
-    {"tokyowar_defaults.nv", 0x2000},
+    {"tokyowar_defaults.nv", 0x2000, NULL, NULL, true},   /* the default EEPROM image: older MAME sets lack it; without it the EEPROM starts blank */
     {"tw1ccrh.1d", 0x80000},
     {"tw1ccrl.3d", 0x200000},
     {"tw1cg0.8d", 0x200000},
@@ -108,6 +108,19 @@ static const ss22_action actions[] = {
     { "Left trigger",    "trigger_left",   SDL_SCANCODE_Z,      SDL_SCANCODE_LCTRL,    IN_LTRIG,   0,                   SS22_PAD(SDL_CONTROLLER_BUTTON_X) | SS22_PAD(SDL_CONTROLLER_BUTTON_LEFTSHOULDER) },
     { "Right trigger",   "trigger_right",  SDL_SCANCODE_X,      SDL_SCANCODE_LALT,     IN_RTRIG,   0,                   SS22_PAD(SDL_CONTROLLER_BUTTON_B) | SS22_PAD(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER) },
 };
+/* TWO STICKS (ss22_input_game.tank): the tank driven as Cyber Sled's sled, a lever per track -- for two joysticks (or a pad's two sticks,
+ * once bound). Unbound on a pad by default: its left stick steers and its triggers are the pedals, as before. Each stick's trigger has
+ * its own row, so the left joystick's fires the left trigger and the right's the right even when the two are the same model. */
+enum { TWT_LTRIG = SS22_TANK_LEVERS, TWT_RTRIG, TWT_START, TWT_N };
+static const ts_def tank[TWT_N] = {
+    [SS22_TANK_L_FWD]  = { "Left stick forward",  "left_forward",  "R", NULL }, [SS22_TANK_L_BACK] = { "Left stick back",  "left_back",  "F", NULL },
+    [SS22_TANK_R_FWD]  = { "Right stick forward", "right_forward", "I", NULL }, [SS22_TANK_R_BACK] = { "Right stick back", "right_back", "K", NULL },
+    [TWT_LTRIG] = { "Left stick trigger",  "left_trigger",  NULL, NULL },
+    [TWT_RTRIG] = { "Right stick trigger", "right_trigger", NULL, NULL },
+    [TWT_START] = { "Stick start / view",  "stick_start",   NULL, NULL },
+};
+static const uint16_t tank_bits[TWT_N] = { [TWT_LTRIG] = IN_LTRIG, [TWT_RTRIG] = IN_RTRIG, [TWT_START] = IN_START };
+
 static const ss22_input_game input = {
     actions, (int)(sizeof actions / sizeof *actions),
     0x100, 0x300, 0x100, 20,
@@ -116,6 +129,7 @@ static const ss22_input_game input = {
     ss22_snd_inputs,
     IN_TEST, IN_SERVICE,
     .kick_wheel = true,                      /* the handle solenoid (mcuout4, recoil_mask): a jolt on a force-feedback wheel */
+    .tank = tank, .ntank = TWT_N, .tank_bits = tank_bits,
 };
 
 /* widescreen: the battle HUD is up while the tank-count labels are on screen (text cells row 2: col 1 on the left, col 29 on the right). Its
@@ -124,6 +138,35 @@ static const eng_hud_mark hud_marks[] = { { 2, 1, 0x92D0 }, { 2, 29, 0x82D0 } };
 
 static const ss22_press_name presses[] = {
     {"coin", IN_COIN}, {"start", IN_START}, {"service", IN_SERVICE}, {"test", IN_TEST}, {"ltrig", IN_LTRIG}, {"rtrig", IN_RTRIG} };
+
+/* THE FAR CHASE VIEW (hand-added hooks in gen/tw_lifted_05.c). The view button (start) flips work RAM word 0xE00118 between 0 (the chase
+ * camera behind the turret) and 1 (the cockpit) at 0x1EC9E; the routine then copies the camera offset for this tank from a table in
+ * the ROM (chase 0x1ECFC, cockpit 0x1ECEC: 8 bytes a tank, index 0xE08C1C) into 0xE00422 (distance behind, chase 0x102) / 0xE00424
+ * (height, chase 0x97) / 0xE00426 (chase -0x150, not part of the offset). 0x10BD2 / 0x10C1A turn (0, height, -distance) by the tank's
+ * heading into the camera position. tw_view_cycle runs after the flip: chase -> FAR chase (the flip undone) -> cockpit -> chase.
+ * tw_far_cam runs after the chase copy: distance x2, height x1.5 (x2 hid the tank behind the energy bar). TW_FAR_VIEW=0: the arcade's two views. */
+static int tw_far, tw_view_prev = -1;
+static unsigned rd16(uint32_t o) { return (unsigned)g_ss22.wram[o] << 8 | g_ss22.wram[o + 1]; }
+static void wr16(uint32_t o, unsigned v) { g_ss22.wram[o] = (uint8_t)(v >> 8); g_ss22.wram[o + 1] = (uint8_t)v; }
+void tw_view_cycle(void)
+{
+    static int on = -1;
+    if (on < 0) on = !getenv("TW_FAR_VIEW") || atoi(getenv("TW_FAR_VIEW")) != 0;
+    unsigned f = rd16(0x118);
+    if (on && tw_view_prev == 0 && f == 1 && !tw_far) { tw_far = 1; wr16(0x118, 0); f = 0; }   /* chase -> far chase: stay on the chase camera */
+    else if (f == 1) tw_far = 0;                                                               /* far chase -> cockpit */
+    tw_view_prev = (int)f;
+}
+void tw_far_cam(void)
+{
+    if (!tw_far) return;
+    static int h = -1, d, p;                         /* tests: TW_FAR_H / TW_FAR_D / TW_FAR_P percent of the chase height / distance / 0xE00426 */
+    if (h < 0) { h = getenv("TW_FAR_H") ? atoi(getenv("TW_FAR_H")) : 150; d = getenv("TW_FAR_D") ? atoi(getenv("TW_FAR_D")) : 200;
+                 p = getenv("TW_FAR_P") ? atoi(getenv("TW_FAR_P")) : 100; }
+    wr16(0x422, (unsigned)((int16_t)rd16(0x422) * d / 100) & 0xFFFF);
+    wr16(0x424, (unsigned)((int16_t)rd16(0x424) * h / 100) & 0xFFFF);
+    wr16(0x426, (unsigned)((int16_t)rd16(0x426) * p / 100) & 0xFFFF);
+}
 
 /* tools/mame/cov_trace_play.lua, frame for frame */
 static void autoplay(long n, uint16_t *p, unsigned *wheel, unsigned *pedal1, unsigned *pedal2)
