@@ -49,6 +49,39 @@ static void rr_fatal(int code, const char *why)
     exit(code);
 }
 
+/* A jump to an address the lift has no instruction for, that the ROM says is a one-instruction
+ * trampoline: a bra (any size), a jmp abs.l or an rts. The 68K lift's function discovery misses
+ * these when the only reference is a code pointer stored for a later indirect call (Time Crisis
+ * keeps state handlers that way: 0x50AC0 = `bra.b 0x50A98`, reached through ([0xC,A5]) after
+ * eleven minutes of play, trapped the game). The instruction is emulated here instead and the
+ * dispatch goes on to its target -- the same thing the lifted code would have done. Returns 1
+ * when it was one of those; 0 = a real trap. The first time each is seen it is printed, so the
+ * lift can be told about it. */
+int rr_stub_jump(uint32_t t, uint32_t at)
+{
+    if (t >= 0x400000u || (t & 1)) return 0;                     /* program ROM only, even addresses */
+    const uint32_t w = rr_read(t, 2);
+    uint32_t dest; const char *what;
+    if ((w & 0xFF00u) == 0x6000u) {                               /* bra.b / bra.w / bra.l */
+        const uint32_t d8 = w & 0xFFu;
+        if (d8 == 0)         dest = t + 2 + (uint32_t)(int16_t)rr_read(t + 2, 2);
+        else if (d8 == 0xFF) dest = t + 2 + rr_read(t + 2, 4);
+        else                 dest = t + 2 + (uint32_t)(int8_t)d8;
+        what = "bra";
+    } else if (w == 0x4EF9u) { dest = rr_read(t + 2, 4); what = "jmp"; }
+    else if (w == 0x4E75u) {                                      /* rts: pop, then the same return as a lifted rts */
+        const uint32_t sp = (uint32_t)RG4(RR_REG_SP);
+        dest = rr_read(sp, 4); RS4(RR_REG_SP, sp + 4u);
+        what = "rts";
+    } else return 0;
+    static uint32_t seen[32]; static int n_seen;
+    int k; for (k = 0; k < n_seen; k++) if (seen[k] == t) break;
+    if (k == n_seen && n_seen < 32) { seen[n_seen++] = t; fprintf(stderr, "[RR] f%u 0x%06X -> 0x%06X: %s 0x%06X, a trampoline the lift has no instruction for; emulated\n", rr_frame, at, t, what, dest); }
+    if (w == 0x4E75u && rr_return(dest)) return 1;
+    rr_jump(dest, t);
+    return 1;
+}
+
 void rr_trap(uint32_t at, uint32_t target, const char *what)
 {
     snprintf(rr_last_trap, sizeof rr_last_trap, "frame %u: 0x%06X -> 0x%08X: %s", rr_frame, at, target, what);

@@ -18,6 +18,7 @@ extern void   (*rr_fatal_hook)(const char *why);
 
 /* generated (<base>_lifted.c): run whichever lifted function owns `target` */
 void rr_jump(uint32_t target, uint32_t at);
+int  rr_stub_jump(uint32_t target, uint32_t at);   /* engine/lift_cpu.c: a bra / jmp / rts the lift missed, emulated; 1 = handled */
 
 /* Deliver every pending interrupt above the SR mask. level_fn() = the highest pending 68K
  * level (0 = none). Ghidra's rte p-code is a bare return that restores neither SR nor SP, so

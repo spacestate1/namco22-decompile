@@ -38761,6 +38761,7 @@ void rr_jump(uint32_t t, uint32_t at)
     else if (t > rr_ia_[mid]) lo = mid + 1;
     else { rr_fnp_[rr_if_[mid]](t); return; }
   }
+  { int rr_stub_jump(uint32_t, uint32_t); if (rr_stub_jump(t, at)) return; }   /* hand edit: a trampoline the lift missed (engine/lift_cpu.c) */
   rr_trap(at, t, "jump to an address that is no known instruction");
 }
 /* an indirect CALL (jsr (An) / jsr through a table): the same dispatch as
