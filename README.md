@@ -400,7 +400,7 @@ the coins are put in and the choices made for you, then the gun is yours. It wor
 **No crosshair:** *Esc > Display > Crosshair* turns the red aiming
 cross off (a real light gun needs none).
 
-**Your own crosshair** (Time Crisis, Time Crisis II, Crisis Zone): put PNG pictures in a `crosshairs` folder beside the game (or one
+**Your own crosshair** (Time Crisis, Time Crisis II, Crisis Zone): put PNG pictures in a `crosshairs` folder beside the game `.exe` files (or one
 named `crosshair.png`), then pick one in *Esc > Display > Crosshair image*; "built-in" is the game's own cross. The picture: 8 bits per
 channel (grey, RGB, RGBA or a palette; transparency is kept), not interlaced, at most 256 x 256 pixels. It is drawn at its own size on a
 1080-line screen and scales with the window, so 64 x 64 is about the size of the built-in cross. The choice is saved.
