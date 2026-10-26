@@ -50,7 +50,7 @@ add_custom_command(OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/gen/snd_driver.c
   COMMAND ${CMAKE_COMMAND} -E env SND_DATA=cy1data.6r SND_RAMCODE=BC00:C000:BBB2 SND_UPLOAD=none
           ${Python3_EXECUTABLE} ${RR}/tools/gen/snd_translate.py tools/gen/snd.cov
   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-  DEPENDS ${RR}/tools/gen/snd_translate.py ${RR}/tools/gen/m7700_decode.py ${RR}/tools/gen/snd_rom.py ../tools/gen/snd_spin.inc tools/gen/snd.cov
+  DEPENDS ${RR}/tools/gen/snd_translate.py ${RR}/tools/gen/m7700_decode.py ${RR}/tools/gen/snd_rom.py ../tools/gen/snd_spin.inc ../tools/gen/snd_dispatch.py tools/gen/snd.cov
   COMMENT "translating Cyber Commando's sound program")
 set_source_files_properties(gen/snd_driver.c PROPERTIES COMPILE_OPTIONS "-O1;-w")
 

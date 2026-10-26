@@ -83,14 +83,24 @@ for i in range(0, 0x30, 2):
             if mx not in ins[t]: ins[t][mx] = decode(source(t, 6)[0], mx)[2]
 work = [(pc, mx) for pc in ins for mx in ins[pc]]
 seen = set(work)
-while work and len(seen) < 60000:
-    pc, mx = work.pop()
-    for t in successors(pc, mx):
-        if t in seen: continue
-        b, _ = source(t[0], 6)
-        if b is None: continue                          # not ROM-backed (e.g. data RAM): no static code there
-        seen.add(t); work.append(t)
-        ins[t[0]][t[1]] = decode(b, t[1])[2]
+def _walk():
+    while work and len(seen) < 60000:
+        pc, mx = work.pop()
+        for t in successors(pc, mx):
+            if t in seen: continue
+            b, _ = source(t[0], 6)
+            if b is None: continue                      # not ROM-backed (e.g. data RAM): no static code there
+            seen.add(t); work.append(t)
+            ins[t[0]][t[1]] = decode(b, t[1])[2]
+# push-and-RTS dispatch tables (tools/gen/snd_dispatch.py, GitHub #62): their handlers, then walk on from them, until nothing new
+from snd_dispatch import dispatch_seeds
+_walk()
+while not os.environ.get('SND_NO_DISPATCH'):                # SND_NO_DISPATCH=1: without the tables, for A/B
+    _new = [t for t in dispatch_seeds(ins, source, decode) if t not in seen and source(t[0], 6)[0] is not None]
+    if not _new: break
+    for t in _new:
+        seen.add(t); work.append(t); ins[t[0]][t[1]] = decode(source(t[0], 6)[0], t[1])[2]
+    _walk()
 static = sum(len(v) for v in ins.values()) - covered
 
 # READABLE ROUTINES (src/snd/snd_engine.c): an `SND_ENTRY(0xADDR, name, MAXCYC)`

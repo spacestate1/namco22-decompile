@@ -67,7 +67,7 @@ add_custom_command(OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/gen/snd_driver.c
   COMMAND ${CMAKE_COMMAND} -E env SND_DATA=ad1data.6r SND_RAMCODE=BB00:BDD2:BA7D SND_UPLOAD=none
           ${Python3_EXECUTABLE} ${RR}/tools/gen/snd_translate.py tools/gen/snd.cov
   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-  DEPENDS ${RR}/tools/gen/snd_translate.py ${RR}/tools/gen/m7700_decode.py ${RR}/tools/gen/snd_rom.py ../tools/gen/snd_spin.inc tools/gen/snd.cov
+  DEPENDS ${RR}/tools/gen/snd_translate.py ${RR}/tools/gen/m7700_decode.py ${RR}/tools/gen/snd_rom.py ../tools/gen/snd_spin.inc ../tools/gen/snd_dispatch.py tools/gen/snd.cov
   COMMENT "translating Ace Driver's sound program")
 set_source_files_properties(gen/snd_driver.c PROPERTIES COMPILE_OPTIONS "-O1;-w")
 

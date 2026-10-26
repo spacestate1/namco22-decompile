@@ -66,7 +66,7 @@ endif()
 add_custom_command(OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/gen/am_snd_driver.c
   COMMAND ${Python3_EXECUTABLE} ../tools/gen/snd_translate.py tools/gen/snd.cov --game am --roms extracted
           --out gen/am_snd_driver.c
-  DEPENDS ../tools/gen/snd_translate.py ../tools/gen/snd_rom.py ../tools/gen/snd_spin.inc ../tools/gen/m7700_decode.py tools/gen/snd.cov
+  DEPENDS ../tools/gen/snd_translate.py ../tools/gen/snd_rom.py ../tools/gen/snd_spin.inc ../tools/gen/snd_dispatch.py ../tools/gen/m7700_decode.py tools/gen/snd.cov
   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
   COMMENT "Translating the sound MCU program to C")
 set_source_files_properties(gen/am_snd_driver.c PROPERTIES COMPILE_OPTIONS "-O1;-w")

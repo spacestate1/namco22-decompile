@@ -3,7 +3,7 @@
  * Reaper / MAMEHooker to drive a Sinden / GUN4IR / Blamcon / OpenFIRE gun's recoil, and a short kick on every connected pad.
  * (Was TC2's own copy of engine/ss22_out.c, 2026-10-05.)
  *   gun_recoil   the I/O board's latch 0x6002 bit 0 = the gun's RECOIL (TC2: a 3-frame pulse on every shot the game accepts; Crisis Zone:
- *                on for the whole burst of its machine gun, bit 1 on while the gun is live in play -- measured on a player's session)
+ *                bit 0 is on whenever the player is out of cover, so gun_recoil = bit 0 while the trigger is held -- GitHub #59)
  *   out0..out2   the latch's raw bits (MAME's namco_tss_io_device output_w, unnamed there)
  *   analog0      Crisis Zone's I/O board (namco_csz1) analog output 0x6003 (MAME: analog_output_w)
  *   lamp0..lamp7 the main board's LEDs (0x0D000000), the names MAME itself publishes for these sets (namcos23.cpp ctl_w: lamp i = bit 7-i)
@@ -208,13 +208,19 @@ void tc2_out_poll(uint16_t outs)
     if (tc2_out_lamps) for (int i = 0; i < 8; i++) if (ldiff >> (7 - i) & 1) { char n[8]; snprintf(n, sizeof n, "lamp%d", i); pub(n, leds >> (7 - i) & 1); }
     if (tc2_out_lamps && tc2_game.io_analog_out && (!have_prev || aout != prev_aout)) pub("analog0", aout);
     for (int i = 0; i < 3; i++) if (diff >> i & 1) { char n[8]; snprintf(n, sizeof n, "out%d", i); pub(n, (outs >> i) & 1); }
-    if (diff & 1) {                                          /* the gun solenoid */
-        pub("gun_recoil", outs & 1);
-        if (have_prev && (outs & 1) && tc2_out_rumble) ss22_input_rumble(0xC000, 0xFFFF, 90);   /* a short, hard kick */
+    /* the gun solenoid. Crisis Zone (recoil_hold): bit 0 is on whenever the player is OUT OF COVER, not only while the machine gun fires
+     * (GitHub #59: the recoil went off on the pedal alone) -- so its recoil is bit 0 AND the trigger held */
+    static int prev_rec;
+    extern uint16_t tc2_inputs;
+    const int rec = (outs & 1) && (!tc2_game.recoil_hold || (tc2_inputs & 0x0010));
+    if (!have_prev || rec != prev_rec) {
+        pub("gun_recoil", rec);
+        if (have_prev && rec && tc2_out_rumble) ss22_input_rumble(0xC000, 0xFFFF, 90);   /* a short, hard kick */
     }
-    if (tc2_game.recoil_hold && (outs & 1) && tc2_out_rumble) {     /* a machine gun: keep the pad shaking while it fires */
+    if (tc2_game.recoil_hold && rec && tc2_out_rumble) {     /* a machine gun: keep the pad shaking while it fires */
         static unsigned n; if (++n % 5 == 0) ss22_input_rumble(0x9000, 0xD000, 110);
     }
+    prev_rec = rec;
     prev = outs; prev_leds = leds; prev_aout = aout; have_prev = 1;
 }
 

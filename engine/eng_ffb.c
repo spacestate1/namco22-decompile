@@ -9,6 +9,8 @@ static int effect = -1;
 static SDL_JoystickID dev = -1;                 /* the device last tried, so a wheel without FFB is not retried every frame */
 static int applied;
 static Uint8 dirtype = SDL_HAPTIC_CARTESIAN;    /* the direction encoding the device took (eng_ffb_device) */
+static unsigned query;                          /* SDL_HapticQuery of the open device */
+static unsigned calls, fails;                   /* eng_ffb_force_f calls (one a frame): the keep-alive's clock; update failures in a row */
 
 int eng_ffb_decode(uint8_t b)
 {
@@ -80,7 +82,7 @@ bool eng_ffb_device(SDL_Joystick *js)
         fprintf(stderr, "[FFB] %s: no force feedback\n", name);
         return false;
     }
-    const unsigned q = SDL_HapticQuery(haptic);
+    const unsigned q = query = SDL_HapticQuery(haptic);
     if (!(q & SDL_HAPTIC_CONSTANT)) {
         fprintf(stderr, "[FFB] %s: no constant force\n", name);
         release();
@@ -98,7 +100,7 @@ bool eng_ffb_device(SDL_Joystick *js)
         if (effect >= 0 && SDL_HapticRunEffect(haptic, effect, 1) != 0) { SDL_HapticDestroyEffect(haptic, effect); effect = -1; }
     }
     if (effect < 0) { fprintf(stderr, "[FFB] %s: %s\n", name, SDL_GetError()); release(); return false; }
-    applied = 0;
+    applied = 0; calls = fails = 0;
     static bool at_exit;
     if (!at_exit) { atexit(eng_ffb_close); at_exit = true; }      /* every way out that ends in exit() */
     fprintf(stderr, "[FFB] %s drives the wheel motor\n", name);
@@ -133,7 +135,28 @@ void eng_ffb_force_f(double f, int strength, bool reverse)
     if (f < -1.0) f = -1.0;
     int level = (int)(f * 32767.0 * strength / 100.0);
     if (reverse) level = -level;
-    if (level == applied) return;
+    /* KEEP-ALIVE (GitHub #73: a direct-drive base lost its force within ~20 s, or at full lock, and never got it back). The force used
+     * to be sent only when it CHANGED, so an effect the driver or the wheel stopped -- DirectInput when the window loses focus and is
+     * re-acquired, a base's own safety cut-out -- stayed stopped. Every 30 calls (0.5 s) the effect is checked: restarted if the device
+     * reports it stopped, or simply re-sent and re-run once a second where it cannot report; an update that fails recreates the effect. */
+    calls++;
+    bool resend = false;
+    if (calls % 30 == 0) {
+        if (query & SDL_HAPTIC_STATUS) { if (SDL_HapticGetEffectStatus(haptic, effect) == 0) resend = true; }
+        else if (calls % 60 == 0) resend = true;
+    }
+    if (level == applied && !resend) return;
     SDL_HapticEffect e = constant(level);
-    if (SDL_HapticUpdateEffect(haptic, effect, &e) == 0) applied = level;
+    if (SDL_HapticUpdateEffect(haptic, effect, &e) == 0) {
+        applied = level; fails = 0;
+        if (resend) SDL_HapticRunEffect(haptic, effect, 1);
+        return;
+    }
+    if (++fails >= 30) {                                    /* half a second of failures: a new effect (the old one may be gone with the device's state) */
+        fails = 0;
+        SDL_HapticDestroyEffect(haptic, effect);
+        effect = SDL_HapticNewEffect(haptic, &e);
+        if (effect >= 0 && SDL_HapticRunEffect(haptic, effect, 1) == 0) { applied = level; fprintf(stderr, "[FFB] effect recreated\n"); }
+        else { if (effect >= 0) SDL_HapticDestroyEffect(haptic, effect); effect = -1; dev = -1; fprintf(stderr, "[FFB] effect lost: %s (will retry the device)\n", SDL_GetError()); }
+    }
 }

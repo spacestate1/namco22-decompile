@@ -20,6 +20,7 @@ TRAPS LOUDLY (the sound stops and says where) -- never silently skipped.
 import sys, os, collections
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from snd_rom import source
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'tools', 'gen'))   # the shared snd_dispatch.py (appended: our own snd_rom stays first)
 from m7700_decode import decode
 cov_path = sys.argv[1] if len(sys.argv) > 1 else 'tools/gen/snd.cov'
 
@@ -68,14 +69,24 @@ def successors(pc, mx):
 
 work = [(pc, mx) for pc in ins for mx in ins[pc]]
 seen = set(work)
-while work and len(seen) < 60000:
-    pc, mx = work.pop()
-    for t in successors(pc, mx):
-        if t in seen: continue
-        b, _ = source(t[0], 6)
-        if b is None: continue                          # not ROM-backed (e.g. data RAM): no static code there
-        seen.add(t); work.append(t)
-        ins[t[0]][t[1]] = decode(b, t[1])[2]
+def _walk():
+    while work and len(seen) < 60000:
+        pc, mx = work.pop()
+        for t in successors(pc, mx):
+            if t in seen: continue
+            b, _ = source(t[0], 6)
+            if b is None: continue                      # not ROM-backed (e.g. data RAM): no static code there
+            seen.add(t); work.append(t)
+            ins[t[0]][t[1]] = decode(b, t[1])[2]
+# push-and-RTS dispatch tables (tools/gen/snd_dispatch.py, GitHub #62): their handlers, then walk on from them, until nothing new
+from snd_dispatch import dispatch_seeds
+_walk()
+while not os.environ.get('SND_NO_DISPATCH'):                # SND_NO_DISPATCH=1: without the tables, for A/B
+    _new = [t for t in dispatch_seeds(ins, source, decode) if t not in seen and source(t[0], 6)[0] is not None]
+    if not _new: break
+    for t in _new:
+        seen.add(t); work.append(t); ins[t[0]][t[1]] = decode(source(t[0], 6)[0], t[1])[2]
+    _walk()
 static = sum(len(v) for v in ins.values()) - covered
 
 
