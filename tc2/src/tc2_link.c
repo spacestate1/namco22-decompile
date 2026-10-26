@@ -75,11 +75,12 @@ static uint16_t txq[TXQ]; static int txq_n;    /* complete frames only, back to 
 static uint16_t cur[1024]; static int cur_n;   /* the frame being transmitted */
 /* received frames, waiting for the ring */
 #define RXQ 8192
+#define RXQ_KEEP 4096                         /* ~16 gameplay packets waiting at most */
 static uint16_t rxq[RXQ]; static int rxq_n;
 
 static void irq_update(void)
 {
-    const int on = post_irq || ((reg[0] & ~reg[1] & 6) != 0);
+    const int on = post_irq || (armed && (reg[0] & ~reg[1] & 6) != 0);   /* unarmed: plain registers, as MAME -- no line from them */
     tc2_irq_set(TC2_SRC_C422, on);
 }
 static uint64_t cyc_per_word(void)              /* the line's speed: 11-bit characters at $TC2_LINK_BAUD (default 2 Mbit/s) */
@@ -152,6 +153,8 @@ void tc2_link_arm(int on)
     if (dbg < 0) { const char *e = getenv("TC2_LINKLOG"); dbg = e ? (atoi(e) > 1 ? 2 : 1) : 0; }
     if (armed == (on != 0)) return;
     armed = on != 0; tx_busy = 0; txq_n = cur_n = 0; rxq_n = 0;
+    if (!armed) reg[0] &= (uint16_t)~6;          /* a session ending with a frame or "transmit done" pending: the C422's interrupt is level
+                                                  * and an unarmed write never re-evaluates it, so the line would stay up for good */
     if (dbg) fprintf(stderr, "[LINK] f%u C422 %s\n", rr_frame, armed ? "ARMED (the link is up)" : "unarmed (plain registers)");
     /* A link that comes up AFTER boot (a session joined from the menu): unarmed, the driver's last "transmit" write (CONTROL = 2, a
      * count left in +A) started nothing, so "transmit done" never came and the driver still waits for it -- it would never send again,
@@ -161,6 +164,8 @@ void tc2_link_arm(int on)
     irq_update();
 }
 int tc2_link_armed(void) { return armed; }
+static int in_session;
+int tc2_link_in_session(void) { return in_session; }
 static int holding;
 static int coin_pending, coin_pulse;          /* coins put in while held, paid in after; the pulse being sent (frames left, + on / - off) */
 int tc2_link_hold_start(void) { return holding; }   /* src/tc2_h8.c: the coin, trigger and pedal are held off while 1 */
@@ -180,7 +185,16 @@ int tc2_link_take(uint16_t *out, int max)
 }
 void tc2_link_give(const uint16_t *w, int n)
 {
-    if (rxq_n + n > RXQ) { if (dbg) fprintf(stderr, "[LINK] f%u receive queue full: %d words dropped\n", rr_frame, n); return; }
+    if (n > RXQ) return;
+    int drop = 0;
+    while (rxq_n + n > RXQ || (rxq_n && rxq_n + n > RXQ_KEEP)) {   /* full, or more than a few frames behind: the oldest frames go -- a real-time
+                                                                  * link has no use for stale ones (before the game's driver runs, e.g. during
+                                                                  * boot, the queue filled to 8000 words and was then played out late) */
+        int e = 0; while (e < rxq_n && !(rxq[e] & 0x100)) e++;
+        e = e < rxq_n ? e + 1 : rxq_n;
+        memmove(rxq, rxq + e, (size_t)(rxq_n - e) * 2); rxq_n -= e; drop++;
+    }
+    if (drop && dbg) fprintf(stderr, "[LINK] f%u receive queue behind: %d old frame(s) dropped\n", rr_frame, drop);
     memcpy(rxq + rxq_n, w, (size_t)n * 2); rxq_n += n;
 }
 void tc2_c422_load(unsigned k, uint16_t v) { reg[k & 7] = v; }   /* a MAME snapshot's registers (src/tc2_chips.c) */
@@ -199,7 +213,7 @@ extern uint8_t tc2_ram[0x1000000];
 #define TC2_FRAME_SIZE 1024
 #define HIST 64
 static struct { uint16_t id; int n; uint16_t w[1024]; } hist[HIST];   /* our transmitted link frames, by id % HIST */
-static uint16_t next_id, rx_last; static int rx_have, net_on, in_session;
+static uint16_t next_id, rx_last; static int rx_have, net_on;
 static unsigned long n_tx_frames, n_tx_dup, n_rx_frames, n_rx_dup;
 static long lag_sum, lag_n; static int lag_max;               /* [LINK]: how many of our frames old the peer's payloads are on arrival */
 /* THE AGREED START (online only). The game's byte 0x802F3502 is the PARTNER's link state as this cabinet sees it (1 attract, 2 credited /
@@ -211,7 +225,8 @@ static long lag_sum, lag_n; static int lag_max;               /* [LINK]: how man
  * 1.8 s into the left's game: broken; 20 s in: linked) -- coins put in while held are counted and paid in once the hold ends. Each payload's trailer carries the byte its sender sees, which tells the
  * partner its OWN state. A partner on an older build sends no trailer: then nothing is held, as before. */
 static int self_st = -1;                       /* our state as the partner sees it (its trailer); -1 = unknown */
-static uint32_t p_since; static int p_prev = -1;   /* the frame the partner's state last changed */
+static uint32_t p_since, p_since_ms; static int p_prev = -1;   /* the frame (and wall-clock ms) the partner's state last changed */
+#include <SDL.h>
 static void hint(const char *t, int frames) { void eng_ui_set_hint(const char *, int); eng_ui_set_hint(t, frames); }
 
 static void session_begin(int slot, int players)
@@ -223,11 +238,12 @@ static void session_begin(int slot, int players)
                                                                                          * frames it finds in the history -- the last session's, otherwise */
     tc2_link_arm(1);
     fprintf(stderr, "[TC2] online: cabinet %s (slot %d of %d) -- the link is up\n", slot ? "Right/Blue" : "Left/Red", slot, players);
-    hint(slot ? "Linked: you are the RIGHT / BLUE cabinet" : "Linked: you are the LEFT / RED cabinet", 300);
+    { void eng_ui_set_open(bool); eng_ui_set_open(false); }   /* out of the lobby and into the game: a menu left open would hide it (it no longer holds it) */
+    hint(slot ? "Linked: you are the RIGHT / BLUE cabinet -- wait for the left player to start" : "Linked: you are the LEFT / RED cabinet -- coin in and start first", 400);
 }
 static void session_end(void)
 {
-    in_session = 0; tc2_link_arm(0); tc2_link_id_force(-1); self_st = -1; holding = 0;
+    in_session = 0; tc2_link_arm(0); tc2_link_id_force(-1); self_st = -1;   /* holding: released by tc2_link_frame, which then pays held coins */
     fprintf(stderr, "[TC2] online: session over (link frames out %lu, in %lu, repeats %lu)\n", n_tx_frames, n_rx_frames, n_rx_dup);
     hint("The link is down: playing alone", 300);
 }
@@ -272,9 +288,9 @@ static void frame_in(int slot, const uint8_t *buf, uint32_t seq)
     if (buf[TC2_FRAME_SIZE - 8] == 'T' && buf[TC2_FRAME_SIZE - 7] == '2') self_st = buf[TC2_FRAME_SIZE - 6];
     const int k = buf[0]; int o = 1;
     for (int i = 0; i < k; i++) {
-        if (o + 4 > TC2_FRAME_SIZE) return;
+        if (o + 4 > TC2_FRAME_SIZE - 8) return;
         const uint16_t id = (uint16_t)(buf[o] << 8 | buf[o + 1]); const int n = buf[o + 2] << 8 | buf[o + 3]; o += 4;
-        if (n < 1 || n > 1024 || o + n > TC2_FRAME_SIZE) return;
+        if (n < 1 || n > 1024 || o + n > TC2_FRAME_SIZE - 8) return;
         if (!rx_have || (int16_t)(id - rx_last) > 0) {
             uint16_t w[1024];
             for (int j = 0; j < n; j++) w[j] = buf[o + j];
@@ -321,7 +337,8 @@ static bool spawn_self(char *why, size_t n)               /* the AppImage itself
     else { const ssize_t k = readlink("/proc/self/exe", exe, sizeof exe - 1); if (k <= 0) { snprintf(why, n, "cannot find my own program file"); return false; } exe[k] = 0; }
     const pid_t p = fork();
     if (p < 0) { snprintf(why, n, "fork: %s", strerror(errno)); return false; }
-    if (p == 0) { if (fork() == 0) { execl(exe, exe, "--window", (char *)NULL); _exit(127); } _exit(0); }
+    if (p == 0) { if (fork() == 0) { for (int fd = 3; fd < 1024; fd++) close(fd);   /* our sockets (the LAN host's UDP port), logs, GL/audio fds */
+                                     execl(exe, exe, "--window", (char *)NULL); _exit(127); } _exit(0); }
     int st; waitpid(p, &st, 0);
     return true;
 }
@@ -389,13 +406,19 @@ void tc2_link_frame(void)
       if (at == -2) { const char *e = getenv("TC2_LOCAL2P"); at = e && *e == '1' ? 60 : -1; }
       if (at > 0 && rr_frame >= (uint32_t)at) { at = -1; char m[200]; int tc2_window_active(void); if (tc2_window_active()) { local2p_start(m, sizeof m); fprintf(stderr, "[TC2] %s\n", m); } } }
     eng_net_poll();
-    if (in_session) {                                   /* the agreed start (above): who may start now */
+    {                                                   /* the agreed start (above): who may start now */
         static long wait = -1; if (wait < 0) { const char *e = getenv("TC2_JOIN_WAIT"); wait = e ? atol(e) : 1500; }
         const int pst = tc2_ram[0x2F3502];
-        if (pst != p_prev) { p_prev = pst; p_since = rr_frame; }
+        if (pst != p_prev) { p_prev = pst; p_since = rr_frame; p_since_ms = SDL_GetTicks(); }
+        /* the wait counts in frames OR wall-clock time, whichever ends first: over a slow link stall-and-wait runs both games below 60
+         * fps (measured on zonesync 2026-10-25: ~20 fps between Portugal and Brazil), and 1500 frames were then more than a minute of
+         * a dead gun for the right player -- reported as "P2 no inputs" */
+        const uint32_t left_ms = (uint32_t)(wait * 1000 / 60), in_ms = SDL_GetTicks() - p_since_ms;
+        const int left_done = pst == 4 && (rr_frame - p_since >= (uint32_t)wait || in_ms >= left_ms);
         int h = 0;                                      /* the right cabinet joins the left: never first, and not until the left's game is under way */
-        if (eng_net_slot() == 1 && self_st >= 0 && self_st != 4 && !(pst == 4 && rr_frame - p_since >= (uint32_t)wait)) h = 1;
-        { extern uint16_t tc2_inputs; static int prev_coin;   /* coins while held: counted, then paid in 4 frames on / 36 off each */
+        if (in_session && eng_net_slot() == 1 && self_st >= 0 && self_st != 4 && !left_done) h = 1;
+        { extern uint16_t tc2_inputs; static int prev_coin;   /* coins while held: counted, then paid in 4 frames on / 36 off each. Runs outside a
+                                                               * session too, so a pulse under way when the link drops ends, and held coins are paid */
           const int c = tc2_inputs & 0x0001;
           if (h && c && !prev_coin) coin_pending++;
           prev_coin = c;
@@ -405,8 +428,12 @@ void tc2_link_frame(void)
         if (h != holding) {
             holding = h;
             if (dbg) fprintf(stderr, "[LINKST] f%u start %s (us %d, partner %d)\n", rr_frame, h ? "HELD" : "free", self_st, pst);
-            if (h || self_st != 4) hint(h ? (pst == 4 ? "The left player's game is starting -- you can join in a moment" : "Linked: the LEFT player starts first, then you join")
+            if (in_session && (h || self_st != 4)) hint(h ? (pst == 4 ? "The left player's game is starting -- you can join in a moment" : "Linked: the LEFT player starts first, then you join")
                    : "Linked: press the trigger to join your partner", h ? 600 : 300);
+        }
+        if (h && pst == 4 && rr_frame % 60 == 0) {      /* held while the left's game starts: say how long */
+            char t[96]; const uint32_t r = in_ms < left_ms ? (left_ms - in_ms + 999) / 1000 : 0;
+            snprintf(t, sizeof t, "The left player's game is starting -- you can join in %u s", (unsigned)r); hint(t, 90);
         }
     }
     if (in_session) {

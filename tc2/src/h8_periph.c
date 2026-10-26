@@ -210,7 +210,12 @@ void h8p_sync(h8p *p)
     }
     for (int ch = 0; ch < 2; ch++) sci_advance(p, ch, to);
     if ((p->adcsr & 0x20) && p->adc_done <= to) {
-        memset(p->addr, 0, sizeof p->addr);                     /* the board's analogue inputs: constant 0 (MAME set_constant(0)) */
+        if (!p->adc_in) memset(p->addr, 0, sizeof p->addr);     /* the board's analogue inputs: constant 0 (MAME set_constant(0)) */
+        else {
+            const int ch = p->adcsr & 7;
+            if (p->adcsr & 0x10) for (int k = 0; k <= (ch & 3); k++) p->addr[k] = (uint16_t)(p->adc_in(p->ctx, (ch & 4) | k) & 0x3FF);
+            else p->addr[ch & 3] = (uint16_t)(p->adc_in(p->ctx, ch) & 0x3FF);
+        }
         p->adcsr |= 0x80;
         if (p->adcsr & 0x10) p->adc_done += (p->adcsr & 8) ? 134 : 266;    /* scan: again */
         else p->adcsr &= (uint8_t)~0x20;

@@ -41,6 +41,43 @@ static const ss22_action actions[] = {
 uint16_t tc2_inputs;                          /* the pressed IN_* bits, for the I/O board */
 static void tc2_send_inputs(uint16_t pressed, unsigned wheel, unsigned p1, unsigned p2) { (void)wheel; (void)p1; (void)p2; tc2_inputs = pressed; }
 
+/* ANGLER KING (tc2_game.io_asca3: the FCA-1 = ASCA-3 board, src/tc2_h8.c): the rod is AIMED like the gun (pointer, either stick, the arrow keys:
+ * the gun's 0..1023 range becomes Rod Yaw / Rod Pitch, MAME 0x0100..0xFFFF; the arm follows the rod, its yaw reversed as MAME's port is), the
+ * cast / confirm button is the gun's trigger, the REEL is a pedal axis (a held key ramps it, a pad trigger sets it) that winds the rotary
+ * encoder by up to 16 counts a frame (MAME's dial: PORT_KEYDELTA 8). Up / Down select are the operator keys plus the pad's shoulders. */
+extern uint16_t tc2_analog_in[8];
+static const ss22_action ak_actions[] = {
+    { "Insert coin",   "coin",    SDL_SCANCODE_5,     SDL_SCANCODE_6,       IN_COIN,      0, SS22_PAD(SDL_CONTROLLER_BUTTON_BACK) },
+    { "Cast / enter",  "trigger", SDL_SCANCODE_SPACE, SDL_SCANCODE_RETURN,  IN_TRIGGER,   0, SS22_PAD(SDL_CONTROLLER_BUTTON_A) | SS22_PAD(SDL_CONTROLLER_BUTTON_START), SDL_BUTTON_LMASK },
+    { "Reel",          "reel",    SDL_SCANCODE_R,     SDL_SCANCODE_LSHIFT,  0, SS22_AX_PEDAL1, SS22_PAD(SDL_CONTROLLER_BUTTON_B) },
+    { "Select up",     "op_up",   SDL_SCANCODE_PAGEUP,   SDL_SCANCODE_W,    IN_USR_UP,    0, SS22_PAD(SDL_CONTROLLER_BUTTON_LEFTSHOULDER) },
+    { "Select down",   "op_down", SDL_SCANCODE_PAGEDOWN, SDL_SCANCODE_S,    IN_USR_DOWN,  0, SS22_PAD(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER) },
+    { "Service",       "service", SDL_SCANCODE_9,     SDL_SCANCODE_UNKNOWN, IN_SERVICE,   0, 0 },
+    { "Test",          "test",    SDL_SCANCODE_F2,    SDL_SCANCODE_UNKNOWN, IN_TEST,      0, 0 },
+};
+static void ak_send_inputs(uint16_t pressed, unsigned wheel, unsigned reel, unsigned p2)
+{
+    (void)wheel; (void)p2;
+    tc2_inputs = pressed;
+    const uint32_t x = g_ss22_gun_off ? 512 : g_ss22_gun_x, y = g_ss22_gun_off ? 512 : g_ss22_gun_y;   /* 0..1023 (ak_game.c's gun range) */
+    const uint16_t yaw = (uint16_t)(0x0100 + x * 0xFEFFu / 1023), pitch = (uint16_t)(0x0100 + (1023 - y) * 0xFEFFu / 1023);
+    tc2_analog_in[2] = yaw; tc2_analog_in[3] = pitch;                     /* Rod Yaw / Rod Pitch */
+    tc2_analog_in[0] = (uint16_t)(0x10000 - yaw); tc2_analog_in[1] = pitch;   /* Arm Yaw (PORT_REVERSE) / Arm Pitch */
+    void tc2_reel_wind(int); tc2_reel_wind((int)(reel / 4));            /* the reel: 0..64 -> 0..16 counts a frame (src/tc2_h8.c) */
+}
+const ss22_input_game ak_input_game = {
+    ak_actions, (int)(sizeof ak_actions / sizeof *ak_actions),
+    0x001, 0x3FF, 0x1FF, 12,
+    { 64, 0 }, 8,
+    { "Enter, then press the new key (Esc cancels)",
+      "Mouse / arrow keys / either stick aim the ROD; left button, Space or pad A = cast / enter. Hold R (or the pad's right trigger) to REEL",
+      "Select: PageUp / PageDown or W / S, the pad's shoulders. 5 = coin, F2 = test" },
+    ak_send_inputs,
+    IN_TEST, IN_SERVICE,
+    false,
+    true,                                     /* the pointer aims the rod */
+};
+
 const ss22_input_game tc2_input_game = {
     actions, (int)(sizeof actions / sizeof *actions),
     0x001, 0x3FF, 0x1FF, 12,

@@ -107,6 +107,23 @@ static void scripted_inputs(uint32_t frame)
             g_ss22_gun_x = (uint16_t)(tc2_game.gun_x0 + x * tc2_game.gun_xw); g_ss22_gun_y = (uint16_t)(tc2_game.gun_y0 + y * tc2_game.gun_yh); }
         p += n ? n : 1; while (*p && *p != ',') p++; if (*p == ',') p++;
     }
+    /* the ASCA-3 board's inputs (Angler King's rod / arm / reel, src/tc2_h8.c): $TC2_ANALOG = "ch:value@frame,..." (value hex, MAME's 16-bit
+     * JVS value, held from that frame on); $TC2_REEL = "counts@frame+frames,..." (the reel wound by that many counts a frame: tc2_reel_wind) */
+    static const char *an, *rl; static int rinit;
+    if (!rinit) { rinit = 1; an = getenv("TC2_ANALOG"); rl = getenv("TC2_REEL"); }
+    extern uint16_t tc2_analog_in[8];
+    for (const char *p = an; p && *p; ) {
+        unsigned ch, v, at; int n = 0;
+        if (sscanf(p, "%u:%x@%u%n", &ch, &v, &at, &n) < 3) break;
+        if (frame == at && ch < 8) tc2_analog_in[ch] = (uint16_t)v;
+        p += n ? n : 1; while (*p && *p != ',') p++; if (*p == ',') p++;
+    }
+    for (const char *p = rl; p && *p; ) {
+        int c = 0; unsigned at = 0, len = 1; int n = 0;
+        if (sscanf(p, "%d@%u+%u%n", &c, &at, &len, &n) < 2) break;
+        if (frame >= at && frame < at + len) { void tc2_reel_wind(int); tc2_reel_wind(c); }
+        p += n ? n : 1; while (*p && *p != ',') p++; if (*p == ',') p++;
+    }
 }
 
 /* THE GPU GATE: $TC2_GPU_GATE=dir:every -- a hidden GL context in a headless run; every N frames the same built frame is drawn by the GPU

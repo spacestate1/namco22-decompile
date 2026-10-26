@@ -126,8 +126,25 @@ static int irq_pending(void)
     return (sr & 1) && !(sr & 6) && ((cause & sr) & 0xFF00);
 }
 
+/* TC2_IRQSTAT=1: at exit, how many taken interrupts had each source pending (a storm names its source) */
+static uint32_t irq_on;                 /* (defined with the lines below) */
+static uint64_t irq_stat[TC2_SRC_N], pin_stat[6];
+static void irq_stat_print(void)
+{
+    static const char *nm[TC2_SRC_N] = { "vblank", "C361", "sub", "C435", "C422", "C450", "C451", "RS232", "timer" };
+    fprintf(stderr, "[IRQSTAT]");
+    for (int s = 0; s < TC2_SRC_N; s++) fprintf(stderr, " %s %llu", nm[s], (unsigned long long)irq_stat[s]);
+    fprintf(stderr, "; taken on pin (pending & enabled):");
+    for (int k = 0; k < 6; k++) fprintf(stderr, " IP%d %llu", k + 2, (unsigned long long)pin_stat[k]);
+    fprintf(stderr, "\n");
+}
 static void take_exception(void)
 {
+    static int st = -1;
+    if (st < 0) { st = getenv("TC2_IRQSTAT") != NULL; if (st) atexit(irq_stat_print); }
+    if (st) { for (int s = 0; s < TC2_SRC_N; s++) if (irq_on >> s & 1) irq_stat[s]++;
+              const uint32_t pe = (uint32_t)(RG8(TC2_R_CAUSE) & RG8(TC2_R_STATUS)) & 0xFC00u;
+              for (int k = 0; k < 6; k++) if (pe >> (10 + k) & 1) pin_stat[k]++; }
     const uint64_t sr = RG8(TC2_R_STATUS);
     RS8(TC2_R_EPC, (uint64_t)(int64_t)(int32_t)rr_pc);
     RS8(TC2_R_CAUSE, RG8(TC2_R_CAUSE) & ~0x7CULL);                    /* ExcCode = 0: an interrupt */

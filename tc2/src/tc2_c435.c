@@ -307,10 +307,11 @@ int tc2_c435_write(uint32_t p, int size, uint32_t v)
     case 0x01000020u: c435.size = v; return 1;
     case 0x01000024u: if (v & 1) dma(); return 1;
     case 0x01000060u: c435.pos = 0; return 1;
+    case 0x0100005Cu: if (!tc2_game.super23) return 0; tc2_irq_set(TC2_SRC_C361, 0); return 1;   /* MAME namcoss23_state::c435_c361_ack_w */
     case 0x02000000u: if (size == 2) { tc2_c435_pio((uint16_t)v); return 1; } return 0;
     case 0x0C800010u: c435.state_pos = 0; return 1;
     case 0x0C800016u: state_pio((uint16_t)v); return 1;
     }
     return 0;
 }
-int tc2_c435_owns(uint32_t p) { return (p >= 0x0100001Cu && p <= 0x0100002Bu) || p == 0x01000060u || p == 0x0C800010u || p == 0x0C800016u; }
+int tc2_c435_owns(uint32_t p) { return (p >= 0x0100001Cu && p <= 0x0100002Bu) || p == 0x01000060u || (tc2_game.super23 && p == 0x0100005Cu) || p == 0x0C800010u || p == 0x0C800016u; }

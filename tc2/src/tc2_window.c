@@ -30,7 +30,7 @@
 #include "eng/eng_rawptr.h"
 #include "tc2_build.h"
 #include "tc2_game.h"
-extern const ss22_input_game tc2_input_game;
+extern const ss22_input_game tc2_input_game, ak_input_game;
 
 int g_eng_hud_edges_on;                       /* eng_display.c's widescreen-HUD switch: no 2D HUD to move on this board yet */
 void tc2_text_render(uint32_t *rgba);
@@ -224,8 +224,8 @@ int tc2_window_open(int scale, int fullscreen)
     tc2_smooth_set(eng_cfg_int("motion_smooth", 0));
     eng_pace_reset(&pace);
     fprintf(stderr, "[HOST] OpenGL: %s; display %d Hz, %s\n", (const char *)glGetString(GL_RENDERER), vs.hz, eng_vsync_mode(&vs));
-    if (!eng_ui_init(win, "Time Crisis II")) fprintf(stderr, "[HOST] no menu\n");
-    ss22_input_init(&tc2_input_game);                    /* the controls (keys, mouse, light gun, pads) and the menu's Controls page */
+    if (!eng_ui_init(win, tc2_game.window_title)) fprintf(stderr, "[HOST] no menu\n");
+    ss22_input_init(tc2_game.io_asca3 ? &ak_input_game : &tc2_input_game);   /* the controls (keys, mouse, light gun / rod, pads) and the menu's Controls page */
     eng_rawptr_attach(win);                              /* the gun on its own device: Windows raw input to this window (src/eng/eng_rawptr.c) */
     eng_ui_add_page(ss22_input_page());
     if (tc2_game.twin) {                                 /* the twin cabinet: which side this is, and online play (src/tc2_link.c) */
@@ -403,7 +403,9 @@ static int pass(int new_frame)
         if (e.type == SDL_KEYDOWN && !e.key.repeat) {
             switch (e.key.keysym.scancode) {
             case SDL_SCANCODE_ESCAPE: eng_ui_set_open(true); ss22_input_neutral(); break;
-            case SDL_SCANCODE_P: paused = !paused; fprintf(stderr, "[HOST] %s\n", paused ? "paused" : "running"); break;
+            case SDL_SCANCODE_P: { int tc2_link_in_session(void);
+                if (tc2_link_in_session()) { void eng_ui_set_hint(const char *, int); eng_ui_set_hint("A linked game cannot be paused (your partner is playing)", 180); paused = 0; break; }
+                paused = !paused; fprintf(stderr, "[HOST] %s\n", paused ? "paused" : "running"); } break;
             case SDL_SCANCODE_F11: eng_disp_toggle_fullscreen(); break;
             case SDL_SCANCODE_F12: screenshot(); break;
             case SDL_SCANCODE_F6: { void ss22_input_flash_step(int); ss22_input_flash_step(1); { extern int ss22_input_gun_flash(void); char b[48]; const int f = ss22_input_gun_flash(); void eng_ui_set_hint(const char *, int); if (f) snprintf(b, sizeof b, "Gun shot flash: %d%%", f); else snprintf(b, sizeof b, "Gun shot flash: OFF"); eng_ui_set_hint(b, 120); } } break;   /* the shot flash's strength: 100, 75, 50, 25, OFF */
@@ -467,11 +469,16 @@ static int pass(int new_frame)
     return !(quit || eng_ui_quit_requested());
 }
 
-/* the frame callback (the start of vertical blank): present it; hold here while the menu is open or the game is paused */
+/* the frame callback (the start of vertical blank): present it; hold here while the menu is open or the game is paused -- EXCEPT in an
+ * online session: the partner's cabinet keeps running, so ours must too (a held game sends nothing; measured on zonesync 2026-10-25, sessions
+ * where a player sat in the menu ran 10-40 fps for BOTH, and the partner then ran on alone after the 1 s stall timeout and lost the link) --
+ * the menu is drawn over the running game, the controls neutral */
 void tc2_window_frame(void)
 {
     if (!win) return;
     int ok = pass(1);
-    while (ok && (eng_ui_is_open() || paused)) { { void tc2_link_paused(void); tc2_link_paused(); } ok = pass(0); if (!eng_ui_is_open() && !paused) eng_vsync_resync(&vs); }
+    int tc2_link_in_session(void);
+    if (tc2_link_in_session()) paused = 0;
+    while (ok && (eng_ui_is_open() || paused) && !tc2_link_in_session()) { { void tc2_link_paused(void); tc2_link_paused(); } ok = pass(0); if (!eng_ui_is_open() && !paused) eng_vsync_resync(&vs); }
     if (!ok) { fprintf(stderr, "[HOST] quit\n"); { void tc2_backup_save(int); tc2_backup_save(1); } { void tc2_out_close(void); tc2_out_close(); } ss22_input_close(); eng_ui_shutdown(); SDL_Quit(); exit(0); }
 }

@@ -860,11 +860,13 @@ uint32_t eng_net_wait(int max_lead, int timeout_ms)
 
 void eng_net_poll_paused(void) { poll_paused = 1; eng_net_poll(); poll_paused = 0; }
 
-/* ---- <P>_SIM=loss%,spike_ms[,burst]: a bad Wi-Fi link, on the receive side (tests only) ----
+/* ---- <P>_SIM=loss%,spike_ms[,burst[,delay_ms[,jitter_ms]]]: a bad Wi-Fi link, on the receive side (tests only) ----
+ * delay_ms / jitter_ms: every message also arrives delay_ms + 0..jitter_ms late, in order -- a long-distance relay.
  * each received message is dropped with probability loss% (after a drop the next burst-1 are dropped too); and about every
  * 2 s (at random) the link STALLS for spike_ms/2..spike_ms: everything received meanwhile is held and then arrives at once,
  * in order -- what a Wi-Fi retry storm, a background scan or a power-save wake looks like from the game. */
-static int sim_loss = -1, sim_jit, sim_burst, sim_left;
+static int sim_loss = -1, sim_jit, sim_burst, sim_left, sim_delay, sim_djit;
+static uint32_t sim_at_last;
 static uint32_t sim_rng = 12345, sim_hold_until, sim_last;
 #define SIM_Q 256
 static struct { uint32_t at; int n; uint8_t b[BUF_MAX]; } *simq;
@@ -877,14 +879,15 @@ static void sim_init(void)
     const char *e = envs("SIM");
     if (!e || !*e) return;
     sim_burst = 1;
-    if (sscanf(e, "%d,%d,%d", &sim_loss, &sim_jit, &sim_burst) < 1) sim_loss = 0;
+    if (sscanf(e, "%d,%d,%d,%d,%d", &sim_loss, &sim_jit, &sim_burst, &sim_delay, &sim_djit) < 1) sim_loss = 0;
+    if (sim_delay < 0) sim_delay = 0; if (sim_djit < 0) sim_djit = 0;
     if (sim_burst < 1) sim_burst = 1;
     const char *s = envs("SIM_SEED"); if (s) sim_rng = (uint32_t)strtoul(s, NULL, 0);
     simq = calloc(SIM_Q, sizeof *simq);
     if (!simq) { sim_loss = sim_jit = 0; return; }
-    fprintf(stderr, "[NET] %s_SIM: loss %d%%, stalls of %d ms (~1 per 2 s), burst %d\n", G->env, sim_loss, sim_jit, sim_burst);
+    fprintf(stderr, "[NET] %s_SIM: loss %d%%, stalls of %d ms (~1 per 2 s), burst %d, delay %d+0..%d ms\n", G->env, sim_loss, sim_jit, sim_burst, sim_delay, sim_djit);
 }
-static bool sim_on(void) { if (sim_loss < 0) sim_init(); return sim_loss > 0 || sim_jit > 0; }
+static bool sim_on(void) { if (sim_loss < 0) sim_init(); return sim_loss > 0 || sim_jit > 0 || sim_delay > 0 || sim_djit > 0; }
 
 void eng_net_poll(void)
 {
@@ -928,7 +931,11 @@ void eng_net_poll(void)
                 sim_hold_until = now + (uint32_t)sim_jit / 2 + sim_rand() % ((uint32_t)sim_jit / 2 + 1);
             sim_last = now;
             if (simq_n < SIM_Q && n <= (int)sizeof simq[0].b) {
-                simq[simq_n].at = (int32_t)(sim_hold_until - now) > 0 ? sim_hold_until : now;
+                uint32_t at = (int32_t)(sim_hold_until - now) > 0 ? sim_hold_until : now;
+                if (sim_delay || sim_djit) { const uint32_t d = now + (uint32_t)sim_delay + (sim_djit ? sim_rand() % (uint32_t)(sim_djit + 1) : 0);
+                                             if ((int32_t)(d - at) > 0) at = d; if (simq_n && (int32_t)(sim_at_last - at) > 0) at = sim_at_last; }   /* in order */
+                sim_at_last = at;
+                simq[simq_n].at = at;
                 simq[simq_n].n = n; memcpy(simq[simq_n].b, b, (size_t)n); simq_n++;
             }
             continue;

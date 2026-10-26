@@ -24,6 +24,11 @@ typedef struct {
     int twin;                                     /* 1 = a TWIN-CABINET game (Time Crisis 2: Left/Red + Right/Blue on the C422 RS-422 link): the menu's
                                                    * Cabinet choice (the I/O board's Link ID) and online play (src/tc2_link.c) */
     int evo2;                                     /* 1 = System 23 EVOLUTION 2: the chips at +0x10000000, 29-bit decode, C450 DMA, IRQ status regs */
+    int io_asca3;                                 /* 1 = the I/O board is an ASCA-3 / FCA-1 (MAME namco_asca_3_device; Angler King's namco_fca10 is one with its
+                                                   * undumped MB90F574 held in reset): switches 0x6000-3 (ASCA-1 layout), outputs 0x6004/5, the rotary
+                                                   * encoders' differences 0x6006/7, the analogue inputs on the H8's A/D (src/tc2_h8.c). 0 = Time Crisis 2's gun board */
+    int super23;                                  /* 1 = SUPER System 23 (MAME 0.289 namcoss23_state: Angler King): a write to 0x0100005C acknowledges the C361
+                                                   * (raster) interrupt (c435_c361_ack_w) -- the game's IP3 handler does it, it never reads 0x0682000A/C */
     uint32_t clock;                               /* the main CPU, Hz (cycles as MAME charges them) */
     uint32_t px_num, px_den;                      /* pixel clocks (25.6 MHz) per main cycle, exactly */
     uint32_t sub_div;                             /* main cycles per sub-CPU (H8/3002) state */
