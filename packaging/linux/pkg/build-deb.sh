@@ -20,9 +20,9 @@ Conflicts: namco22
 Provides: namco22
 Installed-Size: $SIZE
 Maintainer: cmcrann <cmcrann@protonmail.com>
-Description: Prop Cycle, Rave Racer, Tokyo Wars, Dirt Dash, Armadillo Racing, Time Crisis, Ace Driver, Cyber Commando, Ridge Racer 2, Cyber Sled, Time Crisis 2 and Crisis Zone -- decompiled Namco System 21 / 22 / 23 engines
+Description: Prop Cycle, Rave Racer, Tokyo Wars, Dirt Dash, Armadillo Racing, Time Crisis, Ace Driver, Cyber Commando, Ridge Racer 2, Cyber Sled, Time Crisis 2, Crisis Zone and Angler King -- decompiled Namco System 21 / 22 / 23 engines
  Native, decompiled engines for the Namco arcade games Prop Cycle (1996),
- Rave Racer (1995), Tokyo Wars (1996), Dirt Dash (1995), Armadillo Racing (1997), Time Crisis (1995), Ace Driver (1994), Cyber Commando (1994), Ridge Racer 2 (1994), Cyber Sled (1993), Time Crisis II (1997) and Crisis Zone (1999), rendered with OpenGL.
+ Rave Racer (1995), Tokyo Wars (1996), Dirt Dash (1995), Armadillo Racing (1997), Time Crisis (1995), Ace Driver (1994), Cyber Commando (1994), Ridge Racer 2 (1994), Cyber Sled (1993), Time Crisis II (1997), Crisis Zone (1999) and Angler King (1998), rendered with OpenGL.
  .
  NO GAME DATA IS INCLUDED. After installing, put the MAME ROM sets in
  ~/.local/share/namco-2x-systems/propcycle/roms/ (propcycl.zip) and
@@ -36,7 +36,8 @@ Description: Prop Cycle, Rave Racer, Tokyo Wars, Dirt Dash, Armadillo Racing, Ti
  ~/.local/share/namco-2x-systems/ridgera2/roms/ (ridgera2.zip, namcoc74.zip) and
  ~/.local/share/namco-2x-systems/cybsled/roms/ (cybsled.zip, namcoc67.zip, namcoc68.zip) and
  ~/.local/share/namco-2x-systems/tc2/roms/ (timecrs2.zip) and
- ~/.local/share/namco-2x-systems/crszone/roms/ (crszone.zip).
+ ~/.local/share/namco-2x-systems/crszone/roms/ (crszone.zip) and
+ ~/.local/share/namco-2x-systems/aking/roms/ (aking.zip).
  Folders from an older namco22 install (~/.local/share/namco22/) are used as they are.
  See /usr/share/doc/namco-2x-systems/README.txt.
 CTL

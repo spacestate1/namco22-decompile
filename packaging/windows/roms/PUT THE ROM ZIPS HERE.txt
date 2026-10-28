@@ -11,4 +11,6 @@ Put the MAME ROM sets in this folder, still zipped:
   Ridge Racer 2   ridgera2.zip  and  namcoc74.zip
   Cyber Sled   cybsled.zip  and  namcoc67.zip  and  namcoc68.zip
   Time Crisis 2  timecrs2.zip
+  Crisis Zone  crszone.zip
+  Angler King  aking.zip
 

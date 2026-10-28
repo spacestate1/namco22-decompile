@@ -133,8 +133,9 @@ static void project(pvert *v, int vp_size_x, int vp_size_y, float fov)
     v->y = (float)vp_size_y - fov * v->y;
     v->p[0] = 1.0f / v->p[0];
 }
-static void effects(poly *p, int color_for_alpha, int type_bit21, int h)
+static void effects(poly *p, int color_for_alpha, int type_bit21, int h, int nofog)
 {
+    p->fog = !nofog;                                      /* the bit above the 7-bit palette: no depth fog (Super 22's C-fog gate) */
     p->alpha_enabled = (color_for_alpha & 0x7F) != GFX.alpha_color || type_bit21;
     p->blend = (h >> 10) & 1;
     p->prioverchar = 2;                                   /* text covered by a polygon is drawn again over it (MAME: 2 for polygons) */
@@ -214,8 +215,11 @@ static void render_model(const tc2_render_entry *e)
             }
             offs += 3;
             pv[i].x = x; pv[i].y = y; pv[i].p[0] = z;
-            pv[i].p[1] = (float)(((v1 >> 20) & 0xF00) | ((v2 >> 24) & 0xFF)) + (stencil ? 0 : 0.5f) + e->tx;
-            pv[i].p[2] = (float)(((v1 >> 16) & 0xF00) | ((v3 >> 24) & 0xFF)) + (stencil ? 0 : 0.5f) + e->ty;
+            const float half = (stencil || tc2_game.uv_edge) ? 0 : 0.5f;   /* MAME's half texel; uv_edge: none (the far edge stays inside the tile) */
+            pv[i].p[1] = (float)(((v1 >> 20) & 0xF00) | ((v2 >> 24) & 0xFF)) + half + e->tx;
+            pv[i].p[2] = (float)(((v1 >> 16) & 0xF00) | ((v3 >> 24) & 0xFF)) + half + e->ty;
+            { static int um = -2; static int nlog; if (um == -2) { const char *e2 = getenv("TC2_UVLOG"); um = e2 ? atoi(e2) : -1; }   /* TEST: a model's raw u/v */
+              if (e->model == um && nlog < 64) { nlog++; fprintf(stderr, "[UV] v%d u %u v %u tx %d ty %d stencil %d\n", i, (unsigned)(((v1 >> 20) & 0xF00) | ((v2 >> 24) & 0xFF)), (unsigned)(((v1 >> 16) & 0xF00) | ((v3 >> 24) & 0xFF)), e->tx, e->ty, stencil); } }
             pv[i].p[3] = 64;
             static const uint8_t shifts[4] = { 24, 16, 8, 0 };
             if (lmode <= 1) pv[i].p[3] = (float)((light >> shifts[i & 3]) & 0xFF);
@@ -252,7 +256,7 @@ static void render_model(const tc2_render_entry *e)
         p->blend = (int)((h >> 10) & 1);                    /* known before finish() (the TC2_XYCULL_BLEND test); effects() sets it again */
         if (p->n >= 3 && finish(p, e, (int)((h & 0x300) >> 8), polyshift, 17, 0x1FFFF, 0xFFFC0000u)) {
             p->stencil = stencil; p->cmode = cmode; p->tbase = tbase; p->color_base = color << 8;
-            effects(p, color, (int)((type >> 21) & 1), (int)h);
+            effects(p, color, (int)((type >> 21) & 1), (int)h, (int)((h >> 31) & 1));
             GNPOLY++;
         }
         if (type & 0x10000) break;
@@ -275,7 +279,7 @@ static void render_immediate(const tc2_render_entry *e)
     p->blend = (int)((h >> 10) & 1);
     if (p->n >= 3 && finish(p, e, 2, q->zbias, 16, 0xFFFF, 0xFFFE0000u)) {
         p->stencil = (int)((h >> 11) & 1); p->cmode = 0; p->tbase = 0; p->color_base = (int)(q->pal & 0x7F00);
-        effects(p, (int)((q->pal >> 8) & 0x7F), 0, (int)h);
+        effects(p, (int)((q->pal >> 8) & 0x7F), 0, (int)h, (int)((q->pal >> 15) & 1));
         GNPOLY++;
     }
 }
@@ -312,9 +316,10 @@ static void render_direct(const tc2_render_entry *e)
         p->cmode = (d[2] & 0x70) >> 4;
         p->vp_size_x = e->vp_size_x; p->vp_size_y = e->vp_size_y; p->vp_offset_x = e->vp_offset_x; p->vp_offset_y = e->vp_offset_y;
         p->entry = (int)(e - FS->list.e); p->model = -1;
-        effects(p, (d[2] >> 8) & 0x7F, 0, 0);
+        effects(p, (d[2] >> 8) & 0x7F, 0, 0, (d[2] >> 15) & 1);
         p->blend = 0;
-        p->prioverchar = (p->cmode & 7) == 1 ? 7 : 0;
+        p->prioverchar = 2;                               /* MAME 0.289: render_direct_poly works out (cmode == 1 ? 7 : 0), but render_flush draws EVERY
+                                                          * polygon with prioverchar 2 -- text the polygon covers is drawn again over it (Angler King's NOTICE) */
         GNPOLY++;
     }
 }
@@ -322,7 +327,7 @@ static void render_direct(const tc2_render_entry *e)
 /* ---------------------------------------------------------------- the software fill (the fallback, and the GPU's oracle) */
 static uint32_t *fb;
 static uint8_t *prio;
-static struct { int fade, fadefactor, fadefactor_inv, fr, fg, fb, pfade, pr, pg, pb, alpha, alpha_inv, alpha_pen; } rx;   /* from the frame's C404 */
+static struct { int fade, fadefactor, fadefactor_inv, fr, fg, fb, pfade, pr, pg, pb, alpha, alpha_inv, alpha_pen, fog, cr, cg, cb; const uint8_t *fogtab; } rx;   /* from the frame's C404 */
 static uint32_t tex_lookup(uint32_t pbase, int penshift, int penmask, uint32_t u, uint32_t v, uint8_t *pen)
 {
     const uint32_t id = ((u >> 4) & 0xFF) | ((v << 4) & tileid_mask);
@@ -373,6 +378,12 @@ static void span(const poly *p, int y, int x0, int x1, const float *s, const flo
         uint32_t tx = (uint32_t)(int32_t)(u * ooz), ty = (uint32_t)(int32_t)(v * ooz);
         const int vx = x + clip_left;
         if (vx < clip_left || vx >= clip_right || vx < 0 || vx >= 640) continue;
+        { static int hide = -2; if (hide == -2) { const char *e = getenv("TC2_HIDEMODEL"); hide = e ? atoi(e) : -1; } if (p->model == hide) continue; }   /* TEST: leave one model out */
+        { static int only = -2; if (only == -2) { const char *e = getenv("TC2_ONLYMODEL"); only = e ? atoi(e) : -1; } if (only >= 0 && p->model != only) continue; }   /* TEST: one model only */
+        if (seamtest == 3) {                              /* 3: OVERDRAW of translucent polygons (blend / alpha) -- 0x20 a layer; opaque ones not drawn */
+            static int only = -2; if (only == -2) { const char *e = getenv("TC2_SEAMMODEL"); only = e ? atoi(e) : -1; }   /* only this model */
+            if ((only < 0 ? (p->blend || p->alpha_enabled) : p->model == only)) { if (!(p->stencil && stencil_lookup(tx, ty))) { const uint32_t c = dest[vx] == 0xFF00FF ? 0 : dest[vx] & 0xFF; dest[vx] = (c + 0x20 > 0xFF ? 0xFF : c + 0x20) * 0x010101u; } }
+            continue; }
         if (seamtest) {                                   /* coverage: a stencil cutout is the art's own hole, not a seam -- drawn solid */ dest[vx] = seamtest == 2 ? (uint32_t)(p->entry & 0xFFF) << 12 | ((p->zkey & 0x1FFFFF) >> 9) : (p->zkey & 0xFFFFFF); continue; }   /* 1: depth key; 2: entry << 12 | depth >> 9 */
         if (p->stencil && stencil_lookup(tx, ty)) continue;
         if (tc2_depth_mode) {
@@ -386,6 +397,11 @@ static void span(const poly *p, int y, int x0, int x1, const float *s, const flo
         int r = c >> 16 & 0xFF, g = c >> 8 & 0xFF, b = c & 0xFF;
         int sh = (int)(i * ooz); if (sh < 0) sh = 0; if (sh > 63) sh = 63;
         r = r * sh >> 6; g = g * sh >> 6; b = b * sh >> 6;
+        if (rx.fog && p->fog) {                          /* THE DEPTH FOG: level = the PCZ table at depth (z * 64 = zsort >> 8), toward the C404 fog colour */
+            int cz = (int)(ooz * 64.0f); if (cz < 0) cz = 0; if (cz > 0x1FFF) cz = 0x1FFF;
+            const int ff = rx.fogtab[cz];
+            if (ff) { r = (r * (256 - ff) + rx.cr * ff) >> 8; g = (g * (256 - ff) + rx.cg * ff) >> 8; b = (b * (256 - ff) + rx.cb * ff) >> 8; }
+        }
         if (rx.pfade) { r = r * rx.pr >> 8; g = g * rx.pg >> 8; b = b * rx.pb >> 8; }
         if (rx.fadefactor != 0xFF) { r = (r * rx.fadefactor + rx.fr * rx.fadefactor_inv) >> 8; g = (g * rx.fadefactor + rx.fg * rx.fadefactor_inv) >> 8; b = (b * rx.fadefactor + rx.fb * rx.fadefactor_inv) >> 8; }
         const int use_alpha = rx.alpha != 0xFF && (p->alpha_enabled || pen == rx.alpha_pen);
@@ -512,6 +528,21 @@ static void build(tc2_built *b)
     GFX.pr = c404b(0); GFX.pg = c404b(1); GFX.pb = c404b(2); GFX.alpha_color = c404b(0xF); GFX.alpha_pen = c404b(0x10); GFX.alpha = c404b(0x11);
     GFX.fr = c404b(0x16); GFX.fg = c404b(0x17); GFX.fb = c404b(0x18); GFX.ffactor = c404b(0x19); GFX.fflags = c404b(0x1A);
     GFX.layers = c404b(0x1F);
+    GFX.cr = c404b(5); GFX.cg = c404b(6); GFX.cb = c404b(7); GFX.fog = 0;
+    if (fs->cz_on && tc2_game.cz_fog) {                   /* the PCZ half -> a depth-indexed level table (Super 22's recalc_czram, engine/fog_hw.c) */
+        uint8_t *t = b->fogtab; int small_val = 0x2000, small_off = 0, large_val = 0, large_off = 0xFF, prev = 0;
+        memset(t, 0, 0x2000);
+        for (int i = 0; i < 0x100; i++) {
+            int val = fs->pcz[i]; if (val > 0x2000) val = 0x2000;
+            if (i > 0) { if (prev >= val) continue; for (int j = prev; j < val; j++) t[j] = (uint8_t)i; }
+            if (val < small_val) { small_val = val; small_off = i; }
+            if (val > large_val) { large_val = val; large_off = i; }
+            prev = val;
+        }
+        for (int j = 0; j < small_val && j < 0x2000; j++) t[j] = (uint8_t)small_off;
+        for (int j = large_val; j < 0x2000; j++) t[j] = (uint8_t)large_off;
+        for (int j = 0; j < 0x2000 && !GFX.fog; j++) GFX.fog = t[j] != 0;
+    }
     if (!building_mid) { static long lf = -2, lt; static unsigned long fn; fn++;               /* $TC2_C404FRAMES=from:to -- the C404's registers every frame */
       if (lf == -2) { lf = -1; const char *e = getenv("TC2_C404FRAMES"); if (e) sscanf(e, "%ld:%ld", &lf, &lt); }
       if (lf >= 0 && (long)fn >= lf && (long)fn <= lt) { fprintf(stderr, "[C404] %lu:", fn); for (int k = 0; k < 0x20; k++) fprintf(stderr, " %02X", c404b(k)); fprintf(stderr, " | list %d\n", fs->list.count); } }
@@ -581,6 +612,7 @@ void tc2_soft_raster(const tc2_built *b, uint32_t *rgba)
     if (rx.fade) { rx.fadefactor = 0xFF - f->ffactor; rx.fadefactor_inv = 0x100 - rx.fadefactor; rx.fr = f->fr; rx.fg = f->fg; rx.fb = f->fb; }
     rx.pfade = f->pr || f->pg || f->pb; rx.pr = f->pr; rx.pg = f->pg; rx.pb = f->pb;
     rx.alpha = 0xFF - f->alpha; rx.alpha_inv = 0x100 - rx.alpha; rx.alpha_pen = f->alpha_pen;
+    rx.fog = f->fog; rx.cr = f->cr; rx.cg = f->cg; rx.cb = f->cb; rx.fogtab = b->fogtab;
     if (seamtest < 0) { const char *e = getenv("TC2_SEAMTEST"); seamtest = e ? atoi(e) : 0; }
     for (int k = 0; k < 640 * 480; k++) rgba[k] = seamtest ? 0xFF00FF : f->bg;
     memset(pri, 0, sizeof pri);
@@ -793,6 +825,8 @@ void tc2_render_frame_end(void)
     tc2_frame_state *snap = &B[!front]->fs;
     const uint8_t *c4 = tc2_vram_ptr(0x06A08000u), *pal = tc2_vram_ptr(0x06A10000u);
     memcpy(snap->c404, c4, sizeof snap->c404);
+    { const uint16_t *tc2_c412_pcz_live(void); int tc2_c412_cz_on(void);   /* the depth fog's table and switch (src/tc2_chips.c) */
+      memcpy(snap->pcz, tc2_c412_pcz_live(), sizeof snap->pcz); snap->cz_on = tc2_c412_cz_on(); }
     { static int on = -1; if (on < 0) { const char *e = getenv("TC2_GAMMA"); on = !(e && *e == '0'); }   /* TC2_GAMMA=0: as MAME (no gamma) */
       for (int ch = 0; ch < 3; ch++) for (int i = 0; i < 256; i++) snap->gamma[ch][i] = on ? c4[0x200 + 0x200 * ch + 2 * i + 1] : (uint8_t)i;
       int blank = 1; for (int i = 1; i < 256 && blank; i++) blank = !snap->gamma[0][i];

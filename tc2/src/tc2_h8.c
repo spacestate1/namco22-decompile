@@ -105,7 +105,15 @@ static void rtc_select(void)
 }
 
 /* ---------------------------------------------------------------- the sub-CPU's board */
-static uint8_t sub_port_in(void *u, int port)
+static uint8_t sub_port_in_(void *u, int port);
+static uint8_t sub_port_in(void *u, int port)         /* TEST: $TC2_SUBPINSCAN=frame -- as TC2_IOPINSCAN, the sub-CPU's pins */
+{
+    uint8_t v = sub_port_in_(u, port); extern uint32_t rr_frame;
+    static long at = -2; if (at == -2) { const char *e = getenv("TC2_SUBPINSCAN"); at = e ? atol(e) : -1; }
+    if (at >= 0 && (long)rr_frame >= at) { const long k = ((long)rr_frame - at) / 40; if (1 + (int)(k / 8) == port) v &= (uint8_t)~(1u << (k % 8)); }
+    return v;
+}
+static uint8_t sub_port_in_(void *u, int port)
 {
     (void)u;
     switch (port) {
@@ -205,7 +213,17 @@ static void sub_wr16(void *u, uint32_t a, uint16_t v)
 #define IN_USR_DOWN 0x0080
 #define IN_USR_ENTER 0x0100
 static const uint8_t io_dsw = 0xFF, io_sw = 0x03;                  /* DIP switches all off; SW2 / SW3 unpopulated (high) */
-static uint8_t io_port_in(void *u, int port)
+extern uint32_t rr_frame;
+static uint8_t io_port_in_(void *u, int port);
+static uint8_t io_port_in(void *u, int port)          /* TEST: $TC2_IOPINSCAN=frame -- from that frame, every 40 frames the next pin (ports 1-9, A, B; bit 0-7)
+                                                        * reads LOW, to find which pin a switch is on */
+{
+    uint8_t v = io_port_in_(u, port);
+    static long at = -2; if (at == -2) { const char *e = getenv("TC2_IOPINSCAN"); at = e ? atol(e) : -1; }
+    if (at >= 0 && (long)rr_frame >= at) { const long k = ((long)rr_frame - at) / 40; const int pp = 1 + (int)(k / 8), bit = (int)(k % 8); if (pp == port) v &= (uint8_t)~(1u << bit); }
+    return v;
+}
+static uint8_t io_port_in_(void *u, int port)
 {
     (void)u;
     const int service1 = (tc2_inputs & (IN_SERVICE | IN_USR_ENTER)) != 0;
@@ -263,7 +281,15 @@ void tc2_reel_wind(int counts)
     tc2_rotary_in[0] = (uint16_t)(int16_t)pos;
 }
 static uint16_t asca3_adc(void *u, int ch) { (void)u; return (uint16_t)((tc2_analog_in[ch & 7] & 0xFFC0) >> 6); }
-static uint8_t asca3_switches(int n)                               /* in_r, ASCA-1 layout */
+static uint8_t asca3_switches_(int n);
+static uint8_t asca3_switches(int n)                  /* TEST: $TC2_INRSCAN=frame -- every 40 frames the next bit of in_r 0-3 reads pressed (low) */
+{
+    uint8_t v = asca3_switches_(n); extern uint32_t rr_frame;
+    static long at = -2; if (at == -2) { const char *e = getenv("TC2_INRSCAN"); at = e ? atol(e) : -1; }
+    if (at >= 0 && (long)rr_frame >= at) { const long k = ((long)rr_frame - at) / 40; if ((int)(k / 8) == n) v &= (uint8_t)~(1u << (k % 8)); }
+    return v;
+}
+static uint8_t asca3_switches_(int n)
 {
     /* JVS_PLAYER1 (aking): 0x02 Enter (here IN_TRIGGER, the cabinet's button), 0x10 Down, 0x20 Up; JVS_SYSTEM 0x80 Test; JVS_COIN1 bit 0 the coin,
      * bit 7 "counter disconnected" (0). in_r 0: ~(p13 << 7 | p14 << 6 | p15 << 5 | p0 << 4 | p1 << 3 | p4 << 2 | p5 << 1 | test);

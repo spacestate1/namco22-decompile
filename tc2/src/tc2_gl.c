@@ -67,7 +67,8 @@ static const char *fs_poly =
     "uniform sampler2D t_rom, t_map, t_pal, t_sten, t_near, t_nearz;\n"
     "uniform int u_ex, u_scale, u_h, u_prio, u_pfade, u_ff, u_alpha, u_alpha_pen, u_near, u_depth;\n"
     "uniform float u_keep;\n"
-    "uniform ivec3 u_pcol, u_fcol;\n"
+    "uniform ivec3 u_pcol, u_fcol, u_fogc;\n"
+    "uniform sampler2D t_fog; uniform int u_fog, u_seam;\n"
     "in vec3 v_uvs; flat in vec4 v_par; flat in vec4 v_clip; flat in vec2 v_ext;\n"
     "uint b8(vec4 t, int c) { return uint(t[c] * 255.0 + 0.5); }\n"
     "void main() {\n"
@@ -81,6 +82,7 @@ static const char *fs_poly =
     "    uint w = b8(s, 0) | (b8(s, 3) << 8u);\n"
     "    if (((w >> ((tx & 15u) ^ 15u)) & 1u) == 0u) discard;\n"
     "  }\n"
+    "  if (u_seam != 0) { float e = v_ext.x; gl_FragColor = vec4(fract(e * 0.137), fract(e * 0.311), fract(e * 0.0731), 1.0); return; }\n"   /* TC2_SEAMTEST: coverage */
     "  ty += uint(v_par.z);\n"
     "  float oz = gl_FragCoord.w;\n"                                      /* 1/z: what the software renderer interpolates */
     "  if (u_near != 0) {\n"                                              /* EXACT DEPTH pre-pass: the nearest opaque pixel, its object and band */
@@ -116,6 +118,11 @@ static const char *fs_poly =
     "  ivec3 col = ivec3(c.rgb * 255.0 + 0.5);\n"
     "  int sh = clamp(int(v_uvs.z), 0, 63);\n"
     "  col = (col * sh) >> 6;\n"
+    "  if (u_fog != 0 && (fl & 64) != 0) {\n"                          /* the depth fog: the level at z * 64, toward the fog colour */
+    "    int cz = clamp(int(64.0 / max(oz, 1e-30)), 0, 8191);\n"
+    "    int ff = int(texelFetch(t_fog, ivec2(cz & 255, cz >> 8), 0).r * 255.0 + 0.5);\n"
+    "    if (ff != 0) col = (col * (256 - ff) + u_fogc * ff) >> 8;\n"
+    "  }\n"
     "  if (u_pfade != 0) col = (col * u_pcol) >> 8;\n"
     "  if (u_ff != 255) col = (col * u_ff + u_fcol * (256 - u_ff)) >> 8;\n"
     "  bool ua = u_alpha != 255 && ((fl & 4) != 0 || int(pen) == u_alpha_pen);\n"
@@ -163,8 +170,8 @@ static const char *fs_gamma =
 static int ok, scale = 1, ex, fbw, fbh;                  /* ex: widescreen margin each side, in board pixels (0 = 4:3) */
 static GLuint prog_poly, prog_text, prog_gamma, vbo, quad_vbo, t_out, fbo_out, t_lut;
 static GLint ug[2];
-static GLuint t_band, t_rom, t_map, t_pal, t_sten, t_mix, t_col, t_prio, fbo_col, fbo_prio;
-static GLint up[20], ut[16];
+static GLuint t_fog, t_band, t_rom, t_map, t_pal, t_sten, t_mix, t_col, t_prio, fbo_col, fbo_prio;
+static GLint up[24], ut[16];
 static GLuint t_near, t_nearz, fbo_near;          /* the exact-depth pre-pass target: nearest object / band (colour), its 1/z (depth) */
 enum { A_POS, A_UVS, A_PAR, A_CLIP, A_EXT };
 #define VFLOATS 17
@@ -270,8 +277,8 @@ int tc2_gl_init(void)
     if (!(prog_poly = program(vs_poly, fs_poly)) || !(prog_text = program(vs_text, fs_text)) || !(prog_gamma = program(vs_text, fs_gamma))) return 0;
     ug[0] = p_glGetUniformLocation(prog_gamma, "t_src"); ug[1] = p_glGetUniformLocation(prog_gamma, "t_lut");
     static const char *pn[] = { "t_rom", "t_map", "t_pal", "t_sten", "u_scale", "u_h", "u_prio", "u_pfade", "u_ff", "u_alpha", "u_alpha_pen", "u_pcol", "u_fcol", "u_ex",
-                                "t_near", "t_nearz", "u_near", "u_depth", "u_keep" };
-    for (int i = 0; i < 19; i++) up[i] = p_glGetUniformLocation(prog_poly, pn[i]);
+                                "t_near", "t_nearz", "u_near", "u_depth", "u_keep", "t_fog", "u_fog", "u_fogc", "u_seam" };
+    for (int i = 0; i < 23; i++) up[i] = p_glGetUniformLocation(prog_poly, pn[i]);
     static const char *tn[] = { "t_mix", "t_pal", "t_prio", "u_scale", "u_h", "u_pass", "u_fade", "u_ff", "u_alpha", "u_amask", "u_c12", "u_c13", "u_fcol", "u_ex", "t_band" };
     for (int i = 0; i < 15; i++) ut[i] = p_glGetUniformLocation(prog_text, tn[i]);
 
@@ -291,6 +298,7 @@ int tc2_gl_init(void)
     t_mix = texture(GL_LUMINANCE8_ALPHA8, 640, 480, GL_LUMINANCE_ALPHA, NULL);
     t_band = texture(GL_LUMINANCE8_ALPHA8, 480, 1, GL_LUMINANCE_ALPHA, NULL);
     t_lut = texture(GL_RGB8, 256, 1, GL_RGB, NULL);
+    t_fog = texture(GL_LUMINANCE8, 256, 32, GL_LUMINANCE, NULL);   /* the depth fog's level table (tc2_built.fogtab) */
     p_glGenBuffers(1, &vbo); p_glGenBuffers(1, &quad_vbo);
     static const float quad[] = { -1, -1, 0, 1,  1, -1, 0, 1,  1, 1, 0, 1,  -1, -1, 0, 1,  1, 1, 0, 1,  -1, 1, 0, 1 };
     p_glBindBuffer(GL_ARRAY_BUFFER, quad_vbo); p_glBufferData(GL_ARRAY_BUFFER, sizeof quad, quad, GL_STATIC_DRAW);
@@ -320,7 +328,7 @@ static int fill_vertices(const tc2_built *b)
         /* widescreen (Hor+): a viewport that fills the 4:3 screen fills the wide one -- same camera, more world at the sides */
         const int full = ex && cl <= 0 && cr >= 640;
         const int ccl = full ? -ex : cl, ccr = full ? 640 + ex : cr;
-        const float flags = (float)(p->stencil | p->blend << 1 | p->alpha_enabled << 2 | (p->prioverchar & 7) << 3);
+        const float flags = (float)(p->stencil | p->blend << 1 | p->alpha_enabled << 2 | (p->prioverchar & 7) << 3 | p->fog << 6);
         for (int k = 1; k + 1 < p->n; k++) {
             const int tri[3] = { 0, k, k + 1 };
             for (int j = 0; j < 3; j++) {
@@ -369,6 +377,7 @@ unsigned tc2_gl_draw(const tc2_built *b)
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     bind_tex(0, t_pal); glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 256, 128, GL_BGRA, GL_UNSIGNED_BYTE, b->fs.pens);
     bind_tex(0, t_sten); glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 512, 256, GL_LUMINANCE_ALPHA, GL_UNSIGNED_BYTE, b->fs.sram);
+    if (b->fx.fog) { glPixelStorei(GL_UNPACK_ALIGNMENT, 1); bind_tex(0, t_fog); glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 256, 32, GL_LUMINANCE, GL_UNSIGNED_BYTE, b->fogtab); }
     if (f->layers & 4) {
         bind_tex(0, t_mix); glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 640, 480, GL_LUMINANCE_ALPHA, GL_UNSIGNED_BYTE, b->mix);
         bind_tex(0, t_band); glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 480, 1, GL_LUMINANCE_ALPHA, GL_UNSIGNED_BYTE, b->band);
@@ -377,7 +386,8 @@ unsigned tc2_gl_draw(const tc2_built *b)
     glViewport(0, 0, fbw, fbh);
     /* 1. the background */
     p_glBindFramebuffer(GL_FRAMEBUFFER, fbo_col);
-    glClearColor((f->bg >> 16 & 0xFF) / 255.0f, (f->bg >> 8 & 0xFF) / 255.0f, (f->bg & 0xFF) / 255.0f, 1);
+    static int seam = -1; if (seam < 0) { const char *e = getenv("TC2_SEAMTEST"); seam = e && *e != '0'; }   /* tests: coverage, magenta = no polygon */
+    if (seam) glClearColor(1, 0, 1, 1); else glClearColor((f->bg >> 16 & 0xFF) / 255.0f, (f->bg >> 8 & 0xFF) / 255.0f, (f->bg & 0xFF) / 255.0f, 1);
     glClear(GL_COLOR_BUFFER_BIT);
     p_glBindFramebuffer(GL_FRAMEBUFFER, fbo_prio);
     glClearColor(0, 0, 0, 0); glClear(GL_COLOR_BUFFER_BIT);
@@ -409,6 +419,8 @@ unsigned tc2_gl_draw(const tc2_built *b)
         p_glUniform1i(up[9], 0xFF - f->alpha); p_glUniform1i(up[10], f->alpha_pen);
         p_glUniform3i(up[11], f->pr, f->pg, f->pb); p_glUniform3i(up[12], f->fr, f->fg, f->fb); p_glUniform1i(up[13], ex);
         bind_tex(0, t_rom); bind_tex(1, t_map); bind_tex(2, t_pal); bind_tex(3, t_sten);
+        p_glUniform1i(up[22], seam);
+        bind_tex(6, t_fog); p_glUniform1i(up[19], 6); p_glUniform1i(up[20], f->fog); p_glUniform3i(up[21], f->cr, f->cg, f->cb);
         p_glUniform1i(up[14], 4); p_glUniform1i(up[15], 5); p_glUniform1i(up[16], 0);
         const int depth = tc2_depth_on() && fbo_near;
         p_glUniform1i(up[17], 0); p_glUniform1f(up[18], tc2_depth_keep());

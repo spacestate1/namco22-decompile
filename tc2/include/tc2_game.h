@@ -16,6 +16,11 @@ typedef struct {
     const char *title;                            /* "Time Crisis 2": windows, messages */
     const char *tag;                              /* "tc2": the cfg / backup / log file names */
     const char *window_title;                     /* "Time Crisis II" */
+    int cz_fog;                                   /* 1 = draw the C412 depth fog (CZ flag + PCZ table, Super 22's model: src/tc2_render.c). Angler King on;
+                                                   * TC2 asks for it too (frame 3720's forest) but stays off until checked */
+    int uv_edge;                                  /* 1 = model polygons sample their texture range as written (no +0.5 texel, MAME's): a 128-texel tile
+                                                   * ends at 1024 EXCLUSIVE, so +0.5 reaches the next atlas tile on the far edges -- Angler King's water seams */
+    const char *subtitles;                        /* NULL, or the English subtitle table beside the game (src/tc2_subs.c): Angler King's captions are pictures */
     const char *mame_set;                         /* "timecrs2": the set name the output protocol announces (recoil hooks key on it) */
     const char *zip_help;                         /* what the player must supply, for the missing-ROM message */
     const char *const *zips; int nzips;           /* the MAME zips searched (a split set keeps a device ROM in its own zip) */

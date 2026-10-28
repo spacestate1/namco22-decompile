@@ -1,6 +1,6 @@
-Namco 2x Systems: Prop Cycle, Rave Racer, Tokyo Wars, Dirt Dash, Armadillo Racing, Time Crisis, Ace Driver, Cyber Commando, Ridge Racer 2, Cyber Sled, Time Crisis 2 and Crisis Zone
+Namco 2x Systems: Prop Cycle, Rave Racer, Tokyo Wars, Dirt Dash, Armadillo Racing, Time Crisis, Ace Driver, Cyber Commando, Ridge Racer 2, Cyber Sled, Time Crisis 2, Crisis Zone and Angler King
 -- decompiled engines for the Namco System 21 / 22 / 23 arcade games
-(Cyber Sled runs on Namco System 21, Time Crisis 2 and Crisis Zone on System 23; the other nine on System 22 / Super System 22)
+(Cyber Sled runs on Namco System 21, Time Crisis 2 and Crisis Zone on System 23, Angler King on Super System 23; the other nine on System 22 / Super System 22)
 =============================================================================================================================
 
 WHERE THE ROMS GO  (do this after installing)
@@ -26,6 +26,7 @@ YOUR home folder at exactly these paths:
                 ~/.local/share/namco-2x-systems/cybsled/roms/namcoc68.zip
   Time Crisis 2: ~/.local/share/namco-2x-systems/tc2/roms/timecrs2.zip
   Crisis Zone:  ~/.local/share/namco-2x-systems/crszone/roms/crszone.zip
+  Angler King:  ~/.local/share/namco-2x-systems/aking/roms/aking.zip
 
 Upgrading from 0.6 or older (the "namco22" package): the games keep using your
 old ~/.local/share/namco22/<game>/ folders, ROMs, settings and scores included.
@@ -35,7 +36,7 @@ folder, tells you what is missing and opens the folder; copy the zip(s) in and
 start it again. Zips already in ~/Downloads are picked up automatically.
 (~/.local is a hidden folder: in a file manager press Ctrl+H to see it.)
 From a terminal:
-  mkdir -p ~/.local/share/namco-2x-systems/propcycle/roms ~/.local/share/namco-2x-systems/raverace/roms ~/.local/share/namco-2x-systems/tokyowar/roms ~/.local/share/namco-2x-systems/dirtdash/roms ~/.local/share/namco-2x-systems/adillor/roms ~/.local/share/namco-2x-systems/timecris/roms ~/.local/share/namco-2x-systems/acedriver/roms ~/.local/share/namco-2x-systems/cybrcomm/roms ~/.local/share/namco-2x-systems/ridgera2/roms ~/.local/share/namco-2x-systems/cybsled/roms ~/.local/share/namco-2x-systems/tc2/roms ~/.local/share/namco-2x-systems/crszone/roms
+  mkdir -p ~/.local/share/namco-2x-systems/propcycle/roms ~/.local/share/namco-2x-systems/raverace/roms ~/.local/share/namco-2x-systems/tokyowar/roms ~/.local/share/namco-2x-systems/dirtdash/roms ~/.local/share/namco-2x-systems/adillor/roms ~/.local/share/namco-2x-systems/timecris/roms ~/.local/share/namco-2x-systems/acedriver/roms ~/.local/share/namco-2x-systems/cybrcomm/roms ~/.local/share/namco-2x-systems/ridgera2/roms ~/.local/share/namco-2x-systems/cybsled/roms ~/.local/share/namco-2x-systems/tc2/roms ~/.local/share/namco-2x-systems/crszone/roms ~/.local/share/namco-2x-systems/aking/roms
   cp propcycl.zip ~/.local/share/namco-2x-systems/propcycle/roms/
   cp raverace.zip namcoc74.zip ~/.local/share/namco-2x-systems/raverace/roms/
   cp tokyowar.zip ~/.local/share/namco-2x-systems/tokyowar/roms/
@@ -48,6 +49,7 @@ From a terminal:
   cp cybsled.zip namcoc67.zip namcoc68.zip ~/.local/share/namco-2x-systems/cybsled/roms/
   cp timecrs2.zip ~/.local/share/namco-2x-systems/tc2/roms/
   cp crszone.zip ~/.local/share/namco-2x-systems/crszone/roms/
+  cp aking.zip ~/.local/share/namco-2x-systems/aking/roms/
 
 The first start unpacks the zips into the game folder (extracted/); after that
 the zips may be removed. Settings, high scores and recordings are kept in the
@@ -96,6 +98,10 @@ Cyber Sled:  5 coin, 1 / Enter start, arrow keys drive (Shift + Left/Right straf
 Time Crisis 2: 5 coin, the mouse / a light gun aims, left button shoots, right button (or Z / X) the pedal, R reload,
              F2 test switch, F8 a white border for light guns, Esc menu, F12 picture.   `timecrisis2 2` = window scale 2.
 Crisis Zone: the same keys as Time Crisis 2 (`crisiszone 2` = window scale 2).
+Angler King: 5 coin, the mouse / arrow keys / either stick aim the rod, left button / Space / Enter casts and selects (it also
+             starts a game), hold R or Left Shift to reel in, W/S or PageUp/PageDown menu up/down, F2 test switch, 9 service,
+             Esc menu (Subtitles: English for the Japanese captions), F12 picture.
+             Pad: a stick aims, A casts, B / right trigger reels, shoulders select, Back coin, R3 menu.   `anglerking 2` = window scale 2.
 Custom crosshair: PNG files (8-bit, up to 256 x 256) in a crosshairs/ folder beside the program (Windows) or in the game's
              ~/.local/share/namco-2x-systems/<game>/ folder (Linux); pick one in Esc -> Display -> Crosshair image.
 A game controller works too (Esc -> Controls to rebind).

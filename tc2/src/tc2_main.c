@@ -185,6 +185,7 @@ static void gpu_gate(uint32_t frame)
         fprintf(stderr, "[GATE]  fog RGB %02X %02X %02X; PCZ %d/512 non-zero:", b->fs.c404[11], b->fs.c404[13], b->fs.c404[15], nz);
         for (int i = 0; i < 0x200; i += 32) fprintf(stderr, " %04X", z[i]);
         fprintf(stderr, "\n");
+        { FILE *f = fopen("work/pcz.txt", "w"); if (f) { for (int i = 0; i < 0x200; i++) fprintf(f, "%d %d\n", i, z[i]); fclose(f); } }   /* the whole table, for study */
     }
     if (getenv("TC2_GATE_TEXTMASK")) {                         /* where the text layer is opaque: white */
         for (int i = 0; i < 640 * 480; i++) g[i] = (b->mix[i] & 0x8000) ? (b->fs.pens[b->mix[i] & 0x7FFF] | 0x404040) : 0x000040;
@@ -241,6 +242,7 @@ static void session_rec(uint32_t frame)
 void tc2_on_vblank(uint32_t frame)
 {
     scripted_inputs(frame);
+    { void tc2_subs_frame(uint32_t); tc2_subs_frame(frame); }   /* English subtitles: which caption is up (src/tc2_subs.c) */
     { static int tf = -2; static const char *tp; if (tf == -2) { const char *e = getenv("TC2_TEXTDUMP"); tf = -1; if (e) { tf = atoi(e); tp = strchr(e, ':'); if (tp) tp++; } }
       if (tf >= 0 && (int)frame == tf && tp) {   /* $TC2_TEXTDUMP=frame:file -- the C361 character RAM + tile map (0x06800000-0x0681FFFF), big-endian */
           uint8_t *tc2_vram_ptr(uint32_t); FILE *f = fopen(tp, "wb"); if (f) { fwrite(tc2_vram_ptr(0x06800000u), 1, 0x20000, f); fclose(f); } } }

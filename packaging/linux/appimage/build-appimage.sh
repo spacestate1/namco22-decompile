@@ -12,13 +12,14 @@ mkdir -p "$OUT"
 SDL=$(ldconfig -p | awk '/libSDL2-2.0.so.0 /{print $NF; exit}')
 [ -n "$SDL" ] || { echo "no libSDL2-2.0.so.0 to bundle"; exit 1; }
 # game: AppImage name | launcher key | binary | desktop/icon name
-for g in "PropCycle|prop|propcycl|propcycle" "RaveRacer|rave|rr|raveracer" "TokyoWars|tokyo|tw|tokyowars" "DirtDash|dirt|dd|dirtdash" "ArmadilloRacing|am|am|armadilloracing" "TimeCrisis|tc|tc|timecrisis" "AceDriver|ace|ad|acedriver" "CyberCommando|cc|cc|cybercommando" "RidgeRacer2|r2|r2|ridgeracer2" "CyberSled|cs|cs21|cybersled" "TimeCrisis2|tc2|tc2|timecrisis2" "CrisisZone|csz|crszone|crisiszone"; do
+for g in "PropCycle|prop|propcycl|propcycle" "RaveRacer|rave|rr|raveracer" "TokyoWars|tokyo|tw|tokyowars" "DirtDash|dirt|dd|dirtdash" "ArmadilloRacing|am|am|armadilloracing" "TimeCrisis|tc|tc|timecrisis" "AceDriver|ace|ad|acedriver" "CyberCommando|cc|cc|cybercommando" "RidgeRacer2|r2|r2|ridgeracer2" "CyberSled|cs|cs21|cybersled" "TimeCrisis2|tc2|tc2|timecrisis2" "CrisisZone|csz|crszone|crisiszone" "AnglerKing|ak|aking|anglerking"; do
     IFS='|' read -r NAME KEY BIN ICON <<EOF
 $g
 EOF
     AD=$(mktemp -d)/$NAME.AppDir
     mkdir -p "$AD/usr/lib/namco-2x-systems" "$AD/usr/lib/bundled" "$AD/usr/share/doc/namco-2x-systems"
     cp "$STAGE/usr/lib/namco-2x-systems/$BIN" "$STAGE/usr/lib/namco-2x-systems/namco-2x-launch" "$AD/usr/lib/namco-2x-systems/"
+    [ -f "$STAGE/usr/lib/namco-2x-systems/${BIN}_subtitles.txt" ] && cp "$STAGE/usr/lib/namco-2x-systems/${BIN}_subtitles.txt" "$AD/usr/lib/namco-2x-systems/"
     cp -L "$SDL" "$AD/usr/lib/bundled/libSDL2-2.0.so.0"
     cp -r "$STAGE/usr/share/doc/namco-2x-systems/"* "$AD/usr/share/doc/namco-2x-systems/"
     cp "$PKG/$ICON.desktop" "$AD/$ICON.desktop"

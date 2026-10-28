@@ -445,3 +445,34 @@ MAME set: `crszone` (World, CSZO4 Ver.B). Unpacked chips end up in `crszone/extr
 | `csz1wavel.2c` | 8388608 | `1edc748d021925313bca7393c021a4b6` | `d0d74132` |
 | `cszo3verb.ic1` | 524288 | `e5eff660b92812891cf6110f8806f9f0` | `c790743b` |
 | `cszo4verb.ic4` | 8388608 | `821af14d9188a0e464ab5c12c63a8a9d` | `6192533d` |
+
+## Angler King
+
+MAME set: `aking` (Japan, AG1 Ver.A). Unpacked chips end up in `aking/extracted/`. 24 files. The I/O board's program is the revision `aking.zip` carries, `asc3_io-c1.ic14` (MAME 0.289's `namco_fca10` device lists `asc3_io-c.ic14`; that one is not used).
+
+| File | Size | MD5 | CRC32 |
+|---|---:|---|---|
+| `ag1ccrh.7e` | 2097152 | `7b2cb3a9793f489962270a1eb7986563` | `abe2aab1` |
+| `ag1ccrl.7f` | 4194304 | `494b01a6910e7c1bc0223c6feecf2816` | `86bbe1f9` |
+| `ag1cgll.4m` | 8388608 | `bca574b4fd8108917b4c4c3709bf05fa` | `9db7e939` |
+| `ag1cglm.4k` | 8388608 | `f34ab3a3bf1effdb292dd956d51fe0e1` | `17792dba` |
+| `ag1cgum.4j` | 8388608 | `244a0b0be4df87574624c39e9c71ac91` | `5dfa863d` |
+| `ag1cguu.4f` | 8388608 | `84083ef74aca72375080842eab0a1b30` | `86396786` |
+| `ag1mtah.2j` | 8388608 | `07e3bb43457cfa2bead42ce8d3f8c955` | `f2d8ca9d` |
+| `ag1mtal.2h` | 8388608 | `60312dbbb12bb1cc6e229f26e48a0e16` | `7facbfd4` |
+| `ag1mtbh.2m` | 8388608 | `27298a48d20addca79aa355ed5259b99` | `890bdb52` |
+| `ag1mtbl.2f` | 8388608 | `bfb15a4e6aa035009707628a79ba80d5` | `62d771c9` |
+| `ag1pt0h.7a` | 4194304 | `e15b06fd03974898ec988978073fe5fd` | `b5582ca7` |
+| `ag1pt0l.7c` | 4194304 | `ff95bab878c61fdc2debefb67dc6acf4` | `10e7f54f` |
+| `ag1pt1h.5a` | 4194304 | `0f584e9836a7f640443eb50c0905c676` | `25e4776a` |
+| `ag1pt1l.5c` | 4194304 | `07c88b45ef01f69d17a2014b9fe4dac5` | `5d3d7099` |
+| `ag1pt2h.4a` | 4194304 | `acc7111268d57ca89180e34face3136d` | `f0eb9012` |
+| `ag1pt2l.4c` | 4194304 | `9e9d79760c46daa22e4be585a6a9eff3` | `bf92c054` |
+| `ag1pt3h.3a` | 4194304 | `aaf7e0efe6dfadc9ef6c2d559ec7f24e` | `e11a12ce` |
+| `ag1pt3l.3c` | 4194304 | `a61576a6f2ffeb05499a1f4c060e116c` | `04b475db` |
+| `ag1vera.ic1` | 2097152 | `4230a9e1c105f3ae1e923c57c2f85640` | `f1a08d5c` |
+| `ag1vera.ic2` | 2097152 | `3751cc4125b3839fde5c8b9bc35d86ad` | `dc98fefb` |
+| `ag1vera.ic3` | 524288 | `4e5ff95bc3b5dd3d6b42b24fa47cb4d8` | `266ac71c` |
+| `ag1waveh.2a` | 8388608 | `409c99191e47dedaaa8b272ce104fca3` | `37a61daa` |
+| `ag1wavel.2c` | 8388608 | `ac8cb58f1a4a602b2448694281f9c62c` | `d7fefbd4` |
+| `asc3_io-c1.ic14` | 131072 | `162005b32c4b3ddb9afa772bffb97505` | `b6627a0e` |

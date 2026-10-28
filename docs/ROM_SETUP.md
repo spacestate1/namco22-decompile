@@ -222,3 +222,16 @@ It checks all 23 chip files by name, size and CRC and copies them into `crszone/
 MAME set keeps the I/O board's program `csz1prg0a.8f` in a separate `namco_csz1.zip`, put that zip beside `crszone.zip` (or give both to
 the script). The installed packages and the Windows version do this themselves the first time the game starts, from the zips in the
 game's `roms` folder. Compare your files with [ROM_CHECKSUMS.md](ROM_CHECKSUMS.md).
+
+## Angler King
+
+Angler King (Namco Super System 23) needs one MAME set: `aking.zip` (Japan, AG1 Ver.A). Give it to the build script:
+
+```bash
+aking/build.sh /path/to/aking.zip
+```
+
+It checks all 24 chip files by name, size and CRC and copies them into `aking/extracted/`; the MIPS program is `ag1vera.ic1` / `ag1vera.ic2`.
+The I/O board's program is the `asc3_io-c1.ic14` inside `aking.zip`; no device zip is needed. The installed packages and the Windows
+version do this themselves the first time the game starts, from `aking.zip` in the game's `roms` folder. Compare your files with
+[ROM_CHECKSUMS.md](ROM_CHECKSUMS.md).

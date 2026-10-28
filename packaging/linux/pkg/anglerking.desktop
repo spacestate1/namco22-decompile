@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Angler King
+Comment=Namco's 1998 arcade fishing game Angler King (decompiled engine)
+Exec=anglerking
+Icon=anglerking
+Terminal=false
+Categories=Game;ArcadeGame;

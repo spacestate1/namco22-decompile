@@ -13,6 +13,8 @@ typedef struct {
     uint16_t linexscroll[1024], yscroll;
     uint16_t sram[0x20000];            /* the C412 SRAM: the stencil tiles */
     tc2_render_list list;              /* the render list to draw */
+    uint16_t pcz[256];                 /* the C412 PCZ half in use (0x0C000000 bit 2): fog level i is reached at depth pcz[i] (0..0x1FFF) */
+    int cz_on;                         /* C412 flags bit 0: the depth fog on */
 } tc2_frame_state;
 void tc2_text_layer(const tc2_frame_state *fs, uint16_t *mix, uint8_t *pri);
 void tc2_text_mix(const tc2_frame_state *fs, uint32_t *rgba, const uint16_t *mix, const uint8_t *pri, int prival);

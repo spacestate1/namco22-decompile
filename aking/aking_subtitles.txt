@@ -1,0 +1,74 @@
+# Angler King -- English subtitles for the Japanese captions (tc2/src/tc2_subs.c).
+# HASH (the caption block's pixels, as TC2_SUBLOG prints it)  English text;  | starts a new line.
+
+# --- attract: how to play
+1687C209  How to Play
+78B5F516  Casting: aim at a fish's shadow|and press the button to cast!
+700900D1  Cast right on top of a fish|and a big one will come!!
+9091859A  Lure Appeal meter
+D3029DF7  Reeling: work the lure|to tempt the fish!
+71065B9E  Move the lure so the|appeal meter reads GOOD!
+0949BD92  The closer this meter is to GOOD!,|the bigger the fish that comes!!
+F78CAF5D  Fighting: reel in|while the fish is tired!
+984F676C  Fighting: a jump is|a chance to reel in too!
+A9B49CDB  Fighting: pump the rod!!|Raise it, then reel in as you lower it!!
+734C8418  Fighting: grip it tight|and turn the reel handle!
+886F512B  Fighting: keep the rod down too long|and you'll fall in the water!
+CF51727D  -
+
+# --- attract: promotion and rankings
+FBB2A717  Take on the world's monster fish!!
+879B5442  Air pressure recreates|a powerful pull!!
+50E79EC4  -
+370E759F  Can you stand up to this pull?!
+D67378DC  -
+EB97F854  Land the legendary fish!!
+E48D073F  Today's Marlin Ranking
+
+# --- target select (the record lines below each fish change when a record is beaten: their hash with them)
+7D57FA3D  Choose your target
+F1C58E84  Choose with the rod, confirm with the button
+C24F4AF2  Choose with the rod, confirm with the button
+BC8A767B  Marlin -- Mediterranean, Sargasso waters|(world record / record holder)
+B1A70AA0  Tarpon -- Central America, Costa Rica|(world record / record holder)
+22718A82  Great white shark -- South Pacific, Solomon Sea|(world record / record holder)
+48577976  Arapaima -- South America, Amazon River|(world record / record holder)
+2362BAF3  Coelacanth -- Indian Ocean, Comoro Islands|(world record / record holder)
+
+# --- stage intros
+E7D54C62  Piranha attack!
+E936EDA5  Hunt the giant monster fish|in the ancient ruins of the Amazon!!
+516460A8  -
+9891E128  Brazil, Amazon River
+98394D1B  -
+196000FA  Death match in the southern seas!
+699619EB  Catch the man-eating shark by the giant|battleship sleeping on the sea floor!!
+7483DF1C  -
+E6F6D77E  South Atlantic, Solomon Sea
+0D5A365A  -
+489FD620  Here's your next target!
+7E504AA3  Just 5 more fish to conquer the world!!
+
+# --- fishing
+38061285  Aim with the cursor and press the button to cast!
+D342B7F4  Aim with the cursor and press the button to cast!
+8F876CE9  Line stamina
+33CA8194  Raise the rod and strike|when you feel a strong bite!
+5008E144  Hit!
+040368FE  Now! Reel it in!
+C54C63C7  Pull the opposite way from the fish|to make it jump!
+EE4808F4  The line snapped!
+84505DA0  Keep fighting it? (Yes / No)
+B5BD31C3  -
+1A4DA026  -
+988802E3  -
+C262287C  -
+28013255  Tilt the rod forward
+
+# --- results
+61011F32  Arapaima
+F643A785  Cast / Reeling / Hooking / Fight / Jump|Total
+A55070A3  Cast / Reeling / Hooking / Fight / Jump|Total
+7F1F7510  Rank: Beginner Angler
+7DCFD3D6  Catch every fish and you can|take on the legendary fish!
+D620CDD1  -

@@ -33,6 +33,9 @@
 static struct nk_context *ctx;
 static SDL_Window *uwin;
 static bool open_, quit_req, restart_req;
+static struct nk_font *big_font[3];            /* larger copies of the default font (20 / 28 / 40): the subtitles */
+const struct nk_user_font *eng_ui_font_big(float h)   /* the largest of them no taller than h window units (else the smallest) */
+{ struct nk_font *f = big_font[0]; for (int i = 1; i < 3; i++) if (big_font[i] && big_font[i]->handle.height <= h) f = big_font[i]; return f ? &f->handle : NULL; }
 static float ui_scale = 1.0f;                 /* drawable pixels per window unit (HiDPI) */
 static const eng_ui_page *pages[MAXPAGES];
 static int npages;
@@ -236,8 +239,10 @@ bool eng_ui_init(SDL_Window *win, const char *title)
     struct nk_font_config cfg = nk_font_config(0);
     nk_sdl_font_stash_begin(&atlas);
     struct nk_font *font = nk_font_atlas_add_default(atlas, 15 * ui_scale, &cfg);
+    { static const float bs[3] = { 20, 28, 40 }; for (int i = 0; i < 3; i++) big_font[i] = nk_font_atlas_add_default(atlas, bs[i] * ui_scale, &cfg); }   /* the subtitles' (src/tc2_subs.c) */
     nk_sdl_font_stash_end();
     font->handle.height /= ui_scale;
+    for (int i = 0; i < 3; i++) big_font[i]->handle.height /= ui_scale;
     nk_style_set_font(ctx, &font->handle);
     /* the three every game shares come first; the game's pages are added after */
     if (npages == 0) { pages[npages++] = &page_file; pages[npages++] = &page_display; pages[npages++] = &page_audio; }

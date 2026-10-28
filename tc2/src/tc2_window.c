@@ -50,6 +50,7 @@ static const tc2_built *smooth_shown;
 static const char *smooth_tag;                                 /* ENG_SWAPLOG: which picture the next swap shows */
 static int smooth_frozen;                                      /* the frame's slot may be rewritten (tc2_render_frame_end ran): no more GPU draws from it */
 static SDL_Rect pic_r;                                          /* the GAME's 4:3 area in drawable pixels: the gun aims and the crosshair live here */
+bool tc2_pic_rect_win(float *x, float *y, float *w, float *h);
 /* widescreen (Display > Widescreen, GPU only): the picture takes the window's shape, (640 + 2 * ex) x 480 board pixels, Hor+ */
 static int wide_ex(void)
 {
@@ -65,6 +66,16 @@ static SDL_Rect picture_rect(int ex)
     const SDL_Rect r = eng_disp_picture_rect(640 + 2 * ex, 480);
     pic_r.x = r.x + (int)((long)ex * r.w / (640 + 2 * ex)); pic_r.w = (int)(640L * r.w / (640 + 2 * ex)); pic_r.y = r.y; pic_r.h = r.h;
     return r;
+}
+/* the 4:3 game area in WINDOW units (the menu's coordinates; HiDPI: drawable pixels / scale) -- the subtitles (src/tc2_subs.c) */
+bool tc2_pic_rect_win(float *x, float *y, float *w, float *h)
+{
+    int ww, wh, dw, dh;
+    if (!win || pic_r.w <= 0 || pic_r.h <= 0) return false;
+    SDL_GetWindowSize(win, &ww, &wh); SDL_GL_GetDrawableSize(win, &dw, &dh);
+    const float s = ww > 0 && dw > 0 ? (float)ww / dw : 1.0f;
+    *x = pic_r.x * s; *y = pic_r.y * s; *w = pic_r.w * s; *h = pic_r.h * s;
+    return true;
 }
 
 /* the copied input module asks where the mouse / an absolute-mouse gun points in the picture; the window's outermost pixel = off-screen */
@@ -228,6 +239,7 @@ int tc2_window_open(int scale, int fullscreen)
     ss22_input_init(tc2_game.io_asca3 ? &ak_input_game : &tc2_input_game);   /* the controls (keys, mouse, light gun / rod, pads) and the menu's Controls page */
     eng_rawptr_attach(win);                              /* the gun on its own device: Windows raw input to this window (src/eng/eng_rawptr.c) */
     eng_ui_add_page(ss22_input_page());
+    { void tc2_subs_ui_init(void); tc2_subs_ui_init(); }   /* English subtitles (src/tc2_subs.c): only a game with a table */
     if (tc2_game.twin) {                                 /* the twin cabinet: which side this is, and online play (src/tc2_link.c) */
         void tc2_link_init(void); const eng_ui_page *tc2_link_page(void);
         tc2_link_init();

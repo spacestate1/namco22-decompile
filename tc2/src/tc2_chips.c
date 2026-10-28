@@ -27,6 +27,7 @@
 #include "tc2_host.h"
 #include "tc2_game.h"
 
+extern uint16_t c412_flags, c412_bank;
 static struct { uint16_t adr; uint32_t ptrom_adr; int test_mode; uint16_t ram[0x10000]; } c417;
 static struct { uint16_t sdram_a[0x100000], sdram_b[0x100000], sram[0x20000], pczram[0x200]; uint32_t adr; uint16_t status; } c412;
 static struct { uint16_t dram_a[0x40000], dram_b[0x40000], sram[0x8000]; uint32_t adr; } c421;
@@ -91,14 +92,16 @@ int tc2_chips_write(uint32_t p, int size, uint32_t v)
     case 0x02000006u: c417.ptrom_adr = 0; c417.test_mode = 1; return 1;
     case 0x02000008u: c417.ram[c417.adr] = (uint16_t)v; return 1;
     case 0x0200000Eu: cause_set(TC2_SRC_C435, 0); return 1;
-    case 0x0C000004u: return 1;                             /* C412 flags (bit 0: CZ on) */
+    case 0x0C000004u: c412_flags = (uint16_t)v; return 1;   /* C412 flags (bit 0: CZ on -- the depth fog, src/tc2_render.c) */
+    case 0x0C000000u: c412_bank = (uint16_t)v; return 0;    /* (unmapped in MAME; still falls through as before) bit 2: the PCZ half the game
+                                                             * just filled and makes live (Angler King 0x8007CDD0) */
     case 0x0C000010u: c412.adr = (c412.adr & 0xFFFF0000u) | (v & 0xFFFFu); return 1;
     case 0x0C000012u: c412.adr = (c412.adr & 0x0000FFFFu) | (v & 0xFFFFu) << 16; return 1;
     case 0x0C000014u: {
         uint16_t *m = c412_at(c412.adr);
         if (c412.adr >= 0x220000u && c412.adr < 0x220200u) {     /* $TC2_PCZLOG: every PCZ write that changes the table */
             static int dbg = -1; if (dbg < 0) dbg = getenv("TC2_PCZLOG") != NULL;
-            if (dbg && m && *m != (uint16_t)v) { extern uint32_t rr_frame; fprintf(stderr, "[PCZ] frame %u: [%03X] %04X -> %04X\n", rr_frame, c412.adr & 0x1FF, *m, (unsigned)(uint16_t)v); }
+            if (dbg && m && *m != (uint16_t)v) { extern uint32_t rr_frame, rr_pc; fprintf(stderr, "[PCZ] frame %u pc %08X: [%03X] %04X -> %04X\n", rr_frame, rr_pc, c412.adr & 0x1FF, *m, (unsigned)(uint16_t)v); }
         }
         if (m) *m = (uint16_t)v; c412.adr++; return 1; }
     case 0x0C400000u: { uint16_t *m = c421_at(c421.adr); if (m) *m = (uint16_t)v; else c421.adr += 2; return 1; }
@@ -137,3 +140,6 @@ int tc2_chips_load(const char *path)
 }
 
 uint16_t *tc2_c412_pcz(void) { return c412.pczram; }
+uint16_t c412_flags, c412_bank;                         /* the depth fog's switches (written above) */
+int tc2_c412_cz_on(void) { return c412_flags & 1; }
+const uint16_t *tc2_c412_pcz_live(void) { return c412.pczram + ((c412_bank & 4) ? 0x100 : 0); }   /* the 256-entry half in use */

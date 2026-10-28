@@ -1,0 +1,23 @@
+# Game files are yours and never belong in git.
+/extracted/
+/roms/
+*.zip
+# Made by the build or the game.
+/build/
+/build-win/
+/windows-release/
+/boot.bin
+/prog.bin
+/sub.bin
+/io.bin
+/gen/ak_sub.c
+/gen/ak_io.c
+/aking.cfg
+/tc2.log
+/aking*.log
+/aking_backup.nv
+/aking_backup.nv.tmp
+/aking_last.rec
+/aking_prev.rec
+/screenshots/
+__pycache__/

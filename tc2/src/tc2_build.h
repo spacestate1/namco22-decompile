@@ -17,9 +17,11 @@ typedef struct {
     int stencil, cmode, tbase, color_base, blend, prioverchar, alpha_enabled;
     int vp_size_x, vp_size_y, vp_offset_x, vp_offset_y;
     int entry, model;                                  /* the render-list entry it came from and its model (-1 = immediate / direct) */
+    int fog;                                           /* takes the depth fog (bit 15 of its colour word clear, as Super System 22's C-fog gate) */
 } tc2_poly;
 /* the C404's per-frame values every polygon uses */
-typedef struct { int pr, pg, pb, alpha_color, alpha_pen, alpha, fr, fg, fb, ffactor, fflags, layers; uint32_t bg; } tc2_fx;
+typedef struct { int pr, pg, pb, alpha_color, alpha_pen, alpha, fr, fg, fb, ffactor, fflags, layers; uint32_t bg;
+                 int fog, cr, cg, cb; } tc2_fx;           /* fog: the depth fog is on this frame (fogtab non-zero somewhere); cr/cg/cb its colour (C404 5-7) */
 
 #define TC2_MAX_POLYS 30000
 typedef struct {
@@ -28,6 +30,8 @@ typedef struct {
     tc2_poly polys[TC2_MAX_POLYS]; int npoly;
     uint32_t order[TC2_MAX_POLYS];                     /* indices into polys[], in draw order */
     uint16_t mix[640 * 480];                           /* the text layer: pen | 0x8000 where opaque, 0 where transparent */
+    uint8_t fogtab[0x2000];                            /* depth (z * 64, i.e. zsort >> 8) -> fog level 0..255: the PCZ half expanded as Super 22's
+                                                        * recalc_czram (engine/fog_hw.c recalc_bank) */
     uint16_t band[480];                                /* widescreen: a text row opaque all the way across (a letterbox band): its commonest
                                                         * pen | 0x8000 -- the side strips continue it; 0 = not a band */
 } tc2_built;

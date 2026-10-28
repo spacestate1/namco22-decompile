@@ -1,5 +1,5 @@
-PROP CYCLE, RAVE RACER, TOKYO WARS, DIRT DASH, TIME CRISIS, ACE DRIVER, CYBER COMMANDO, RIDGE RACER 2, CYBER SLED and TIME CRISIS 2
-=====================================================================================================================================
+PROP CYCLE, RAVE RACER, TOKYO WARS, DIRT DASH, TIME CRISIS, ACE DRIVER, CYBER COMMANDO, RIDGE RACER 2, CYBER SLED, TIME CRISIS 2, CRISIS ZONE and ANGLER KING
+==============================================================================================================================================================
 
 1. Put the MAME ROM sets into the "roms" folder (don't unzip them):
      Prop Cycle   propcycl.zip
@@ -13,8 +13,10 @@ PROP CYCLE, RAVE RACER, TOKYO WARS, DIRT DASH, TIME CRISIS, ACE DRIVER, CYBER CO
      Ridge Racer 2   ridgera2.zip  and  namcoc74.zip
      Cyber Sled   cybsled.zip  and  namcoc67.zip  and  namcoc68.zip
      Time Crisis 2  timecrs2.zip
+     Crisis Zone  crszone.zip
+     Angler King  aking.zip
 
-2. Double-click PropCycle.exe, RaveRacer.exe, TokyoWars.exe, DirtDash.exe, ArmadilloRacing.exe, TimeCrisis.exe, AceDriver.exe, CyberCommando.exe, RidgeRacer2.exe, CyberSled.exe or TimeCrisis2.exe.
+2. Double-click PropCycle.exe, RaveRacer.exe, TokyoWars.exe, DirtDash.exe, ArmadilloRacing.exe, TimeCrisis.exe, AceDriver.exe, CyberCommando.exe, RidgeRacer2.exe, CyberSled.exe, TimeCrisis2.exe, CrisisZone.exe or AnglerKing.exe.
 
 That's it. The first start takes a few seconds while it unpacks the ROMs.
 Nothing needs installing. Keep the "mesa" folder beside PropCycle.exe: it is
@@ -66,6 +68,15 @@ KEYS -- TIME CRISIS 2
   B / LB is the pedal. Recoil guns: the solenoid goes out as MAME's network output (Hook Of The Reaper, MAMEHooker): copy
   hotr\timecrs2.txt into Hook of the Reaper's defaultLG folder (see hotr\README.txt). Display > Recoil outputs turns it on / off.
   Its settings are in tc2.cfg and its rankings in tc2_backup.nv beside the .exe; the log is tc2.log.
+  CRISIS ZONE: the same keys (crszone.cfg, crszone_backup.nv; the log is tc2.log too).
+
+KEYS -- ANGLER KING
+-------------------
+  The MOUSE (or the arrow keys, or a pad stick) aims the rod.   Left button / Space / Enter   cast and select (starts a game too)
+  R / Left Shift (held)   reel the line in              W / S, PageUp / PageDown   the game's menu up / down
+  5   insert a coin     9 service     F2 the operator's test switch     Esc menu (Subtitles: English for the Japanese captions)
+  A pad: a stick aims, A casts, B / right trigger reels, the shoulders select, Back coin, R3 the menu.
+  Keep aking_subtitles.txt beside AnglerKing.exe. Its settings are in aking.cfg and its records in aking_backup.nv; the log is tc2.log.
 
 KEYS -- DIRT DASH
 -----------------
