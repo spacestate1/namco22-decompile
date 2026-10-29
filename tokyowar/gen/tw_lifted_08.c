@@ -2,6 +2,8 @@
  * One C function per Ghidra function; registers in R[], memory via vrd/vwr. */
 #include "lift_rt.h"
 #include "tw_lifted.h"
+void tw_view_cycle(void);   /* HOOK: ghidra/lift_hooks.txt */
+void tw_far_cam(void);   /* HOOK: ghidra/lift_hooks.txt */
 extern int rd_on;
 int rd_hook(uint32_t ep);
 extern int rd_stop_on;
@@ -11309,7 +11311,7 @@ A_90EEE: RR_INS(0x90EEEU); /* cmp2.w (0x00e1c59a).l,D0 */
   P_90EEE_10: u3ec00 = ((SX4((u3e400 & 0xFFFFFFFFULL)) <= SX4((u3e800 & 0xFFFFFFFFULL)))) & 0xFFULL;
   P_90EEE_11: u3ed00 = ((SX4((u3e800 & 0xFFFFFFFFULL)) <= SX4((u3e600 & 0xFFFFFFFFULL)))) & 0xFFULL;
   P_90EEE_12: u3ee00 = ((u3ec00 & 0xFFULL) & (u3ed00 & 0xFFULL)) & 0xFFULL;
-  P_90EEE_13: RS1(0x47, ((u3ee00 & 0xFFULL) ^ 1));
+  P_90EEE_13: RS1(0x47, (((u3e800 - u3e400) & 0xFFFFULL) > ((u3e600 - u3e400) & 0xFFFFULL)) ? 1ULL : 0ULL);   /* cmp2: C = out of bounds, modular (68020) */
   A_END_90EEE: ;
 A_90EF6: RR_INS(0x90EF6U); /* bcs.w 0x0009103e */
   P_90EF6_0: if (RG1(0x47)) { goto A_9103E; }
@@ -11328,7 +11330,7 @@ A_90EFA: RR_INS(0x90EFAU); /* cmp2.w (0x00e1c59e).l,D1 */
   P_90EFA_10: u3ec00 = ((SX4((u3e400 & 0xFFFFFFFFULL)) <= SX4((u3e800 & 0xFFFFFFFFULL)))) & 0xFFULL;
   P_90EFA_11: u3ed00 = ((SX4((u3e800 & 0xFFFFFFFFULL)) <= SX4((u3e600 & 0xFFFFFFFFULL)))) & 0xFFULL;
   P_90EFA_12: u3ee00 = ((u3ec00 & 0xFFULL) & (u3ed00 & 0xFFULL)) & 0xFFULL;
-  P_90EFA_13: RS1(0x47, ((u3ee00 & 0xFFULL) ^ 1));
+  P_90EFA_13: RS1(0x47, (((u3e800 - u3e400) & 0xFFFFULL) > ((u3e600 - u3e400) & 0xFFFFULL)) ? 1ULL : 0ULL);   /* cmp2: C = out of bounds, modular (68020) */
   A_END_90EFA: ;
 A_90F02: RR_INS(0x90F02U); /* bcs.w 0x0009103e */
   P_90F02_0: if (RG1(0x47)) { goto A_9103E; }
@@ -11759,7 +11761,7 @@ A_90FD4: RR_INS(0x90FD4U); /* cmp2.w (0xc0,PC),D0 */
   P_90FD4_13: u3ec00 = ((SX4((u3e400 & 0xFFFFFFFFULL)) <= SX4((u3e800 & 0xFFFFFFFFULL)))) & 0xFFULL;
   P_90FD4_14: u3ed00 = ((SX4((u3e800 & 0xFFFFFFFFULL)) <= SX4((u3e600 & 0xFFFFFFFFULL)))) & 0xFFULL;
   P_90FD4_15: u3ee00 = ((u3ec00 & 0xFFULL) & (u3ed00 & 0xFFULL)) & 0xFFULL;
-  P_90FD4_16: RS1(0x47, ((u3ee00 & 0xFFULL) ^ 1));
+  P_90FD4_16: RS1(0x47, (((u3e800 - u3e400) & 0xFFFFULL) > ((u3e600 - u3e400) & 0xFFFFULL)) ? 1ULL : 0ULL);   /* cmp2: C = out of bounds, modular (68020) */
   A_END_90FD4: ;
 A_90FDA: RR_INS(0x90FDAU); /* nop */
   A_END_90FDA: ;
@@ -11783,7 +11785,7 @@ A_90FE0: RR_INS(0x90FE0U); /* cmp2.w (0xb8,PC),D1 */
   P_90FE0_13: u3ec00 = ((SX4((u3e400 & 0xFFFFFFFFULL)) <= SX4((u3e800 & 0xFFFFFFFFULL)))) & 0xFFULL;
   P_90FE0_14: u3ed00 = ((SX4((u3e800 & 0xFFFFFFFFULL)) <= SX4((u3e600 & 0xFFFFFFFFULL)))) & 0xFFULL;
   P_90FE0_15: u3ee00 = ((u3ec00 & 0xFFULL) & (u3ed00 & 0xFFULL)) & 0xFFULL;
-  P_90FE0_16: RS1(0x47, ((u3ee00 & 0xFFULL) ^ 1));
+  P_90FE0_16: RS1(0x47, (((u3e800 - u3e400) & 0xFFFFULL) > ((u3e600 - u3e400) & 0xFFFFULL)) ? 1ULL : 0ULL);   /* cmp2: C = out of bounds, modular (68020) */
   A_END_90FE0: ;
 A_90FE6: RR_INS(0x90FE6U); /* nop */
   A_END_90FE6: ;

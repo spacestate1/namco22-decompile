@@ -5,6 +5,7 @@
  * Usage: ./propcycl [rom_dir]
  *        ./propcycl [rom_dir] --screenshot [file.ppm] [frames]
  */
+#include "../engine/eng_args.h"
 #include "propcycl.h"
 #include "win_gpu.h"          /* Windows: run on the discrete GPU of a two-GPU laptop (Optimus / PowerXpress) */
 #include "gl_warn.h"
@@ -506,6 +507,10 @@ static void on_signal_quit(int sig) {
 }
 
 int main(int argc, char* argv[]) {
+    eng_args_strip(&argc, argv);    /* --set KEY=VALUE: a setting for this run (engine/eng_args.h, GitHub #85) */
+    {   int o = 1;                  /* --fullscreen: the same as --set fullscreen=1 (Display > Window mode: fullscreen), this run only */
+        for (int i = 1; i < argc; i++) { if (!strcmp(argv[i], "--fullscreen")) eng_args_add("fullscreen", "1"); else argv[o++] = argv[i]; }
+        argv[o] = NULL; argc = o; }
 #ifdef _WIN32
     /* Double-clicked, or started from a shortcut: work from the program's own
      * folder, where extracted/, roms/ and the settings live. */

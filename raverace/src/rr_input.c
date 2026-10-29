@@ -23,6 +23,7 @@
 #include "rr_hw.h"
 #include "rr_input.h"
 #include "twin_stick.h"
+#include "eng_args.h"
 
 rr_bind_t g_bind[RR_ACT_N];
 int g_steer_speed = 160, g_steer_return = 160;      /* MAME PORT_KEYDELTA(160) */
@@ -109,97 +110,111 @@ static char *trim(char *s)
     return s;
 }
 
+static void load_kv(const char *path, char *k, char *v)
+{
+    if (g_rr_game && g_rr_game->twin_stick && ts_load_line(k, v)) return;   /* the twin-stick rows (twin_stick.c) */
+    if (!strcmp(k, "steer_speed")) { g_steer_speed = atoi(v); return; }
+    if (!strcmp(k, "steer_return")) { g_steer_return = atoi(v); return; }
+    if (!strcmp(k, "pad_deadzone")) { g_pad_deadzone = atoi(v); return; }
+    if (!strcmp(k, "stick_steering")) { int x = atoi(v); g_cfg_stick_steer = x < 0 || x >= RR_STICK_N ? 0 : x; return; }
+    if (!strcmp(k, "free_play")) { g_cfg_freeplay = atoi(v) ? 1 : 0; return; }
+    if (!strcmp(k, "car")) { g_cfg_car = atoi(v); return; }
+    if (!strcmp(k, "ffb_strength")) { int x = atoi(v); g_cfg_ffb_strength = x < 0 ? 0 : x > 100 ? 100 : x; return; }
+    if (!strcmp(k, "ffb_invert")) { g_cfg_ffb_invert = atoi(v) ? 1 : 0; return; }
+    if (!strcmp(k, "volume")) { int x = atoi(v); g_cfg_volume = x < 0 ? 0 : x > 100 ? 100 : x; return; }
+    if (!strcmp(k, "fullscreen")) { g_cfg_fullscreen = atoi(v) ? 1 : 0; return; }
+    if (!strcmp(k, "window_mode")) { int x = atoi(v); if (x >= 0 && x <= 2) g_cfg_winmode = x; return; }
+    if (!strcmp(k, "resolution")) { int w, h;
+        if (!strcmp(v, "native")) { g_cfg_res_w = g_cfg_res_h = 0; }
+        else if (sscanf(v, "%dx%d", &w, &h) == 2 && w >= 320 && h >= 240) { g_cfg_res_w = w; g_cfg_res_h = h; }
+        return; }
+    if (!strcmp(k, "frame_rate")) { g_cfg_fps = atoi(v); return; }
+    if (!strcmp(k, "wide_aspect")) { g_cfg_wide_169 = !strcmp(v, "16:9"); return; }
+    if (!strcmp(k, "widescreen")) { g_cfg_wide = atoi(v) ? 1 : 0; return; }
+    if (!strcmp(k, "wide_hud")) { extern int g_eng_hud_edges_on; g_eng_hud_edges_on = atoi(v) ? 1 : 0; return; }
+    if (!strcmp(k, "draw_distance")) {
+        g_cfg_draw = !strcmp(v, "far") ? 1 : !strcmp(v, "farther") ? 2 : !strcmp(v, "maximum") ? 3 : 0;
+        return; }
+    if (!strcmp(k, "aspect")) {
+        g_cfg_aspect = !strcmp(v, "stretch") ? 0 : !strcmp(v, "8:7") ? 2 : !strcmp(v, "16:9") ? 3 : 1;
+        return; }
+    if (!strcmp(k, "window_scale")) { int x = atoi(v); if (x >= 1 && x <= 4) g_cfg_scale = x; return; }
+    if (!strcmp(k, "scaling")) {
+        g_cfg_scaling = !strcmp(v, "sharp") ? 1 : !strcmp(v, "integer") ? 2 : 0;
+        return; }
+    if (!strcmp(k, "net_server")) { if (*v) snprintf(g_cfg_net_server, sizeof g_cfg_net_server, "%s", v); return; }   /* an empty saved value keeps the default (zonesync.net) */
+    if (!strcmp(k, "net_name")) { snprintf(g_cfg_net_name, sizeof g_cfg_net_name, "%s", v); return; }
+    if (!strcmp(k, "joy_steer_guid") || !strcmp(k, "joy_gas_guid") || !strcmp(k, "joy_brake_guid")) {
+        rr_joyaxis_t *ax = k[4] == 's' ? &g_joy_steer : k[4] == 'g' ? &g_joy_gas : &g_joy_brake;
+        snprintf(ax->guid, sizeof ax->guid, "%s", v);
+        return;
+    }
+    if (!strcmp(k, "joy_steer_shape") || !strcmp(k, "joy_gas_shape") || !strcmp(k, "joy_brake_shape")) {
+        rr_joyaxis_t *ax = k[4] == 's' ? &g_joy_steer : k[4] == 'g' ? &g_joy_gas : &g_joy_brake;
+        if (sscanf(v, "A%dB%d", &ax->shape_axes, &ax->shape_buttons) != 2) ax->shape_axes = ax->shape_buttons = 0;
+        return;
+    }
+    if (!strncmp(k, "joy_button_", 11)) {
+        for (int a = 0; a < RR_ACT_N; a++) {
+            char key[64]; snprintf(key, sizeof key, "joy_button_%s", act_name[a]);
+            if (!strcmp(k, key)) g_joy_button[a] = atoi(v);
+            snprintf(key, sizeof key, "joy_button_%s_guid", act_name[a]);
+            if (!strcmp(k, key)) snprintf(g_joy_button_guid[a], sizeof g_joy_button_guid[a], "%s", v);
+        }
+        return;
+    }
+    if (!strcmp(k, "joy_steer") || !strcmp(k, "joy_gas") || !strcmp(k, "joy_brake")) {
+        rr_joyaxis_t *ax = k[4] == 's' ? &g_joy_steer : k[4] == 'g' ? &g_joy_gas : &g_joy_brake;
+        ax->axis = atoi(v); ax->invert = strstr(v, "invert") != NULL; ax->half = strstr(v, "half") != NULL;
+        ax->direction = strstr(v, "positive") ? 1 : strstr(v, "negative") ? -1 : 0;
+        return;
+    }
+    if (!strncmp(k, "joy_", 4)) {
+        int a = -1;
+        for (int i = 0; i < RR_ACT_N; i++) if (!strcmp(k + 4, act_name[i])) a = i;
+        if (a < 0) fprintf(stderr, "[INPUT] %s: unknown action '%s'\n", path, k);
+        else g_joy_button[a] = atoi(v);
+        return;
+    }
+    bool pad = !strncmp(k, "pad_", 4);
+    const char *an = pad ? k + 4 : k;
+    int a = -1;
+    for (int i = 0; i < RR_ACT_N; i++) if (!strcmp(an, act_name[i])) a = i;
+    if (a < 0) { fprintf(stderr, "[INPUT] %s: unknown action '%s'\n", path, k); return; }
+    if (pad) {
+        g_bind[a].pad = SDL_GameControllerGetButtonFromString(v);
+        if (g_bind[a].pad == SDL_CONTROLLER_BUTTON_INVALID && *v) fprintf(stderr, "[INPUT] unknown pad button '%s'\n", v);
+    } else {
+        SDL_GameControllerButton keep = g_bind[a].pad;
+        set_default(a, v, NULL);
+        g_bind[a].pad = keep;
+    }
+}
+struct set_ctx { const char *path; };
+static void load_set(const char *k, const char *v, void *ctx)        /* --set KEY=VALUE (engine/eng_args.h, GitHub #85): this run only */
+{
+    char kb[128], vb[256];
+    snprintf(kb, sizeof kb, "%s", k); snprintf(vb, sizeof vb, "%s", v);
+    load_kv(((struct set_ctx *)ctx)->path, kb, vb);
+}
+
 void rr_input_load(const char *path)
 {
     defaults();
+    struct set_ctx sc = { path };
     FILE *f = fopen(path, "r");
-    if (!f) return;
+    if (!f) { eng_args_each(load_set, &sc); return; }
     char line[256];
     while (fgets(line, sizeof line, f)) {
         char *h = strchr(line, '#'); if (h) *h = 0;
         char *eq = strchr(line, '='); if (!eq) continue;
         *eq = 0;
         char *k = trim(line), *v = trim(eq + 1);
-        if (g_rr_game && g_rr_game->twin_stick && ts_load_line(k, v)) continue;   /* the twin-stick rows (twin_stick.c) */
-        if (!strcmp(k, "steer_speed")) { g_steer_speed = atoi(v); continue; }
-        if (!strcmp(k, "steer_return")) { g_steer_return = atoi(v); continue; }
-        if (!strcmp(k, "pad_deadzone")) { g_pad_deadzone = atoi(v); continue; }
-        if (!strcmp(k, "stick_steering")) { int x = atoi(v); g_cfg_stick_steer = x < 0 || x >= RR_STICK_N ? 0 : x; continue; }
-        if (!strcmp(k, "free_play")) { g_cfg_freeplay = atoi(v) ? 1 : 0; continue; }
-        if (!strcmp(k, "car")) { g_cfg_car = atoi(v); continue; }
-        if (!strcmp(k, "ffb_strength")) { int x = atoi(v); g_cfg_ffb_strength = x < 0 ? 0 : x > 100 ? 100 : x; continue; }
-        if (!strcmp(k, "ffb_invert")) { g_cfg_ffb_invert = atoi(v) ? 1 : 0; continue; }
-        if (!strcmp(k, "volume")) { int x = atoi(v); g_cfg_volume = x < 0 ? 0 : x > 100 ? 100 : x; continue; }
-        if (!strcmp(k, "fullscreen")) { g_cfg_fullscreen = atoi(v) ? 1 : 0; continue; }
-        if (!strcmp(k, "window_mode")) { int x = atoi(v); if (x >= 0 && x <= 2) g_cfg_winmode = x; continue; }
-        if (!strcmp(k, "resolution")) { int w, h;
-            if (!strcmp(v, "native")) { g_cfg_res_w = g_cfg_res_h = 0; }
-            else if (sscanf(v, "%dx%d", &w, &h) == 2 && w >= 320 && h >= 240) { g_cfg_res_w = w; g_cfg_res_h = h; }
-            continue; }
-        if (!strcmp(k, "frame_rate")) { g_cfg_fps = atoi(v); continue; }
-        if (!strcmp(k, "wide_aspect")) { g_cfg_wide_169 = !strcmp(v, "16:9"); continue; }
-        if (!strcmp(k, "widescreen")) { g_cfg_wide = atoi(v) ? 1 : 0; continue; }
-        if (!strcmp(k, "wide_hud")) { extern int g_eng_hud_edges_on; g_eng_hud_edges_on = atoi(v) ? 1 : 0; continue; }
-        if (!strcmp(k, "draw_distance")) {
-            g_cfg_draw = !strcmp(v, "far") ? 1 : !strcmp(v, "farther") ? 2 : !strcmp(v, "maximum") ? 3 : 0;
-            continue; }
-        if (!strcmp(k, "aspect")) {
-            g_cfg_aspect = !strcmp(v, "stretch") ? 0 : !strcmp(v, "8:7") ? 2 : !strcmp(v, "16:9") ? 3 : 1;
-            continue; }
-        if (!strcmp(k, "window_scale")) { int x = atoi(v); if (x >= 1 && x <= 4) g_cfg_scale = x; continue; }
-        if (!strcmp(k, "scaling")) {
-            g_cfg_scaling = !strcmp(v, "sharp") ? 1 : !strcmp(v, "integer") ? 2 : 0;
-            continue; }
-        if (!strcmp(k, "net_server")) { if (*v) snprintf(g_cfg_net_server, sizeof g_cfg_net_server, "%s", v); continue; }   /* an empty saved value keeps the default (zonesync.net) */
-        if (!strcmp(k, "net_name")) { snprintf(g_cfg_net_name, sizeof g_cfg_net_name, "%s", v); continue; }
-        if (!strcmp(k, "joy_steer_guid") || !strcmp(k, "joy_gas_guid") || !strcmp(k, "joy_brake_guid")) {
-            rr_joyaxis_t *ax = k[4] == 's' ? &g_joy_steer : k[4] == 'g' ? &g_joy_gas : &g_joy_brake;
-            snprintf(ax->guid, sizeof ax->guid, "%s", v);
-            continue;
-        }
-        if (!strcmp(k, "joy_steer_shape") || !strcmp(k, "joy_gas_shape") || !strcmp(k, "joy_brake_shape")) {
-            rr_joyaxis_t *ax = k[4] == 's' ? &g_joy_steer : k[4] == 'g' ? &g_joy_gas : &g_joy_brake;
-            if (sscanf(v, "A%dB%d", &ax->shape_axes, &ax->shape_buttons) != 2) ax->shape_axes = ax->shape_buttons = 0;
-            continue;
-        }
-        if (!strncmp(k, "joy_button_", 11)) {
-            for (int a = 0; a < RR_ACT_N; a++) {
-                char key[64]; snprintf(key, sizeof key, "joy_button_%s", act_name[a]);
-                if (!strcmp(k, key)) g_joy_button[a] = atoi(v);
-                snprintf(key, sizeof key, "joy_button_%s_guid", act_name[a]);
-                if (!strcmp(k, key)) snprintf(g_joy_button_guid[a], sizeof g_joy_button_guid[a], "%s", v);
-            }
-            continue;
-        }
-        if (!strcmp(k, "joy_steer") || !strcmp(k, "joy_gas") || !strcmp(k, "joy_brake")) {
-            rr_joyaxis_t *ax = k[4] == 's' ? &g_joy_steer : k[4] == 'g' ? &g_joy_gas : &g_joy_brake;
-            ax->axis = atoi(v); ax->invert = strstr(v, "invert") != NULL; ax->half = strstr(v, "half") != NULL;
-            ax->direction = strstr(v, "positive") ? 1 : strstr(v, "negative") ? -1 : 0;
-            continue;
-        }
-        if (!strncmp(k, "joy_", 4)) {
-            int a = -1;
-            for (int i = 0; i < RR_ACT_N; i++) if (!strcmp(k + 4, act_name[i])) a = i;
-            if (a < 0) fprintf(stderr, "[INPUT] %s: unknown action '%s'\n", path, k);
-            else g_joy_button[a] = atoi(v);
-            continue;
-        }
-        bool pad = !strncmp(k, "pad_", 4);
-        const char *an = pad ? k + 4 : k;
-        int a = -1;
-        for (int i = 0; i < RR_ACT_N; i++) if (!strcmp(an, act_name[i])) a = i;
-        if (a < 0) { fprintf(stderr, "[INPUT] %s: unknown action '%s'\n", path, k); continue; }
-        if (pad) {
-            g_bind[a].pad = SDL_GameControllerGetButtonFromString(v);
-            if (g_bind[a].pad == SDL_CONTROLLER_BUTTON_INVALID && *v) fprintf(stderr, "[INPUT] unknown pad button '%s'\n", v);
-        } else {
-            SDL_GameControllerButton keep = g_bind[a].pad;
-            set_default(a, v, NULL);
-            g_bind[a].pad = keep;
-        }
+        load_kv(path, k, v);
     }
     fclose(f);
     fprintf(stderr, "[INPUT] bindings from %s\n", path);
+    eng_args_each(load_set, &sc);                         /* --set KEY=VALUE: over the file, this run only */
 }
 
 bool rr_input_write(const char *path)

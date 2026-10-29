@@ -19,7 +19,6 @@ import zipfile
 # name -> size in bytes. The runtime (src/rom_loader.c, src/mcu_sound.c,
 # src/audio_hle.c) reads exactly these.
 REQUIRED = {
-    "tokyowar_defaults.nv": 0x2000,
     "tw1ccrh.1d": 0x80000,
     "tw1ccrl.3d": 0x200000,
     "tw1cg0.8d": 0x200000,
@@ -53,7 +52,9 @@ REQUIRED = {
     "tw2ver-a.3": 0x100000,
     "tw2ver-a.4": 0x100000,
 }
-OPTIONAL = {}
+OPTIONAL = {
+    "tokyowar_defaults.nv": 0x2000,     # the default EEPROM image: older MAME sets lack it; without it the EEPROM starts blank
+}
 
 # Some MAME sets name a chip differently for the same data. MAME 0.271 dropped
 # the hyphen from the program chips (tw2ver-a.N -> tw2verN); either spelling in

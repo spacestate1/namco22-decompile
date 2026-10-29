@@ -55,6 +55,7 @@ static void out_size(int *w, int *h)             /* the window's drawable, in pi
 static int max_scale(void)
 {
     SDL_Rect b;
+    if (getenv("ENG_DISP_NOFIT")) return 4;                          /* tests: a window bigger than the display (SDL's offscreen driver has a small one) */
     if (!win || SDL_GetDisplayUsableBounds(SDL_GetWindowDisplayIndex(win), &b) != 0) return 4;
     const int kw = b.w / eng_disp_win_w(1), kh = (b.h - 40) / BASE_H;      /* leave room for a title bar */
     int k = kw < kh ? kw : kh;

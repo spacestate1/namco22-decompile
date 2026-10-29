@@ -23,6 +23,7 @@
 #define NK_INCLUDE_DEFAULT_FONT
 #define NK_IMPLEMENTATION
 #define NK_SDL_GL2_IMPLEMENTATION
+#include "../engine/eng_args.h"
 #include "../third_party/nuklear.h"
 #include "../third_party/nuklear_sdl_gl2.h"
 #include "../engine/eng_nk_style.h"
@@ -99,33 +100,46 @@ int ui_controls_save(void) {
     return 1;
 }
 
+/* one "key=value" setting: eq points at the value (the file's lines, and --set KEY=VALUE from the command line) */
+static void load_setting(char *line, char *eq) {
+    eq--;                                   /* the lines below read eq + 1 */
+    if (!strcmp(line, "volume")) { audio_hle_set_volume(atoi(eq + 1) / 100.0f); return; }
+    if (!strcmp(line, "freeplay")) { g_freeplay_cfg = atoi(eq + 1) ? 1 : 0; return; }
+    if (!strcmp(line, "widescreen")) { widescreen = atoi(eq + 1) ? 1 : 0; display_cfg = 1; return; }
+    if (!strcmp(line, "wide_hud")) { extern int g_wide_hud_center; wide_hud_edges = atoi(eq + 1) ? 1 : 0; g_wide_hud_center = !wide_hud_edges; display_cfg = 1; return; }
+    if (!strcmp(line, "aspect")) { int a = atoi(eq + 1); if (a >= 0 && a < naspect()) cur_aspect = a;
+                                   else if (a == naspect()) widescreen = 1;   /* the old list's last entry */
+                                   display_cfg = 1; return; }
+    if (!strcmp(line, "frame_rate")) { g_ui_fps = eng_vsync_rate_valid(atoi(eq + 1)); return; }
+    if (!strcmp(line, "fullscreen")) { int on = atoi(eq + 1) != 0; if (on && win_mode == 0) win_mode = 1; else if (!on) win_mode = 0; display_cfg = 1; return; }   /* the other games' key (--set fullscreen=1) */
+    if (!strcmp(line, "window_mode")) { int m = atoi(eq + 1); if (m >= 0 && m <= 2) win_mode = m; display_cfg = 1; return; }
+    if (!strcmp(line, "resolution")) { int w, h; if (sscanf(eq + 1, "%dx%d", &w, &h) == 2 &&
+                                                      ((w >= 320 && h >= 240) || (w == 0 && h == 0))) { want_w = w; want_h = h; }
+                                       display_cfg = 1; return; }
+    { extern int input_joy_cfg(const char *, const char *); if (input_joy_cfg(line, eq + 1)) return; }
+    for (int i = 0; i < ACT_COUNT; i++)
+        if (!strcmp(line, act_names[i]))
+            ui_binding[i] = (SDL_Scancode)atoi(eq + 1);
+}
+static void load_set(const char *k, const char *v, void *ctx) {   /* --set KEY=VALUE (engine/eng_args.h, GitHub #85): this run only */
+    (void)ctx; char kb[128], vb[256];
+    snprintf(kb, sizeof kb, "%s", k); snprintf(vb, sizeof vb, "%s", v);
+    load_setting(kb, vb);
+}
+
 int ui_controls_load(void) {
     FILE *f = fopen(CFG_PATH, "r");
-    if (!f) return 0;
+    if (!f) { eng_args_each(load_set, NULL); return 0; }
     char line[256];
     while (fgets(line, sizeof line, f)) {
         if (line[0] == '#') continue;
         char *eq = strrchr(line, '=');
         if (!eq) continue;
         *eq = '\0';
-        if (!strcmp(line, "volume")) { audio_hle_set_volume(atoi(eq + 1) / 100.0f); continue; }
-        if (!strcmp(line, "freeplay")) { g_freeplay_cfg = atoi(eq + 1) ? 1 : 0; continue; }
-        if (!strcmp(line, "widescreen")) { widescreen = atoi(eq + 1) ? 1 : 0; display_cfg = 1; continue; }
-        if (!strcmp(line, "wide_hud")) { extern int g_wide_hud_center; wide_hud_edges = atoi(eq + 1) ? 1 : 0; g_wide_hud_center = !wide_hud_edges; display_cfg = 1; continue; }
-        if (!strcmp(line, "aspect")) { int a = atoi(eq + 1); if (a >= 0 && a < naspect()) cur_aspect = a;
-                                       else if (a == naspect()) widescreen = 1;   /* the old list's last entry */
-                                       display_cfg = 1; continue; }
-        if (!strcmp(line, "frame_rate")) { g_ui_fps = eng_vsync_rate_valid(atoi(eq + 1)); continue; }
-        if (!strcmp(line, "window_mode")) { int m = atoi(eq + 1); if (m >= 0 && m <= 2) win_mode = m; display_cfg = 1; continue; }
-        if (!strcmp(line, "resolution")) { int w, h; if (sscanf(eq + 1, "%dx%d", &w, &h) == 2 &&
-                                                          ((w >= 320 && h >= 240) || (w == 0 && h == 0))) { want_w = w; want_h = h; }
-                                           display_cfg = 1; continue; }
-        { extern int input_joy_cfg(const char *, const char *); if (input_joy_cfg(line, eq + 1)) continue; }
-        for (int i = 0; i < ACT_COUNT; i++)
-            if (!strcmp(line, act_names[i]))
-                ui_binding[i] = (SDL_Scancode)atoi(eq + 1);
+        load_setting(line, eq + 1);
     }
     fclose(f);
+    eng_args_each(load_set, NULL);          /* --set KEY=VALUE: over the file, this run only */
     return 1;
 }
 

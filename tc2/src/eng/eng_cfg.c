@@ -5,6 +5,7 @@
 #include <string.h>
 #include <ctype.h>
 #include "eng_cfg.h"
+#include "eng_args.h"
 
 #define MAXKV 160
 static struct { char k[48]; char v[112]; } kv[MAXKV];
@@ -32,12 +33,13 @@ static void remember(const char *key, const char *val)
     snprintf(kv[i].v, sizeof kv[i].v, "%s", val);
 }
 
+static void set_override(const char *k, const char *v, void *ctx);
 void eng_cfg_load(const char *path)
 {
     nkv = 0;
     snprintf(cfg_path, sizeof cfg_path, "%s", path ? path : "");
     FILE *f = cfg_path[0] ? fopen(cfg_path, "r") : NULL;
-    if (!f) return;
+    if (!f) { eng_args_each(set_override, NULL); return; }   /* --set KEY=VALUE (eng_args.h, GitHub #85): this run only */
     char line[256];
     while (fgets(line, sizeof line, f)) {
         char *p = trim(line);
@@ -49,7 +51,9 @@ void eng_cfg_load(const char *path)
         if (*k) remember(k, v);
     }
     fclose(f);
+    eng_args_each(set_override, NULL);                    /* --set KEY=VALUE (eng_args.h, GitHub #85): over the file, this run only */
 }
+static void set_override(const char *k, const char *v, void *ctx) { (void)ctx; remember(k, v); }
 
 const char *eng_cfg_get(const char *key)
 {

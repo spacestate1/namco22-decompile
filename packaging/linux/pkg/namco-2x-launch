@@ -13,6 +13,13 @@
 #   namco-2x-launch tc2 [1-9] [args]      Time Crisis 2 (a number = window scale; the mouse is the gun)
 #   namco-2x-launch csz [1-9] [args]      Crisis Zone (a number = window scale; the mouse is the gun)
 #   namco-2x-launch ak [1-9] [args]       Angler King (a number = window scale; the mouse aims the rod)
+# Options for any game (GitHub #85), with or without the window-scale number:
+#   --fullscreen                          start fullscreen
+#   --set KEY=VALUE                       any setting of the game's settings file, for this run only, e.g.
+#                                         --set widescreen=1 --set volume=50 --set frame_rate=60 (repeat as needed)
+# Time Crisis 2 / Crisis Zone also take (two copies on one PC, a LAN game set up from a launcher):
+#   --host | --join | --server ADDR       host a LAN game / join one found on the LAN / connect to a server, at start-up
+#   --name NAME | --instance N | --pos X,Y[,SCALE]   online name / a second copy's own settings / the window's place and size
 # Each game plays from its own folder under ~/.local/share/namco-2x-systems/ (or the older
 # ~/.local/share/namco22/ when that exists, so 0.6 settings and scores carry over), which holds
 # its roms/, the unpacked chips, the settings, scores and recordings. The ROM zips
@@ -38,7 +45,7 @@ case "$game" in
     tc2|timecrs2|timecrisis2|crisis2) title="Time Crisis 2"; dir=tc2; zips="timecrs2.zip"; extra="namco_tssio.zip" ;;
     csz|crszone|crisiszone|zone) title="Crisis Zone"; dir=crszone; zips="crszone.zip"; extra="namco_csz1.zip" ;;
     ak|aking|anglerking|angler) title="Angler King"; dir=aking; zips="aking.zip" ;;
-    *) sed -n '2,20p' "$0" | sed 's/^# \?//'; exit 1 ;;
+    *) sed -n '2,26p' "$0" | sed 's/^# \?//'; exit 1 ;;
 esac
 # $APPIMAGE is the .AppImage's own path (set by the AppImage runtime, also with --appimage-extract-and-run)
 appdir=""; [ -n "${APPIMAGE:-}" ] && appdir=$(dirname "$APPIMAGE")
@@ -103,6 +110,24 @@ Copy the MAME ROM zip(s) into this folder, then start the game again:
     exit 1
 fi
 
+# the PLAY options (GitHub #85): when every argument is one of these the game starts in its window with them; anything else
+# (a headless test run, a ROM folder) is passed to the program as it is
+q() { printf "'%s'" "$(printf %s "$1" | sed "s/'/'\\\\''/g")"; }
+split_play() {
+    PLAY=1; SCALE=""; ARGS=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            [1-9]) SCALE=$1 ;;
+            --window) ;;
+            --fullscreen|--host|--join|--set=*) ARGS="$ARGS $(q "$1")" ;;
+            --set|--server|--name|--instance|--pos) [ $# -ge 2 ] || { PLAY=0; return; }; ARGS="$ARGS $(q "$1") $(q "$2")"; shift ;;
+            *) PLAY=0; return ;;
+        esac
+        shift
+    done
+}
+split_play "$@"
+
 case "$dir" in
     propcycle)
         case "${1:-}" in
@@ -110,63 +135,39 @@ case "$dir" in
             *)       PROPCYCL_NO_AUTOSTART=1 exec "$LIB/propcycl" extracted "$@" ;;
         esac ;;
     raverace)
-        if [ $# -eq 0 ] || expr "$1" : '[1-9]$' >/dev/null; then
-            exec "$LIB/rr" extracted --window ${1:+"$1"}
-        fi
+        [ "$PLAY" = 1 ] && eval "exec \"\$LIB/rr\" extracted --window $SCALE $ARGS"
         exec "$LIB/rr" extracted "$@" ;;
     tokyowar)
-        if [ $# -eq 0 ] || expr "$1" : '[1-9]$' >/dev/null; then
-            exec "$LIB/tw" extracted --window ${1:+"$1"}
-        fi
+        [ "$PLAY" = 1 ] && eval "exec \"\$LIB/tw\" extracted --window $SCALE $ARGS"
         exec "$LIB/tw" extracted "$@" ;;
     dirtdash)
-        if [ $# -eq 0 ] || expr "$1" : '[1-9]$' >/dev/null; then
-            exec "$LIB/dd" extracted --window ${1:+"$1"}
-        fi
+        [ "$PLAY" = 1 ] && eval "exec \"\$LIB/dd\" extracted --window $SCALE $ARGS"
         exec "$LIB/dd" extracted "$@" ;;
     adillor)
-        if [ $# -eq 0 ] || expr "$1" : '[1-9]$' >/dev/null; then
-            exec "$LIB/am" extracted --window ${1:+"$1"}
-        fi
+        [ "$PLAY" = 1 ] && eval "exec \"\$LIB/am\" extracted --window $SCALE $ARGS"
         exec "$LIB/am" extracted "$@" ;;
     timecris)
-        if [ $# -eq 0 ] || expr "$1" : '[1-9]$' >/dev/null; then
-            exec "$LIB/tc" extracted --window ${1:+"$1"}
-        fi
+        [ "$PLAY" = 1 ] && eval "exec \"\$LIB/tc\" extracted --window $SCALE $ARGS"
         exec "$LIB/tc" extracted "$@" ;;
     acedriver)
-        if [ $# -eq 0 ] || expr "$1" : '[1-9]$' >/dev/null; then
-            exec "$LIB/ad" extracted --window ${1:+"$1"}
-        fi
+        [ "$PLAY" = 1 ] && eval "exec \"\$LIB/ad\" extracted --window $SCALE $ARGS"
         exec "$LIB/ad" extracted "$@" ;;
     cybrcomm)
-        if [ $# -eq 0 ] || expr "$1" : '[1-9]$' >/dev/null; then
-            exec "$LIB/cc" extracted --window ${1:+"$1"}
-        fi
+        [ "$PLAY" = 1 ] && eval "exec \"\$LIB/cc\" extracted --window $SCALE $ARGS"
         exec "$LIB/cc" extracted "$@" ;;
     ridgera2)
-        if [ $# -eq 0 ] || expr "$1" : '[1-9]$' >/dev/null; then
-            exec "$LIB/r2" extracted --window ${1:+"$1"}
-        fi
+        [ "$PLAY" = 1 ] && eval "exec \"\$LIB/r2\" extracted --window $SCALE $ARGS"
         exec "$LIB/r2" extracted "$@" ;;
     cybsled)
-        if [ $# -eq 0 ] || expr "$1" : '[1-9]$' >/dev/null; then
-            exec "$LIB/cs21" extracted --window ${1:+"$1"}
-        fi
+        [ "$PLAY" = 1 ] && eval "exec \"\$LIB/cs21\" extracted --window $SCALE $ARGS"
         exec "$LIB/cs21" extracted "$@" ;;
     tc2)                                            # finds extracted/ and roms/ itself; it unpacks on first start
-        if [ $# -eq 0 ] || expr "$1" : '[1-9]$' >/dev/null || [ "$1" = "--fullscreen" ]; then
-            exec "$LIB/tc2" --window "$@" 2>"$data/tc2.log"
-        fi
+        [ "$PLAY" = 1 ] && eval "exec \"\$LIB/tc2\" --window $SCALE $ARGS 2>\"\$data/tc2.log\""
         exec "$LIB/tc2" "$@" ;;
     crszone)                                        # Time Crisis 2's host: finds extracted/ and roms/ itself, unpacks on first start
-        if [ $# -eq 0 ] || expr "$1" : '[1-9]$' >/dev/null || [ "$1" = "--fullscreen" ]; then
-            exec "$LIB/crszone" --window "$@" 2>"$data/crszone.log"
-        fi
+        [ "$PLAY" = 1 ] && eval "exec \"\$LIB/crszone\" --window $SCALE $ARGS 2>\"\$data/crszone.log\""
         exec "$LIB/crszone" "$@" ;;
     aking)                                          # the same host (aking_subtitles.txt beside the binary)
-        if [ $# -eq 0 ] || expr "$1" : '[1-9]$' >/dev/null || [ "$1" = "--fullscreen" ]; then
-            exec "$LIB/aking" --window "$@" 2>"$data/aking.log"
-        fi
+        [ "$PLAY" = 1 ] && eval "exec \"\$LIB/aking\" --window $SCALE $ARGS 2>\"\$data/aking.log\""
         exec "$LIB/aking" "$@" ;;
 esac

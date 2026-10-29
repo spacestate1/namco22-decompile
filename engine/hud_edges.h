@@ -34,6 +34,9 @@ typedef struct {
     int quad_band;                           /* priority band (zsort bits 23:21) of the screen-space HUD polygons in the full-frame viewport; -1 = none */
     bool quad_zero_depth;                    /* ...and/or: a full-frame polygon whose depth (zsort & 0x1FFFFF) is 0 is one too (Rave Racer's tacho
                                               * needle: band 7, depth 0; every world polygon has a depth) */
+    bool bake_all_without_hud;               /* the per-frame cold-bake budget (engine/tex_bake.c) only while the HUD is up: the attract
+                                              * demo's camera cuts bake in full (one longer frame at a cut) instead of drawing coarse
+                                              * placeholders that sharpen over 6-12 frames -- Tokyo Wars' "buildings not fully drawn" */
 } eng_hud_cfg;
 
 extern int g_eng_hud_edges_on;           /* 0 = keep the HUD in the 4:3 centre in widescreen (default 1) */

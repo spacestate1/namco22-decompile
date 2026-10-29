@@ -15,6 +15,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include "eng_args.h"
 #include "s21_board.h"
 #include "s21_cpu.h"
 #ifdef S21_WITH_HOST
@@ -122,6 +123,7 @@ static void audio_frame(void)
 extern int g_eng_disp_native_default;
 int main(int argc, char **argv)
 {
+    eng_args_strip(&argc, argv);    /* --set KEY=VALUE: a setting for this run (engine/eng_args.h, GitHub #85) */
 #ifdef S21_WITH_HOST
     g_eng_disp_native_default = 1;    /* the board is 496x480: draw at the window's size, so the picture is resized once (s21_glutil.c) */
 #endif

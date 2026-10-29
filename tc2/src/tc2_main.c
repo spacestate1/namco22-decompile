@@ -130,6 +130,7 @@ static void scripted_inputs(uint32_t frame)
  * back end (src/tc2_gl.c) and by the software one (the oracle), both written as PPMs, and the difference reported */
 #include <SDL2/SDL.h>
 #include "tc2_build.h"
+#include "eng/eng_args.h"
 #include "eng/win_gpu.h"   /* Windows: run on the discrete GPU of a two-GPU laptop */
 static void ppm(const char *path, const uint32_t *px)
 {
@@ -302,8 +303,36 @@ const char *tc2_instance(void)
     if (!init) { init = 1; const char *e = getenv("TC2_INSTANCE"); const int n = e ? atoi(e) : 0; if (n >= 2 && n <= 99) snprintf(suf, sizeof suf, "_%d", n); }
     return suf;
 }
+/* GitHub #85: the command line a launcher needs, taken out of argv before the positional parsing below.
+ *   --set KEY=VALUE        any line of the settings file, for this run only (eng_args.h): --set widescreen=1 --set fullscreen=1
+ *   --host                 host a LAN game at start-up (a twin-cabinet game: Time Crisis II, Crisis Zone)
+ *   --join                 find a LAN game and join it at start-up
+ *   --server ADDR          connect to an online server at start-up
+ *   --name NAME            the player's name online
+ *   --instance N           a second (third...) copy on this computer: its own cfg, backup RAM and log (tc2_N.cfg)
+ *   --pos X,Y[,SCALE]      the window at X,Y on the desktop (and its size), e.g. two copies side by side
+ * They map onto the $TC2_NET_* / $TC2_INSTANCE / $TC2_WINDOW variables the runtime already reads. */
+static void cli_args(int *argc, char **argv)
+{
+    eng_args_strip(argc, argv);
+    int o = 1;
+    for (int i = 1; i < *argc; i++) {
+        const char *a = argv[i], *v = i + 1 < *argc ? argv[i + 1] : NULL;
+        if (!strcmp(a, "--host")) eng_args_setenv("TC2_NET_HOST", "1");
+        else if (!strcmp(a, "--join")) eng_args_setenv("TC2_NET_DISCOVER", "1");
+        else if (!strcmp(a, "--server") && v) { eng_args_setenv("TC2_NET_SERVER", v); i++; }
+        else if (!strcmp(a, "--name") && v) { eng_args_setenv("TC2_NET_NAME", v); i++; }
+        else if (!strcmp(a, "--instance") && v) { eng_args_setenv("TC2_INSTANCE", v); i++; }
+        else if (!strcmp(a, "--pos") && v) { eng_args_setenv("TC2_WINDOW", v); i++; }
+        else argv[o++] = argv[i];
+    }
+    argv[o] = NULL; *argc = o;
+    static char *fs_argv[] = { NULL, "--window", "--fullscreen", NULL };      /* "tc2 --fullscreen": play, fullscreen (not a headless run) */
+    if (*argc == 2 && !strcmp(argv[1], "--fullscreen")) { fs_argv[0] = argv[0]; memcpy(argv, fs_argv, sizeof fs_argv); *argc = 3; }
+}
 int main(int argc, char **argv)
 {
+    cli_args(&argc, argv);
 #ifdef _WIN32
     /* Windows: a double-click or a shortcut starts us anywhere -- work in the program's own folder (roms/, extracted/, tc2.cfg, the
      * backup RAM), and with no console the log goes to tc2.log beside the .exe (what the crash message points at) */

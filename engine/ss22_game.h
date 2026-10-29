@@ -79,6 +79,10 @@ typedef struct ss22_game {
     void (*entry)(void);                     /* the 68K's reset entry in the lifted program: never returns */
     uint32_t reset_sp_addr;                  /* 0 */
     int         polls_per_frame;             /* 68K instructions a frame (the poll budget): MAME's average */
+    int         dsp_vblank_lead;             /* master DSP steps run at the vblank BEFORE the 68K's vblank handler (0 = none). Tokyo Wars: with the 68K's
+                                              * whole first slice ahead of it, the master read a scene switch the handler had only half written (a
+                                              * reset camera: one near-black frame at each attract cut, which MAME never shows); MAME's DSP reads at
+                                              * the start of the vblank, before the handler gets that far. SS22_DSP_LEAD=n overrides (tests) */
     const ss22_press_name *presses; int n_presses;
     /* --autoplay: the cabinet as tools/mame/cov_trace_play.lua feeds MAME, at emulated frame n */
     void (*autoplay)(long n, uint16_t *pressed, unsigned *wheel, unsigned *pedal1, unsigned *pedal2);

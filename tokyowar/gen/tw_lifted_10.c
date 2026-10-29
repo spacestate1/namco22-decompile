@@ -2,6 +2,8 @@
  * One C function per Ghidra function; registers in R[], memory via vrd/vwr. */
 #include "lift_rt.h"
 #include "tw_lifted.h"
+void tw_view_cycle(void);   /* HOOK: ghidra/lift_hooks.txt */
+void tw_far_cam(void);   /* HOOK: ghidra/lift_hooks.txt */
 extern int rd_on;
 int rd_hook(uint32_t ep);
 extern int rd_stop_on;
@@ -108645,7 +108647,7 @@ A_E0ED6: RR_INS(0xE0ED6U); /* cmp2.w (A1),D0 */
   P_E0ED6_11: u3ec00 = ((SX4((u3e400 & 0xFFFFFFFFULL)) <= SX4((u3e800 & 0xFFFFFFFFULL)))) & 0xFFULL;
   P_E0ED6_12: u3ed00 = ((SX4((u3e800 & 0xFFFFFFFFULL)) <= SX4((u3e600 & 0xFFFFFFFFULL)))) & 0xFFULL;
   P_E0ED6_13: u3ee00 = ((u3ec00 & 0xFFULL) & (u3ed00 & 0xFFULL)) & 0xFFULL;
-  P_E0ED6_14: RS1(0x47, ((u3ee00 & 0xFFULL) ^ 1));
+  P_E0ED6_14: RS1(0x47, (((u3e800 - u3e400) & 0xFFFFULL) > ((u3e600 - u3e400) & 0xFFFFULL)) ? 1ULL : 0ULL);   /* cmp2: C = out of bounds, modular (68020) */
   A_END_E0ED6: ;
 A_E0EDA: RR_INS(0xE0EDAU); /* bcc.w 0x000e0ee6 */
   P_E0EDA_0: u14200 = ((RG1(0x47) ^ 1)) & 0xFFULL;

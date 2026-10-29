@@ -2,6 +2,8 @@
  * One C function per Ghidra function; registers in R[], memory via vrd/vwr. */
 #include "lift_rt.h"
 #include "tw_lifted.h"
+void tw_view_cycle(void);   /* HOOK: ghidra/lift_hooks.txt */
+void tw_far_cam(void);   /* HOOK: ghidra/lift_hooks.txt */
 extern int rd_on;
 int rd_hook(uint32_t ep);
 extern int rd_stop_on;
@@ -11557,6 +11559,7 @@ A_1ECA2: RR_INS(0x1ECA2U); /* andi.w #0x1,(-0x7ee8,A6) */
   P_1ECA2_8: RS1(0x45, ((u16e00 & 0xFFFFULL) == 0x0ULL));
   A_END_1ECA2: ;
 A_1ECA8: RR_INS(0x1ECA8U); /* tst.w (-0x7ee8,A6) */
+  tw_view_cycle();   /* HOOK: ghidra/lift_hooks.txt */
   P_1ECA8_0: ua500 = (RG4(0x38) + 0xFFFF8118ULL) & 0xFFFFFFFFULL;
   P_1ECA8_1: RS1(0x46, 0x0ULL);
   P_1ECA8_2: RS1(0x47, 0x0ULL);
@@ -11698,6 +11701,7 @@ A_1ECE4: RR_INS(0x1ECE4U); /* move.w (0x4,A0,D0w*0x8),(-0x7bda,A6) */
   P_1ECE4_12: RS1(0x47, 0x0ULL);
   A_END_1ECE4: ;
 A_1ECEA: RR_INS(0x1ECEAU); /* rts */
+  tw_far_cam();   /* HOOK: ghidra/lift_hooks.txt */
   P_1ECEA_0: RS4(0x50, (uint64_t)MRD4((uint32_t)RG4(0x3C)));
   P_1ECEA_1: RS4(0x3C, RG4(0x3C) + 0x4ULL);
   P_1ECEA_2: { uint32_t t_ = (uint32_t)RG4(0x50); if (rr_return(t_)) return; RR_POLL(); if (t_ >= 0x1EC94U && t_ <= 0x1ECEAU) { pc_ = t_; goto resume_; } rr_jump(t_, 0x1ECEAU); return; }

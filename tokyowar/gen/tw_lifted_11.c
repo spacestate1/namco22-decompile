@@ -2,6 +2,8 @@
  * One C function per Ghidra function; registers in R[], memory via vrd/vwr. */
 #include "lift_rt.h"
 #include "tw_lifted.h"
+void tw_view_cycle(void);   /* HOOK: ghidra/lift_hooks.txt */
+void tw_far_cam(void);   /* HOOK: ghidra/lift_hooks.txt */
 extern int rd_on;
 int rd_hook(uint32_t ep);
 extern int rd_stop_on;

@@ -15,6 +15,7 @@
  *   rr <rom_dir> [--frames N] [--dump DIR]    headless run
  */
 #include <SDL.h>
+#include "eng_args.h"
 #include "rr_romzip.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -406,6 +407,7 @@ void rr_win_startup(void);          /* src/rr_win.c */
 #endif
 int main(int argc, char **argv)
 {
+    eng_args_strip(&argc, argv);    /* --set KEY=VALUE: a setting for this run (engine/eng_args.h, GitHub #85) */
 #ifdef _WIN32
     rr_win_startup();               /* the program's folder, raveracer.log, DPI */
 #endif

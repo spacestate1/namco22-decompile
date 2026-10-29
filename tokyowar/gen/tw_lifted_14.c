@@ -2,6 +2,8 @@
  * One C function per Ghidra function; registers in R[], memory via vrd/vwr. */
 #include "lift_rt.h"
 #include "tw_lifted.h"
+void tw_view_cycle(void);   /* HOOK: ghidra/lift_hooks.txt */
+void tw_far_cam(void);   /* HOOK: ghidra/lift_hooks.txt */
 extern int rd_on;
 int rd_hook(uint32_t ep);
 extern int rd_stop_on;
@@ -13669,7 +13671,7 @@ A_ECFFC: RR_INS(0xECFFCU); /* cmp2.w (0x1e,PC),D0 */
   P_ECFFC_13: u3ec00 = ((SX4((u3e400 & 0xFFFFFFFFULL)) <= SX4((u3e800 & 0xFFFFFFFFULL)))) & 0xFFULL;
   P_ECFFC_14: u3ed00 = ((SX4((u3e800 & 0xFFFFFFFFULL)) <= SX4((u3e600 & 0xFFFFFFFFULL)))) & 0xFFULL;
   P_ECFFC_15: u3ee00 = ((u3ec00 & 0xFFULL) & (u3ed00 & 0xFFULL)) & 0xFFULL;
-  P_ECFFC_16: RS1(0x47, ((u3ee00 & 0xFFULL) ^ 1));
+  P_ECFFC_16: RS1(0x47, (((u3e800 - u3e400) & 0xFFFFULL) > ((u3e600 - u3e400) & 0xFFFFULL)) ? 1ULL : 0ULL);   /* cmp2: C = out of bounds, modular (68020) */
   A_END_ECFFC: ;
 A_ED002: RR_INS(0xED002U); /* nop */
   A_END_ED002: ;
@@ -13693,7 +13695,7 @@ A_ED008: RR_INS(0xED008U); /* cmp2.w (0x16,PC),D1 */
   P_ED008_13: u3ec00 = ((SX4((u3e400 & 0xFFFFFFFFULL)) <= SX4((u3e800 & 0xFFFFFFFFULL)))) & 0xFFULL;
   P_ED008_14: u3ed00 = ((SX4((u3e800 & 0xFFFFFFFFULL)) <= SX4((u3e600 & 0xFFFFFFFFULL)))) & 0xFFULL;
   P_ED008_15: u3ee00 = ((u3ec00 & 0xFFULL) & (u3ed00 & 0xFFULL)) & 0xFFULL;
-  P_ED008_16: RS1(0x47, ((u3ee00 & 0xFFULL) ^ 1));
+  P_ED008_16: RS1(0x47, (((u3e800 - u3e400) & 0xFFFFULL) > ((u3e600 - u3e400) & 0xFFFFULL)) ? 1ULL : 0ULL);   /* cmp2: C = out of bounds, modular (68020) */
   A_END_ED008: ;
 A_ED00E: RR_INS(0xED00EU); /* nop */
   A_END_ED00E: ;
@@ -20658,7 +20660,7 @@ A_EDAAC: RR_INS(0xEDAACU); /* cmp2.l (A0),D0 */
   P_EDAAC_10: u40000 = ((SX4((u3f800 & 0xFFFFFFFFULL)) <= SX4((u3fc00 & 0xFFFFFFFFULL)))) & 0xFFULL;
   P_EDAAC_11: u40100 = ((SX4((u3fc00 & 0xFFFFFFFFULL)) <= SX4((u3fa00 & 0xFFFFFFFFULL)))) & 0xFFULL;
   P_EDAAC_12: u40200 = ((u40000 & 0xFFULL) & (u40100 & 0xFFULL)) & 0xFFULL;
-  P_EDAAC_13: RS1(0x47, ((u40200 & 0xFFULL) ^ 1));
+  P_EDAAC_13: RS1(0x47, (((u3fc00 - u3f800) & 0xFFFFFFFFULL) > ((u3fa00 - u3f800) & 0xFFFFFFFFULL)) ? 1ULL : 0ULL);   /* cmp2: C = out of bounds, modular (68020) */
   A_END_EDAAC: ;
 A_EDAB0: RR_INS(0xEDAB0U); /* bcs.w 0x000edc12 */
   P_EDAB0_0: if (RG1(0x47)) { goto A_EDC12; }
@@ -20813,7 +20815,7 @@ A_EDAEA: RR_INS(0xEDAEAU); /* cmp2.l (A0),D0 */
   P_EDAEA_10: u40000 = ((SX4((u3f800 & 0xFFFFFFFFULL)) <= SX4((u3fc00 & 0xFFFFFFFFULL)))) & 0xFFULL;
   P_EDAEA_11: u40100 = ((SX4((u3fc00 & 0xFFFFFFFFULL)) <= SX4((u3fa00 & 0xFFFFFFFFULL)))) & 0xFFULL;
   P_EDAEA_12: u40200 = ((u40000 & 0xFFULL) & (u40100 & 0xFFULL)) & 0xFFULL;
-  P_EDAEA_13: RS1(0x47, ((u40200 & 0xFFULL) ^ 1));
+  P_EDAEA_13: RS1(0x47, (((u3fc00 - u3f800) & 0xFFFFFFFFULL) > ((u3fa00 - u3f800) & 0xFFFFFFFFULL)) ? 1ULL : 0ULL);   /* cmp2: C = out of bounds, modular (68020) */
   A_END_EDAEA: ;
 A_EDAEE: RR_INS(0xEDAEEU); /* bcs.w 0x000edc12 */
   P_EDAEE_0: if (RG1(0x47)) { goto A_EDC12; }
@@ -21116,7 +21118,7 @@ A_EDB76: RR_INS(0xEDB76U); /* cmp2.l (A0),D0 */
   P_EDB76_10: u40000 = ((SX4((u3f800 & 0xFFFFFFFFULL)) <= SX4((u3fc00 & 0xFFFFFFFFULL)))) & 0xFFULL;
   P_EDB76_11: u40100 = ((SX4((u3fc00 & 0xFFFFFFFFULL)) <= SX4((u3fa00 & 0xFFFFFFFFULL)))) & 0xFFULL;
   P_EDB76_12: u40200 = ((u40000 & 0xFFULL) & (u40100 & 0xFFULL)) & 0xFFULL;
-  P_EDB76_13: RS1(0x47, ((u40200 & 0xFFULL) ^ 1));
+  P_EDB76_13: RS1(0x47, (((u3fc00 - u3f800) & 0xFFFFFFFFULL) > ((u3fa00 - u3f800) & 0xFFFFFFFFULL)) ? 1ULL : 0ULL);   /* cmp2: C = out of bounds, modular (68020) */
   A_END_EDB76: ;
 A_EDB7A: RR_INS(0xEDB7AU); /* bcs.w 0x000edc12 */
   P_EDB7A_0: if (RG1(0x47)) { goto A_EDC12; }
@@ -21271,7 +21273,7 @@ A_EDBB4: RR_INS(0xEDBB4U); /* cmp2.l (A0),D0 */
   P_EDBB4_10: u40000 = ((SX4((u3f800 & 0xFFFFFFFFULL)) <= SX4((u3fc00 & 0xFFFFFFFFULL)))) & 0xFFULL;
   P_EDBB4_11: u40100 = ((SX4((u3fc00 & 0xFFFFFFFFULL)) <= SX4((u3fa00 & 0xFFFFFFFFULL)))) & 0xFFULL;
   P_EDBB4_12: u40200 = ((u40000 & 0xFFULL) & (u40100 & 0xFFULL)) & 0xFFULL;
-  P_EDBB4_13: RS1(0x47, ((u40200 & 0xFFULL) ^ 1));
+  P_EDBB4_13: RS1(0x47, (((u3fc00 - u3f800) & 0xFFFFFFFFULL) > ((u3fa00 - u3f800) & 0xFFFFFFFFULL)) ? 1ULL : 0ULL);   /* cmp2: C = out of bounds, modular (68020) */
   A_END_EDBB4: ;
 A_EDBB8: RR_INS(0xEDBB8U); /* bcs.w 0x000edc12 */
   P_EDBB8_0: if (RG1(0x47)) { goto A_EDC12; }

@@ -45,9 +45,12 @@ KEYS -- TOKYO WARS
   5             insert a coin           Enter      start
   Left / Right  steer (or A / D)        Up / Down  forward / backward pedal (or W / S)
   X / Z         right / left trigger    9          service
+  Enter (in a battle)  view: chase -> far chase -> cockpit
+  R / F         left stick forward / back   I / K   right stick forward / back (tank style, as Cyber Sled)
   Esc           menu: Display (widescreen, window mode, resolution, frame rate ...),
                 Audio (volume), Controls (rebind the keys)
   F11           fullscreen              F12        screenshot
+  Two joysticks: Esc -> Controls, the rows at the bottom (see TWO STICKS below).
 
 KEYS -- TIME CRISIS
 -------------------
@@ -142,8 +145,11 @@ KEYS -- CYBER SLED
   Pad: the left and right sticks are the two levers, A / RT gun, B / LT missile, Y view.
   Two joysticks: Esc -> Controls (see TWO STICKS below).
 
-TWO STICKS -- CYBER SLED AND CYBER COMMANDO
--------------------------------------------
+TWO STICKS -- CYBER SLED, CYBER COMMANDO AND TOKYO WARS
+-------------------------------------------------------
+  Tokyo Wars drives the tank the same way: each stick is one track. Both forward = forward, both back =
+  backward, one forward and one back = turn on the spot (half and half = a curve). Its rows are each
+  stick's forward / back, each stick's trigger and a start / view button; the wheel and pedals keep working.
   Esc -> Controls binds each stick's up / down / left / right, the tank rows and every button.
   Enter on a row, then press a key or button, push a hat or move a stick (Esc cancels).
   Left clears a row, Right puts its defaults back.
@@ -188,6 +194,11 @@ Black screen or won't start     Update your graphics driver. In a virtual
 Something else                  Each game writes a log beside it, from its
                                 last start: propcycl.log / raveracer.log / tokyowar.log / dirtdash.log / adillor.log / timecris.log / acedriver.log / cybrcomm.log / ridgeracer2.log / cybsled.log.
                                 It says what went wrong.
+
+Settings on the command line (a shortcut's "Target", after the .exe): --set KEY=VALUE for any line of
+the game's .cfg file, for that run only (e.g. --set widescreen=1 --set volume=50), and --fullscreen.
+Time Crisis II and Crisis Zone also take --host, --join, --server ADDR, --name NAME, --instance 2 (a second
+copy on this PC) and --pos X,Y[,SIZE] (its window): two copies side by side for a LAN game.
 
 Keep the folder somewhere you can write to (Downloads, Desktop, Documents --
 not Program Files): the games unpack their ROMs and save settings there.

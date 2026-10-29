@@ -67,7 +67,7 @@ Cyber Commando:
 
 Ridge Racer 2:
 
-![Ridge Racer 2: the start line](docs/images/ridgera2-gameplay.png)
+![Ridge Racer 2: the start line, in widescreen](docs/images/ridgera2-gameplay.png)
 
 Cyber Sled:
 
@@ -77,9 +77,13 @@ Time Crisis II:
 
 ![Time Crisis II: the first stage's street, in widescreen](docs/images/timecrisis2-gameplay.png)
 
+Crisis Zone:
+
+![Crisis Zone: an office firefight, in widescreen](docs/images/crszone-gameplay.png)
+
 Angler King:
 
-![Angler King: the attract's "how to play" demo](docs/images/aking-attract.png)
+![Angler King: the attract's "how to play" demo, in widescreen, with the English subtitles](docs/images/aking-attract.png)
 
 Prop Cycle:
 
@@ -432,7 +436,7 @@ the coins are put in and the choices made for you, then the gun is yours. It wor
 **No crosshair:** *Esc > Display > Crosshair* turns the red aiming
 cross off (a real light gun needs none).
 
-**Your own crosshair** (Time Crisis, Time Crisis II, Crisis Zone): put PNG pictures in a `crosshairs` folder beside the game (or one
+**Your own crosshair** (Time Crisis, Time Crisis II, Crisis Zone): put PNG pictures in a `crosshairs` folder beside the game `.exe` files (or one
 named `crosshair.png`), then pick one in *Esc > Display > Crosshair image*; "built-in" is the game's own cross. The picture: 8 bits per
 channel (grey, RGB, RGBA or a palette; transparency is kept), not interlaced, at most 256 x 256 pixels. It is drawn at its own size on a
 1080-line screen and scales with the window, so 64 x 64 is about the size of the built-in cross. The choice is saved.
@@ -477,6 +481,25 @@ Press `Esc` and open **Display**. Your choices are saved by themselves.
   under 60 frames a second), whatever you pick and whatever your graphics
   driver's vsync setting is: a lower number shows fewer pictures, a higher one
   shows each picture more than once for a smoother picture on a fast monitor.
+
+## Starting a game with settings (command line)
+
+Every game takes its settings on the command line too, for a launcher or a shortcut. They hold for that run only: the settings
+file is not changed (unless you change the same thing in the menu).
+
+- `--set KEY=VALUE`: any line of the game's settings file (the `.cfg` beside the game), as many times as needed, e.g.
+  `--set widescreen=1 --set volume=50 --set frame_rate=60 --set fullscreen=1`. Look in the `.cfg` file for the names.
+- `--fullscreen`: start full screen. A number (`2`, `3`, ...) is the window size, as before.
+
+Time Crisis II and Crisis Zone also take, for a LAN game set up from a script (two copies on one PC, or two PCs):
+
+- `--host` host a LAN game, `--join` find one on the LAN and join it, `--server ADDR` connect to an online server
+- `--name NAME` your name online, `--instance 2` a second copy on the same PC (its own settings and backup files),
+  `--pos X,Y[,SIZE]` where its window goes (and its size)
+
+Linux, installed package or AppImage: `namco-2x-launch tc2 --host --pos 0,0` and, in a second terminal,
+`namco-2x-launch tc2 --instance 2 --join --pos 960,0`. Windows: the same options after the program's name in a shortcut,
+e.g. `TimeCrisis2.exe --set widescreen=1 --fullscreen`.
 
 ## If it does not work
 
