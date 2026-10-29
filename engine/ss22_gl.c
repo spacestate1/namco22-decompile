@@ -546,15 +546,30 @@ void ss22_draw(int vw, int vh)
 
     /* the mixer's gamma over the whole frame, once, as the hardware does at scanout */
     if (g_fog_valid && g_fog.have_gamma) eng_post_lut(g_fog.gamma, vw, vh);
+    { extern void tex_bake_atlas_view(int, int); tex_bake_atlas_view(vw, vh); }
+    { extern void tex_bake_diag_frame(void); tex_bake_diag_frame(); }
 }
 
 /* ------------------------------------------------------------------ GL context helpers */
 void eng_gl_context_attributes(void)
 {
+#ifndef __EMSCRIPTEN__                                 /* the browser: WebGL only -- a desktop 2.1 compatibility profile is refused; the legacy-GL emulation sits on the default context */
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_COMPATIBILITY);
+#endif
+#ifdef __EMSCRIPTEN__
+    /* an OPAQUE canvas: the browser composites the page through whatever the
+     * engine leaves in framebuffer alpha (prio bits, blend residue) -- the
+     * missing-polygon look. Nothing blends against destination alpha, so the
+     * channel is not needed. */
+    SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 0);
+    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);   /* SDL's default asks for 16: far geometry (the castle behind the night sky's
+                                                   * backdrop quads) quantizes onto the backdrop's z and loses GL_LESS -- the
+                                                   * "z-fighting" look. The desktop always got 24+ anyway. */
+#else
     SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 8);
+#endif
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
 }
 
@@ -590,7 +605,21 @@ bool eng_gl_write_ppm(const char *path, int vw, int vh)
     uint8_t *px = malloc((size_t)vw * vh * 3);
     if (!px) return false;
     glPixelStorei(GL_PACK_ALIGNMENT, 1);
+#ifdef __EMSCRIPTEN__
+    /* WebGL reads RGBA/UNSIGNED_BYTE only: a GL_RGB read is an error that
+     * leaves the buffer untouched (every shot came back black) */
+    { uint8_t *rgba = malloc((size_t)vw * vh * 4);
+      if (!rgba) { free(px); return false; }
+      glReadPixels(0, 0, vw, vh, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+      for (size_t i = 0, n = (size_t)vw * vh; i < n; i++) {
+          px[i * 3 + 0] = rgba[i * 4 + 0];
+          px[i * 3 + 1] = rgba[i * 4 + 1];
+          px[i * 3 + 2] = rgba[i * 4 + 2];
+      }
+      free(rgba); }
+#else
     glReadPixels(0, 0, vw, vh, GL_RGB, GL_UNSIGNED_BYTE, px);
+#endif
     FILE *f = fopen(path, "wb");
     if (!f) { free(px); return false; }
     fprintf(f, "P6\n%d %d\n255\n", vw, vh);

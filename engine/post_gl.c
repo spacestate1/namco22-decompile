@@ -57,6 +57,35 @@ static int    state;             /* 0 untried, 1 shader, -1 pixel-map fallback *
 static GLuint prog, frame_tex, lut_tex;
 static int    frame_w, frame_h;
 
+#ifdef __EMSCRIPTEN__
+/* WebGL (GLSL ES): a program must have BOTH stages, and the legacy-GL
+ * emulation feeds immediate-mode quads to a user program through attributes
+ * and matrix uniforms with THESE names (a_position, a_texCoord0, u_modelView,
+ * u_projection -- see emscripten's libglemu.js, Renderer.init). */
+static const char *VS =
+    "attribute vec4 a_position;\n"
+    "attribute vec4 a_texCoord0;\n"
+    "varying vec4 v_texCoord0;\n"
+    "uniform mat4 u_modelView;\n"
+    "uniform mat4 u_projection;\n"
+    "void main() {\n"
+    "    v_texCoord0 = a_texCoord0;\n"
+    "    gl_Position = u_projection * u_modelView * a_position;\n"
+    "}\n";
+static const char *FS =
+    "precision highp float;\n"
+    "varying vec4 v_texCoord0;\n"
+    "uniform sampler2D frame;\n"
+    "uniform sampler2D lut;\n"
+    "void main() {\n"
+    "    vec3 c = texture2D(frame, v_texCoord0.xy).rgb;\n"
+    "    /* texel centres of the 256-wide table: (v * 255 + 0.5) / 256 */\n"
+    "    vec3 k = c * (255.0 / 256.0) + 0.5 / 256.0;\n"
+    "    gl_FragColor = vec4(texture2D(lut, vec2(k.r, 0.5)).r,\n"
+    "                        texture2D(lut, vec2(k.g, 0.5)).g,\n"
+    "                        texture2D(lut, vec2(k.b, 0.5)).b, 1.0);\n"
+    "}\n";
+#else
 static const char *FS =
     "uniform sampler2D frame;\n"
     "uniform sampler2D lut;\n"
@@ -68,6 +97,7 @@ static const char *FS =
     "                        texture2D(lut, vec2(k.g, 0.5)).g,\n"
     "                        texture2D(lut, vec2(k.b, 0.5)).b, 1.0);\n"
     "}\n";
+#endif
 
 static int init_shader(void)
 {
@@ -87,7 +117,18 @@ static int init_shader(void)
     LOAD(p_active_texture, pfn_active_texture, "glActiveTexture");
 #undef LOAD
     GLuint fs = p_create_shader(GL_FRAGMENT_SHADER);
+#ifdef __EMSCRIPTEN__
+    /* ENG_LUT_PASSTHRU=1: bisect -- draw the copied frame with no table */
+    static const char *FS_PASS =
+        "precision highp float;\n"
+        "varying vec4 v_texCoord0;\n"
+        "uniform sampler2D frame;\n"
+        "void main() { gl_FragColor = vec4(texture2D(frame, v_texCoord0.xy).rgb, 1.0); }\n";
+    const char *fs_src = getenv("ENG_LUT_PASSTHRU") ? FS_PASS : FS;
+    p_shader_source(fs, 1, &fs_src, NULL);
+#else
     p_shader_source(fs, 1, &FS, NULL);
+#endif
     p_compile(fs);
     GLint ok = 0;
     p_get_shader_iv(fs, GL_COMPILE_STATUS, &ok);
@@ -98,6 +139,18 @@ static int init_shader(void)
     }
     prog = p_create_program();
     p_attach(prog, fs);
+#ifdef __EMSCRIPTEN__
+    GLuint vs = p_create_shader(GL_VERTEX_SHADER);
+    p_shader_source(vs, 1, &VS, NULL);
+    p_compile(vs);
+    p_get_shader_iv(vs, GL_COMPILE_STATUS, &ok);
+    if (!ok) {
+        char log[512]; p_get_shader_log(vs, sizeof log, NULL, log);
+        fprintf(stderr, "[POST] vertex shader: %s\n", log);
+        return 0;
+    }
+    p_attach(prog, vs);
+#endif
     p_link(prog);
     p_get_program_iv(prog, GL_LINK_STATUS, &ok);
     if (!ok) return 0;
@@ -132,10 +185,18 @@ static void full_quad(void)
 
 void eng_post_lut(const uint8_t lut[3][256], int vw, int vh)
 {
+    { static int nolut = -1;          /* A/B: the frame without the stage */
+      if (nolut < 0) nolut = getenv("ENG_NOLUT") != NULL;
+      if (nolut) return; }
     if (state == 0) {
         state = init_shader() ? 1 : -1;
         fprintf(stderr, "[POST] final colour stage: %s\n", state > 0 ? "GLSL" : "pixel map (slow)");
     }
+#ifdef __EMSCRIPTEN__
+    if (state < 0) return;            /* no pixel-map path over WebGL: a half-made
+                                       * program must never stay around (the emulation
+                                       * wraps the bound program into its renderers) */
+#endif
     glDisable(GL_BLEND); glDisable(GL_ALPHA_TEST); glDisable(GL_SCISSOR_TEST);
     glViewport(0, 0, vw, vh);
     if (!frame_tex || frame_w != vw || frame_h != vh) {
@@ -145,7 +206,10 @@ void eng_post_lut(const uint8_t lut[3][256], int vw, int vh)
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vw, vh, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        /* GL_RGB: WebGL refuses glCopyTexSubImage2D into a texture with MORE
+         * components than the framebuffer, and the browser canvas is RGB
+         * (alpha off for compositing; see eng_gl_context_attributes) */
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, vw, vh, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
         frame_w = vw; frame_h = vh;
     }
     if (state > 0) {
