@@ -534,6 +534,19 @@ e.g. `TimeCrisis2.exe --set widescreen=1 --fullscreen`.
 
 More about the game files: [docs/ROM_SETUP.md](docs/ROM_SETUP.md)
 
+## Thanks
+
+People who sent changes that are in the games:
+
+- **Endprodukt**: wheel force feedback (Rave Racer, Dirt Dash, the shared engine module), wheel / pedal / shifter
+  bindings, Dirt Dash's road speaker, Rave Racer's EEPROM kept between sessions.
+- **TheSaltTrader**: widescreen for Cyber Sled and Cyber Commando, twin-stick controls, Tokyo Wars' tank controls and
+  far chase view, the Tokyo Wars attract-mode cuts, Cyber Commando on older ROM sets.
+- **OctopusButtons**: README fixes (where the crosshairs go).
+- **svera**: README fixes (the ROM zips after unpacking).
+
+And everyone who reported a bug with a log, a recording or a screenshot.
+
 ## License
 
 The code in this repository is released under the [MIT License](LICENSE).
