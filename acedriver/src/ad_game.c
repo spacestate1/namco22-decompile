@@ -46,6 +46,11 @@ static const eng_rom_t ace_roms[] = {
     { "c74.bin", 0x4000, NULL, NULL },        /* the sound MCU BIOS: namcoc74.zip */
 };
 
+/* WIDESCREEN HUD: the race HUD is up while the TIME label (text row 2, cols 2-5) or the LAP TIME label (row 2, cols 28-35) is on
+ * screen. Measured over text dumps every 30 frames of a coined BEGINNER race (start line to GAME OVER, 191 frames) and 6000 frames of
+ * attract (2026-10-28): on every race frame, the attract demo race included, and on no title, class select, ranking or "1 TO 1" screen. */
+static const uint16_t ad_hud_marks[][3] = { { 2, 2, 0x10D4 }, { 2, 28, 0x10CC }, { 2, 32, 0x10D4 } };
+
 static const rr_game_t ace = {
     .name = "acedrive", .title = "Ace Driver", .cfg_file = "ad_controls.cfg", .nv_file = "ad_eeprom.nv", .entry = L_440,
     .prg = { "ad2_prguu.6d", "ad2_prgum.8d", "ad2_prglm.2d", "ad2_prgll.4d" },      /* ROM_LOAD32_BYTE offsets 0, 1, 2, 3 */
@@ -64,6 +69,7 @@ static const rr_game_t ace = {
     .gas_max = 0x480, .brake_max = 0x240,             /* ADC.1 (0, 0x480), ADC.2 (0, 0x240) */
     .gas_delta = 120, .brake_delta = 80,              /* PORT_KEYDELTA(120) / (80) */
     .spin_pc = 0, .spin_op = 0,
+    .hud_marks = ad_hud_marks, .n_hud_marks = 3,
     .debug = ace_debug, .ndebug = (int)(sizeof ace_debug / sizeof ace_debug[0]),
     .task_sp = 0x10000030, .task_sp_empty = 0x10000030,   /* A6-0x7FD0: the coroutine task stack (0x4C2C resets it to its own address) */
     .task_slot = 0x10000038,

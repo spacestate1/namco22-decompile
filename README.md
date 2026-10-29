@@ -83,7 +83,7 @@ Crisis Zone:
 
 Angler King:
 
-![Angler King: the attract's "how to play" demo, in widescreen, with the English subtitles](docs/images/aking-attract.png)
+![Angler King: fighting a fish, in widescreen, with the English subtitles](docs/images/aking-attract.png)
 
 Prop Cycle:
 
