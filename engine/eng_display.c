@@ -6,6 +6,7 @@
 #include "eng_vsync.h"
 #include "eng_display.h"
 #include "eng_cfg.h"
+#include "crt_gl.h"
 
 #define BASE_W 640
 #define BASE_H 480
@@ -162,6 +163,10 @@ void eng_disp_load(const char *cfg_path, int scale, bool fullscreen)
     d->volume = eng_cfg_int("volume", 100);
     if (d->volume < 0) d->volume = 0;
     if (d->volume > 100) d->volume = 100;
+    d->crt_tv = eng_crt_tv_valid(eng_cfg_int("crt_tv", 0));
+    d->crt_curve = eng_cfg_int("crt_curvature", 0) != 0;
+    d->crt_gain = eng_crt_gain_valid(eng_cfg_int("crt_gain", ENG_CRT_GAIN_DEF));
+    eng_crt_env(&d->crt_tv, &d->crt_curve);                       /* tests: ENG_CRT / ENG_CRT_CURVE, not saved */
     if (scale > 0) d->scale = scale > 4 ? 4 : scale;             /* --window N overrides the saved size */
     if (fullscreen && !d->winmode) d->winmode = 1;
     if (getenv("ENG_WIDESCREEN")) d->wide = atoi(getenv("ENG_WIDESCREEN")) != 0;   /* tests: force it without touching the cfg */
@@ -222,6 +227,9 @@ void eng_disp_set_fps(int fps)
     g_eng_disp.fps = eng_vsync_rate_valid(fps);
     eng_cfg_set_int("frame_rate", g_eng_disp.fps);
 }
+void eng_disp_set_crt_tv(int tv) { g_eng_disp.crt_tv = eng_crt_tv_valid(tv); eng_cfg_set_int("crt_tv", g_eng_disp.crt_tv); }
+void eng_disp_set_crt_curve(int on) { g_eng_disp.crt_curve = on != 0; eng_cfg_set_int("crt_curvature", g_eng_disp.crt_curve); }
+void eng_disp_set_crt_gain(int milli) { g_eng_disp.crt_gain = eng_crt_gain_valid(milli); eng_cfg_set_int("crt_gain", g_eng_disp.crt_gain); }
 
 void eng_disp_cycle_gun_border(void)
 {

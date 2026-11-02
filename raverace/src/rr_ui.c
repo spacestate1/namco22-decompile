@@ -25,6 +25,7 @@
 #include "eng_vsync.h"
 #include "eng_gl.h"
 #include "twin_stick.h"
+#include "crt_gl.h"
 
 #define NK_INCLUDE_FIXED_TYPES
 #define NK_INCLUDE_STANDARD_IO
@@ -73,7 +74,7 @@ static int row = 0;                    /* -1 = the tab strip */
 static bool kb_moved;                  /* keep the selected row in view after a key */
 
 /* ---- the rows ------------------------------------------------------------- */
-enum { D_WIDE, D_DRAW, D_MODE, D_SIZE, D_RES, D_ASPECT, D_SCALING, D_HUD, D_FPS, D_N };
+enum { D_WIDE, D_DRAW, D_MODE, D_SIZE, D_RES, D_ASPECT, D_SCALING, D_HUD, D_FPS, D_CRT_TV, D_CRT_CURVE, D_CRT_GAIN, D_N };
 enum { C_FREEPLAY, C_FFB, C_FFB_DIR, C_STICK, C_CAR, C_FIXED = C_CAR };   /* the Controls page's rows before the bindings */
 #define C_N (C_FIXED + (g_rr_game->ncars > 0))                 /* + Car, for a game that lists its cars (rr_game_t.cars) */
 enum { O_SERVER, O_NAME, O_HOST, O_FIND, O_CONNECT, O_STATUS, O_LOBBY0 };   /* then, not connected: one row per LAN game found; connected: the players, Ready, Start */
@@ -117,6 +118,7 @@ static bool row_enabled(int t, int r)
 {
     if (t == T_DISPLAY && r == D_SIZE) return g_cfg_winmode == 0;
     if (t == T_DISPLAY && r == D_HUD) return g_cfg_wide;
+    if (t == T_DISPLAY && r == D_CRT_CURVE) return g_cfg_crt_tv != 0;
     return true;
 }
 static void row_text(int t, int r, char *label, size_t ln, char *value, size_t vn)
@@ -147,6 +149,9 @@ static void row_text(int t, int r, char *label, size_t ln, char *value, size_t v
                         snprintf(value, vn, "%s", g_cfg_wide ? (g_cfg_wide_169 ? "16:9" : "Fill the window") : asp[g_cfg_aspect]); break;
         case D_SCALING: snprintf(label, ln, "Scaling"); snprintf(value, vn, "%s", sc[g_cfg_scaling]); break;
         case D_FPS:     snprintf(label, ln, "Frame rate"); snprintf(value, vn, "%s", eng_vsync_rate_name(g_cfg_fps)); break;
+        case D_CRT_TV:  snprintf(label, ln, "Television"); snprintf(value, vn, "%s", eng_crt_tv_name(g_cfg_crt_tv)); break;   /* the Scud Race CRT (engine/crt_gl.c) */
+        case D_CRT_CURVE: snprintf(label, ln, "Curvature"); snprintf(value, vn, "%s", g_cfg_crt_curve ? "On" : "Off"); break;
+        case D_CRT_GAIN: snprintf(label, ln, "Brightness"); snprintf(value, vn, "%.2f", g_cfg_crt_gain / 1000.0); break;
         case D_HUD:     { extern int g_eng_hud_edges_on; snprintf(label, ln, "Widescreen HUD"); snprintf(value, vn, "%s", g_eng_hud_edges_on ? "at the screen edges" : "original (4:3 centre)"); break; }
         }
         break;
@@ -279,6 +284,9 @@ static void row_change(int t, int r, int dir)
         case D_SCALING: rr_host_set_scaling(cyc(g_cfg_scaling, d, 3)); break;
         case D_HUD:     { extern int g_eng_hud_edges_on; rr_host_set_hud_edges(!g_eng_hud_edges_on); break; }
         case D_FPS:     { extern void rr_host_set_fps(int); rr_host_set_fps(eng_vsync_rate_step(g_cfg_fps, d)); break; }
+        case D_CRT_TV:  { extern void rr_host_set_crt_tv(int); rr_host_set_crt_tv(cyc(g_cfg_crt_tv, d, 3)); break; }
+        case D_CRT_CURVE: { extern void rr_host_set_crt_curve(int); rr_host_set_crt_curve(!g_cfg_crt_curve); break; }
+        case D_CRT_GAIN: { extern void rr_host_set_crt_gain(int); rr_host_set_crt_gain(g_cfg_crt_gain + d * ENG_CRT_GAIN_STEP); break; }
         }
         break;
     case T_AUDIO: {

@@ -24,6 +24,7 @@
 #include "rr_input.h"
 #include "twin_stick.h"
 #include "eng_args.h"
+#include "crt_gl.h"
 
 rr_bind_t g_bind[RR_ACT_N];
 int g_steer_speed = 160, g_steer_return = 160;      /* MAME PORT_KEYDELTA(160) */
@@ -39,6 +40,7 @@ int g_cfg_fullscreen = 0, g_cfg_scale = 2, g_cfg_scaling = 0;
 int g_cfg_draw = 0;          /* draw distance level 0..3 (rr_host_set_draw) */
 int g_cfg_wide_169;                  /* widescreen's shape: 0 the window's (default), 1 16:9 (saved as wide_aspect) */
 int g_cfg_fps;                       /* Display > Frame rate: pictures a second, 0 = Auto, the default (engine/eng_vsync.h) */
+int g_cfg_crt_tv, g_cfg_crt_curve, g_cfg_crt_gain = 1000;   /* the Scud Race CRT (engine/crt_gl.h): off, flat, 1.00 by default */
 int g_cfg_winmode = -1, g_cfg_res_w = 640, g_cfg_res_h = 480, g_cfg_wide = 0, g_cfg_aspect = 1;   /* scaling: 0 smooth, 1 sharp, 2 integer */            /* free_play = 0|1 in rr_controls.cfg; -1 = not set */
 /* Stick steering (GitHub #42): a GAMEPAD stick's travel past the deadzone, t in 0..1, steers t^curve of the lock -- a curve keeps
  * small corrections fine and still reaches full lock. The Super 22 games' row of the same name (engine/ss22_input.c). Level 0, Linear,
@@ -129,6 +131,9 @@ static void load_kv(const char *path, char *k, char *v)
         else if (sscanf(v, "%dx%d", &w, &h) == 2 && w >= 320 && h >= 240) { g_cfg_res_w = w; g_cfg_res_h = h; }
         return; }
     if (!strcmp(k, "frame_rate")) { g_cfg_fps = atoi(v); return; }
+    if (!strcmp(k, "crt_tv")) { g_cfg_crt_tv = eng_crt_tv_valid(atoi(v)); return; }
+    if (!strcmp(k, "crt_curvature")) { g_cfg_crt_curve = atoi(v) != 0; return; }
+    if (!strcmp(k, "crt_gain")) { g_cfg_crt_gain = eng_crt_gain_valid(atoi(v)); return; }
     if (!strcmp(k, "wide_aspect")) { g_cfg_wide_169 = !strcmp(v, "16:9"); return; }
     if (!strcmp(k, "widescreen")) { g_cfg_wide = atoi(v) ? 1 : 0; return; }
     if (!strcmp(k, "wide_hud")) { extern int g_eng_hud_edges_on; g_eng_hud_edges_on = atoi(v) ? 1 : 0; return; }

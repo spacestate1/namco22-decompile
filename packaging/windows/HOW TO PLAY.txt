@@ -19,6 +19,9 @@ PROP CYCLE, RAVE RACER, TOKYO WARS, DIRT DASH, TIME CRISIS, ACE DRIVER, CYBER CO
 2. Double-click PropCycle.exe, RaveRacer.exe, TokyoWars.exe, DirtDash.exe, ArmadilloRacing.exe, TimeCrisis.exe, AceDriver.exe, CyberCommando.exe, RidgeRacer2.exe, CyberSled.exe, TimeCrisis2.exe, CrisisZone.exe or AnglerKing.exe.
 
 That's it. The first start takes a few seconds while it unpacks the ROMs.
+
+CRT look: Esc > Display > Television (Off, Trinitron, Arcade), Curvature and Brightness.
+It is the Scud Race PC tube model (scanline beams, phosphor mask, glow). Off by default.
 Nothing needs installing. Keep the "mesa" folder beside PropCycle.exe: it is
 a software OpenGL that Prop Cycle uses only when Windows has no real graphics
 driver to offer (a virtual machine, Remote Desktop) -- slower, but it runs.

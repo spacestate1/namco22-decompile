@@ -16,6 +16,7 @@
 #include <SDL2/SDL.h>
 #include "eng_gl.h"
 #include "render_target.h"
+#include "crt_gl.h"
 #include "ss22_gl.h"
 #include "eng_crosshair.h"
 #include "audio_out.h"
@@ -150,7 +151,8 @@ static void present(void)
     const SDL_Rect r = eng_disp_picture_rect(rw, rh);
     pic_r = r; gun_r = r;
     if (g_eng_disp.wide) { const int w = (int)(r.h * 4.0 / 3.0 + 0.5); gun_r.x = r.x + (r.w - w) / 2; gun_r.w = w; }   /* the 2D layers and the gun stay 4:3 */
-    rt_end_rect(win, r.x, r.y, r.w, r.h, eng_disp_sharp());
+    if (!eng_crt_present(win, r.x, r.y, r.w, r.h, eng_disp_sharp(), g_eng_disp.crt_tv, g_eng_disp.crt_curve, g_eng_disp.crt_gain))
+        rt_end_rect(win, r.x, r.y, r.w, r.h, eng_disp_sharp());   /* the CRT presents the picture itself (engine/crt_gl.c); the gun border, cross and menu go over it */
     if (game->aim && g_eng_disp.gun_border) {          /* the light gun's border (Sinden-style guns track it): white, all round the window */
         int dw, dh; SDL_GL_GetDrawableSize(win, &dw, &dh);
         const float b = (float)(g_eng_disp.gun_border * (dw < dh ? dw : dh) / 100);

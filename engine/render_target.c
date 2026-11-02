@@ -142,6 +142,17 @@ void rt_end(SDL_Window *win, int stretch) {
     bind_fb(GL_FRAMEBUFFER, 0);        /* readbacks and the menu go to the window */
 }
 
+unsigned rt_take(SDL_Window *win, int *w, int *h) {
+    if (!active) {
+        SDL_GL_GetDrawableSize(win, w, h);
+        if (*w < 1 || *h < 1) SDL_GetWindowSize(win, w, h);
+        return 0;
+    }
+    active = 0;
+    *w = fb_w; *h = fb_h;
+    return fbo;
+}
+
 /* Present into a caller-chosen rectangle of the window (x, y from the TOP-LEFT,
  * drawable pixels), with a chosen filter: the host that owns the picture's
  * placement (integer scaling, aspect modes, sharp/smooth) says where. A no-op
