@@ -31,6 +31,9 @@ typedef struct {
     int gun_border;              /* light-gun games: a white border round the picture, 0..6 % of the window (Sinden-style guns need it), F8 cycles */
     int crosshair;               /* light-gun games: 1 = draw the aiming cross (default), 0 = none */
     int fps;                     /* Frame rate: pictures a second, 0 = Auto (the default; engine/eng_vsync.h; the game itself always runs at 59.906 Hz) */
+    int crt_tv;                  /* Television: 0 Off (default), 1 Trinitron, 2 Arcade -- the Scud Race CRT, engine/crt_gl.c */
+    int crt_curve;               /* Curvature: 0 off, 1 on */
+    int crt_gain;                /* Brightness in thousandths, 500..1500 (1000 = as the game; applies with the CRT off too) */
 } eng_display_t;
 extern eng_display_t g_eng_disp;
 extern bool g_eng_disp_light_gun;          /* the host: this game aims a light gun (the Display menu shows the Crosshair row) */
@@ -55,6 +58,9 @@ void eng_disp_set_hud_edges(int on);
 void eng_disp_cycle_gun_border(void);      /* F8 in a light-gun game: off, 1..6 %, saved as gun_border */
 void eng_disp_set_crosshair(int on);       /* saved as crosshair */
 void eng_disp_set_fps(int fps);           /* saved as frame_rate (0 = Auto, the default) */
+void eng_disp_set_crt_tv(int tv);          /* saved as crt_tv */
+void eng_disp_set_crt_curve(int on);       /* saved as crt_curvature */
+void eng_disp_set_crt_gain(int milli);     /* saved as crt_gain */
 void eng_disp_set_wide(int on);
 void eng_disp_set_winmode(int m);
 void eng_disp_set_scale(int k);

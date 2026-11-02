@@ -39,6 +39,7 @@
 #include "tex_bake.h"
 #include "rr_gl.h"
 #include "render_target.h"
+#include "crt_gl.h"
 #include "eng_gl.h"
 #include "gl_warn.h"
 extern int g_rr_gl;     /* rr_main.c: 1 = the engine's GL renderer, 0 = the software oracle */
@@ -200,6 +201,9 @@ void rr_host_set_wide(int on)
     apply_render_size();
 }
 void rr_host_set_fps(int fps) { g_cfg_fps = eng_vsync_rate_valid(fps); char v[8]; snprintf(v, sizeof v, "%d", g_cfg_fps); save_opt("frame_rate", v); }
+void rr_host_set_crt_tv(int tv) { g_cfg_crt_tv = eng_crt_tv_valid(tv); char v[8]; snprintf(v, sizeof v, "%d", g_cfg_crt_tv); save_opt("crt_tv", v); }
+void rr_host_set_crt_curve(int on) { g_cfg_crt_curve = on != 0; save_opt("crt_curvature", g_cfg_crt_curve ? "1" : "0"); }
+void rr_host_set_crt_gain(int milli) { g_cfg_crt_gain = eng_crt_gain_valid(milli); char v[8]; snprintf(v, sizeof v, "%d", g_cfg_crt_gain); save_opt("crt_gain", v); }
 void rr_host_set_wide_169(int on) { g_cfg_wide_169 = on != 0; save_opt("wide_aspect", g_cfg_wide_169 ? "16:9" : "window"); apply_render_size(); }
 void rr_host_set_aspect(int a) { g_cfg_aspect = a < 0 ? 0 : a > 3 ? 3 : a; save_opt("aspect", aspect_name[g_cfg_aspect]); }
 void rr_host_set_scaling(int sc) { g_cfg_scaling = sc < 0 ? 0 : sc > 2 ? 2 : sc; apply_scaling(); save_opt("scaling", scaling_name[g_cfg_scaling]); }
@@ -346,6 +350,7 @@ bool rr_host_open(int scale)
 {
     if (g_rr_game->twin_stick) ts_init(tw_ctl, TW_N, save_opt);    /* before the config: its ts_ lines land here */
     rr_input_load(g_rr_game->cfg_file);
+    eng_crt_env(&g_cfg_crt_tv, &g_cfg_crt_curve);       /* tests: ENG_CRT / ENG_CRT_CURVE, not saved */
     if (scale > 0) g_cfg_scale = scale;                /* --window N overrides the saved size */
     if (getenv("RR_FULLSCREEN")) { g_cfg_fullscreen = atoi(getenv("RR_FULLSCREEN")) != 0; g_cfg_winmode = g_cfg_fullscreen; }
     if (g_cfg_winmode < 0) g_cfg_winmode = g_cfg_fullscreen ? 1 : 0;
@@ -669,7 +674,8 @@ static void present_picture(void)
             if (rr_gl_write_ppm(p, vw, vh)) fprintf(stderr, "[HOST] saved %s\n", p);
         }
         SDL_Rect dst = picture_rect_for(rw, rh, false);
-        rt_end_rect(win, dst.x, dst.y, dst.w, dst.h, g_cfg_scaling != 0);
+        if (!eng_crt_present(win, dst.x, dst.y, dst.w, dst.h, g_cfg_scaling != 0, g_cfg_crt_tv, g_cfg_crt_curve, g_cfg_crt_gain))
+            rt_end_rect(win, dst.x, dst.y, dst.w, dst.h, g_cfg_scaling != 0);   /* the CRT presents the picture itself (engine/crt_gl.c); the menu goes over it */
         return;
     }
 #ifdef RR_ORACLE

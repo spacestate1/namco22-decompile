@@ -14,6 +14,7 @@ set(NAMCO22_ENGINE_GL_SRC
     ${NAMCO22_ENGINE_DIR}/quad_gl.c
     ${NAMCO22_ENGINE_DIR}/hud_edges.c
     ${NAMCO22_ENGINE_DIR}/post_gl.c
+    ${NAMCO22_ENGINE_DIR}/crt_gl.c
 )
 # the Super 22 layers every Super 22 game shares: depth fog + mixer state, the C374 sprites, the text tilemap. Each
 # game fills them from its own RAM (Prop Cycle src/pc_live2d.c, Tokyo Wars tokyowar/src/tw_video.c)

@@ -26,6 +26,7 @@
 #include "eng_crosshair.h"
 #include "eng_vsync.h"
 #include "eng_display.h"
+#include "crt_gl.h"
 
 #define MAXPAGES 8
 static struct nk_context *ctx;
@@ -60,13 +61,14 @@ static void file_change(int r, int dir)
 static const eng_ui_page page_file = { "File", 220, 0, 0, file_n, file_val, NULL, file_text, file_change, NULL };
 
 /* ---- Display: the choices of engine/eng_display.h ------------------------------ */
-enum { D_WIDE, D_MODE, D_SIZE, D_RES, D_ASPECT, D_SCALING, D_HUD, D_FPS, D_CROSS, D_XIMG, D_N };   /* D_CROSS.. last: only light-gun games show them */
+enum { D_WIDE, D_MODE, D_SIZE, D_RES, D_ASPECT, D_SCALING, D_HUD, D_FPS, D_CRT_TV, D_CRT_CURVE, D_CRT_GAIN, D_CROSS, D_XIMG, D_N };   /* D_CROSS.. last: only light-gun games show them */
 static int disp_n(void) { return g_eng_disp_light_gun ? D_N : D_CROSS; }
 static bool disp_enabled(int r)
 {
     if (r == D_SIZE) return g_eng_disp.winmode == 0;
     if (r == D_HUD) return g_eng_disp.wide;
     if (r == D_XIMG) return g_eng_disp.crosshair;
+    if (r == D_CRT_CURVE) return g_eng_disp.crt_tv != 0;
     return true;
 }
 static void disp_text(int r, char *l, size_t ln, char *v, size_t vn)
@@ -83,6 +85,9 @@ static void disp_text(int r, char *l, size_t ln, char *v, size_t vn)
     case D_SCALING: snprintf(l, ln, "Scaling"); snprintf(v, vn, "%s", eng_disp_scaling_name(g_eng_disp.scaling)); break;
     case D_HUD:     snprintf(l, ln, "Widescreen HUD"); snprintf(v, vn, "%s", g_eng_disp.hud_edges ? "at the screen edges" : "original (4:3 centre)"); break;
     case D_FPS:     snprintf(l, ln, "Frame rate"); snprintf(v, vn, "%s", eng_vsync_rate_name(g_eng_disp.fps)); break;
+    case D_CRT_TV:  snprintf(l, ln, "Television"); snprintf(v, vn, "%s", eng_crt_tv_name(g_eng_disp.crt_tv)); break;   /* the Scud Race CRT (engine/crt_gl.c) */
+    case D_CRT_CURVE: snprintf(l, ln, "Curvature"); snprintf(v, vn, "%s", g_eng_disp.crt_curve ? "On" : "Off"); break;
+    case D_CRT_GAIN: snprintf(l, ln, "Brightness"); snprintf(v, vn, "%.2f", g_eng_disp.crt_gain / 1000.0); break;
     case D_CROSS:   snprintf(l, ln, "Crosshair"); snprintf(v, vn, "%s", g_eng_disp.crosshair ? "ON" : "OFF"); break;
     case D_XIMG:    snprintf(l, ln, "Crosshair image"); snprintf(v, vn, eng_xhair_count() ? "%s" : "%s (no PNG in crosshairs/)", eng_xhair_name()); break;
     }
@@ -105,6 +110,9 @@ static void disp_change(int r, int dir)
     case D_SCALING: eng_disp_set_scaling(cyc(g_eng_disp.scaling, d, 3)); break;
     case D_HUD:     eng_disp_set_hud_edges(!g_eng_disp.hud_edges); break;
     case D_FPS:     eng_disp_set_fps(eng_vsync_rate_step(g_eng_disp.fps, d)); break;
+    case D_CRT_TV:  eng_disp_set_crt_tv(cyc(g_eng_disp.crt_tv, d, 3)); break;
+    case D_CRT_CURVE: eng_disp_set_crt_curve(!g_eng_disp.crt_curve); break;
+    case D_CRT_GAIN: eng_disp_set_crt_gain(g_eng_disp.crt_gain + d * ENG_CRT_GAIN_STEP); break;
     case D_CROSS:   eng_disp_set_crosshair(!g_eng_disp.crosshair); break;
     case D_XIMG:    eng_xhair_step(d); break;
     }

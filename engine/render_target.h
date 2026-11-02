@@ -11,5 +11,8 @@ void rt_begin(SDL_Window *win, int res_w, int res_h, int *out_w, int *out_h);
 void rt_end(SDL_Window *win, int stretch);
 /* Or: into the window rectangle (x, y top-left, drawable pixels), sharp = nearest. */
 void rt_end_rect(SDL_Window *win, int x, int y, int w, int h, int sharp);
+/* Or: end the frame without presenting it, for a pass that presents it itself (engine/crt_gl.c). Returns the FBO
+ * holding the picture at *w x *h, or 0 when the frame was drawn into the window's back buffer (*w x *h = the drawable). */
+unsigned rt_take(SDL_Window *win, int *w, int *h);
 
 #endif

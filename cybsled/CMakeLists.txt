@@ -101,7 +101,7 @@ find_package(ZLIB REQUIRED)                            # the first-run ROM unpac
 if(EXISTS ${CS}/src/video/s21_video.c)
   add_subdirectory(${CS}/src/video ${CMAKE_CURRENT_BINARY_DIR}/video)
 endif()
-set(HOST_ENG ${ENG}/ss22_host.c ${ENG}/eng_ffb.c ${ENG}/render_target.c ${ENG}/audio_out.c ${ENG}/eng_cfg.c ${ENG}/eng_display.c ${ENG}/eng_ui.c ${ENG}/eng_crosshair.c
+set(HOST_ENG ${ENG}/ss22_host.c ${ENG}/eng_ffb.c ${ENG}/render_target.c ${ENG}/audio_out.c ${ENG}/eng_cfg.c ${ENG}/eng_display.c ${ENG}/eng_ui.c ${ENG}/eng_crosshair.c ${ENG}/crt_gl.c
              ${ENG}/quad_gl.c ${ENG}/tex_bake.c ${ENG}/geo_hw.c ${ENG}/eng.c)    # the shared GL rasteriser: the 3D of the GL picture (src/video/s21_video_gl.c)
 set_source_files_properties(${HOST_ENG} PROPERTIES COMPILE_OPTIONS "-Wno-unused-variable;-Wno-unused-function;-Wno-misleading-indentation")
 set(HOST_ROMZIP ${CS}/src/host/cs21_roms.c ${ENG}/romzip.c ${ENG}/win_startup.c)  # first run: the ROMs out of MAME's zips; Windows start-up (own folder, log file)
