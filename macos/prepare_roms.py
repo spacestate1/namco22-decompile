@@ -18,6 +18,7 @@ Usage:
 """
 import importlib.util
 import os
+import subprocess
 import sys
 import zipfile
 import zlib
@@ -146,6 +147,9 @@ def import_tc2(folder, found=None):
         with open(os.path.join(TC2.DEST, name), "wb") as f:
             f.write(data)
     print(f"TC2: {len(TC2.CHIPS)} chips -> {TC2.DEST} (each validated by size+CRC32)")
+    # the program images the TC2 build translates (boot.bin, prog.bin, sub.bin, io.bin), made beside extracted/ by tc2's own tool
+    tc2_dir = os.path.dirname(os.path.abspath(TC2.DEST))
+    subprocess.run([sys.executable, os.path.join(tc2_dir, "tools", "make_prog.py"), TC2.DEST], cwd=tc2_dir, check=True)
 
 
 def main():
