@@ -16,6 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 #include <SDL2/SDL.h>
 #include "eng/eng_gl.h"
 #include "eng/eng_display.h"
@@ -219,7 +220,9 @@ int tc2_window_open(int scale, int fullscreen)
 #else
     snprintf(title, sizeof title, "%s", tc2_game.window_title);
 #endif
-    win = SDL_CreateWindow(title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+    const int wpos = getenv("ENG_WINDOW_DISPLAY") ? (int)SDL_WINDOWPOS_CENTERED_DISPLAY(atoi(getenv("ENG_WINDOW_DISPLAY")))
+                                                  : (int)SDL_WINDOWPOS_CENTERED;   /* tests: $ENG_WINDOW_DISPLAY=n opens on monitor n */
+    win = SDL_CreateWindow(title, wpos, wpos,
                            eng_disp_win_w(g_eng_disp.scale), eng_disp_win_h(g_eng_disp.scale),
                            SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI | (g_eng_disp.winmode ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0));
     if (!win) { fprintf(stderr, "[HOST] window: %s\n", SDL_GetError()); return 0; }
@@ -293,6 +296,9 @@ static void draw_picture(void)
 static void set_pointer(int show)
 {
     if (SDL_ShowCursor(SDL_QUERY) != (show ? SDL_ENABLE : SDL_DISABLE)) SDL_ShowCursor(show ? SDL_ENABLE : SDL_DISABLE);
+#ifdef GLMC_METAL
+    { void glmc_pointer_hide(void *, int); glmc_pointer_hide(win, !show); }   /* the Mac: the system's own hide too (macos/glshim/glmc_metal.mm) */
+#endif
 #ifdef _WIN32
     static int hidden;                                           /* our own decrement of the counter is in force */
     if (!show && !hidden) { int guard = 0; while (ShowCursor(FALSE) >= 0 && ++guard < 64) {} hidden = 1; }
@@ -495,5 +501,14 @@ void tc2_window_frame(void)
     int tc2_link_in_session(void);
     if (tc2_link_in_session()) paused = 0;
     while (ok && (eng_ui_is_open() || paused) && !tc2_link_in_session()) { { void tc2_link_paused(void); tc2_link_paused(); } ok = pass(0); if (!eng_ui_is_open() && !paused) eng_vsync_resync(&vs); }
-    if (!ok) { fprintf(stderr, "[HOST] quit\n"); { void tc2_backup_save(int); tc2_backup_save(1); } { void tc2_out_close(void); tc2_out_close(); } ss22_input_close(); eng_ui_shutdown(); SDL_Quit(); exit(0); }
+    if (!ok) {
+        const bool restart = eng_ui_restart_requested();         /* File > Restart: power-cycle, the program run again */
+        fprintf(stderr, "[HOST] %s\n", restart ? "restart" : "quit");
+        { void tc2_backup_save(int); tc2_backup_save(1); } { void tc2_out_close(void); tc2_out_close(); } ss22_input_close(); eng_ui_shutdown(); SDL_Quit();
+#ifdef __APPLE__
+        if (restart) { extern char **g_tc2_argv; fflush(NULL); char self[4096]; uint32_t sn = sizeof self; extern int _NSGetExecutablePath(char *, uint32_t *);
+                       if (_NSGetExecutablePath(self, &sn) == 0) execv(self, g_tc2_argv); perror("restart"); }
+#endif
+        exit(0);
+    }
 }

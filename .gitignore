@@ -107,3 +107,6 @@ __pycache__/
 /cybsled/screenshots/
 *.log
 *.ppm
+
+# macOS port: build output and app bundles (macos/build.sh, macos/package.sh)
+/macos/output/

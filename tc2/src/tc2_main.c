@@ -129,6 +129,11 @@ static void scripted_inputs(uint32_t frame)
 /* THE GPU GATE: $TC2_GPU_GATE=dir:every -- a hidden GL context in a headless run; every N frames the same built frame is drawn by the GPU
  * back end (src/tc2_gl.c) and by the software one (the oracle), both written as PPMs, and the difference reported */
 #include <SDL2/SDL.h>
+#ifdef GLMC_METAL
+/* The hidden comparison gate must create the same Metal-backed context as
+ * the game window, rather than an unrelated SDL OpenGL context. */
+#include <SDL2/SDL_opengl.h>
+#endif
 #include "tc2_build.h"
 #include "eng/eng_args.h"
 #include "eng/win_gpu.h"   /* Windows: run on the discrete GPU of a two-GPU laptop */
@@ -330,9 +335,11 @@ static void cli_args(int *argc, char **argv)
     static char *fs_argv[] = { NULL, "--window", "--fullscreen", NULL };      /* "tc2 --fullscreen": play, fullscreen (not a headless run) */
     if (*argc == 2 && !strcmp(argv[1], "--fullscreen")) { fs_argv[0] = argv[0]; memcpy(argv, fs_argv, sizeof fs_argv); *argc = 3; }
 }
+char **g_tc2_argv;                                           /* File > Restart (src/tc2_window.c) */
 int main(int argc, char **argv)
 {
     cli_args(&argc, argv);
+    g_tc2_argv = argv;                                       /* after cli_args: the network choices it took out stay in the environment */
 #ifdef _WIN32
     /* Windows: a double-click or a shortcut starts us anywhere -- work in the program's own folder (roms/, extracted/, tc2.cfg, the
      * backup RAM), and with no console the log goes to tc2.log beside the .exe (what the crash message points at) */

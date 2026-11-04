@@ -563,7 +563,7 @@ static SDL_GLContext hl_ctx;
 
 bool eng_gl_open_headless(int w, int h)
 {
-#ifndef _WIN32                                          /* Windows: SDL's offscreen driver makes OpenGL only through EGL, which Windows lacks -- the hidden window below does */
+#if !defined(_WIN32) && !defined(__APPLE__)           /* Windows: SDL's offscreen driver makes OpenGL only through EGL; Apple: the Metal shim needs the real driver (no offscreen Metal view) */
     SDL_SetHint("SDL_VIDEODRIVER", "offscreen");
     setenv("SDL_VIDEODRIVER", "offscreen", 1);         /* SDL < 2.0.22 reads only the environment */
 #endif
