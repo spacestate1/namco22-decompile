@@ -6,10 +6,29 @@
 #include <string.h>
 #include "tc2_game.h"
 
+/* The I/O board's JVS identification string, at 0x1082 in its ROM. MAME's current device ROM (asc3_io-c.ic14) calls the board
+ * "ASCA-3;Ver2.04"; Angler King insists on an FCA-1 and refuses to start with anything else. The 8 KB of program are the same in both
+ * dumps, so the board this game shipped with is that program answering to the FCA-1 name: written here when the ASCA-3 one is found. */
+#define AK_IO_ID_AT 0x1082
+static const char ak_id_asca3[] = "namco ltd.;ASCA-3;Ver2.04;JPN,Multipurpose + Rotary Encoder";
+static const char ak_id_fca1[]  = "namco ltd.;FCA-1;Ver1.00;JPN,Multipurpose + Rotary Encoder";
+static void ak_io_fca1(uint8_t *d, uint32_t n)
+{
+    if (n < AK_IO_ID_AT + sizeof ak_id_asca3 || memcmp(d + AK_IO_ID_AT, ak_id_asca3, sizeof ak_id_asca3)) return;   /* not that string: leave it */
+    memset(d + AK_IO_ID_AT, 0, sizeof ak_id_asca3);
+    memcpy(d + AK_IO_ID_AT, ak_id_fca1, sizeof ak_id_fca1);
+}
+
 static const eng_rom_t chips[] = {
     { "ag1vera.ic2", 0x200000, NULL, NULL, 0xDC98FEFB }, { "ag1vera.ic1", 0x200000, NULL, NULL, 0xF1A08D5C },
     { "ag1vera.ic3", 0x80000, NULL, NULL, 0x266AC71C },
-    { "asc3_io-c1.ic14", 0x20000, NULL, NULL, 0xB6627A0E },  /* the I/O board's program as aking.zip carries it (MAME 0.289 lists asc3_io-c.ic14) */
+    /* the I/O board's program, either revision (GitHub #89): older MAME sets carry asc3_io-c1.ic14 (b6627a0e) in aking.zip / 500gp.zip,
+     * current ones asc3_io-c.ic14 (2f272a7b) in the device zip namco_fca10.zip (or inside aking.zip, non-merged). The 8 KB of code are
+     * byte-identical; the 47 bytes that differ are the board's JVS name (0x108D..0x10BC: "FCA-1;Ver1.00" / "ASCA-3;Ver2.04"), which the
+     * translated program reads as data -- and Angler King CHECKS it: with "ASCA-3" it stops on "Please connect FCA-1 PCB." (measured).
+     * So the newer dump is turned into the older one on unpacking (ak_io_fca1 below; the result is checked against b6627a0e) and
+     * extracted/asc3_io-c1.ic14 is always the FCA-1 image. */
+    { "asc3_io-c1.ic14", 0x20000, NULL, "asc3_io-c.ic14", 0xB6627A0E, 0x2F272A7B, ak_io_fca1 },
     { "ag1mtah.2j", 0x800000, NULL, NULL, 0xF2D8CA9D }, { "ag1mtal.2h", 0x800000, NULL, NULL, 0x7FACBFD4 },
     { "ag1mtbh.2m", 0x800000, NULL, NULL, 0x890BDB52 }, { "ag1mtbl.2f", 0x800000, NULL, NULL, 0x62D771C9 },
     { "ag1cgll.4m", 0x800000, NULL, NULL, 0x9DB7E939 }, { "ag1cglm.4k", 0x800000, NULL, NULL, 0x17792DBA },
@@ -21,7 +40,9 @@ static const eng_rom_t chips[] = {
     { "ag1pt3h.3a", 0x400000, NULL, NULL, 0xE11A12CE }, { "ag1pt3l.3c", 0x400000, NULL, NULL, 0x04B475DB },
     { "ag1wavel.2c", 0x800000, NULL, NULL, 0xD7FEFBD4 }, { "ag1waveh.2a", 0x800000, NULL, NULL, 0x37A61DAA },
 };
-static const char *const zips[] = { "aking.zip" };
+/* aking.zip, then the device zip current MAME splits the I/O ROM into, then 500gp.zip (older sets keep asc3_io-c1.ic14 there too),
+ * then any download named "Angler King*.zip" (a bundle of those zips: read inside, one level) */
+static const char *const zips[] = { "aking.zip", "namco_fca10.zip", "500gp.zip", "Angler King*" };
 
 int tc2_rom_read(const char *dir, const char *name, uint8_t *dst, size_t n);   /* ../tc2/src/tc2_rom.c */
 
@@ -48,6 +69,10 @@ static int rom_io(const char *dir, uint8_t *dst, size_t n)
 {
     uint8_t *all = malloc(0x20000);
     const int ok = all && n <= 0x20000 && tc2_rom_read(dir, "asc3_io-c1.ic14", all, 0x20000);
+    if (ok && !memcmp(all + AK_IO_ID_AT, ak_id_asca3, sizeof ak_id_asca3)) {      /* an ASCA-3 dump renamed by hand (GitHub #89): the FCA-1 name */
+        fprintf(stderr, "[ROM] asc3_io-c1.ic14 is the ASCA-3 revision (asc3_io-c.ic14): answering as the FCA-1 board Angler King needs\n");
+        ak_io_fca1(all, 0x20000);
+    }
     if (ok) memcpy(dst, all, n);
     free(all);
     return ok;
@@ -56,8 +81,8 @@ static int rom_io(const char *dir, uint8_t *dst, size_t n)
 const tc2_game_t tc2_game = {
     .title = "Angler King", .tag = "aking", .window_title = "Angler King", .mame_set = "aking", .subtitles = "aking_subtitles.txt", .uv_edge = 1, .cz_fog = 1,
     .super23 = 1, .io_asca3 = 1,                                /* the C361 acknowledge at 0x0100005C (MAME 0.289 namcoss23_state); the I/O board an FCA-1 = ASCA-3 */
-    .zip_help = "MAME's aking.zip (Angler King, Japan, AG1 Ver. A)",
-    .zips = zips, .nzips = 1, .chips = chips, .nchips = (int)(sizeof chips / sizeof chips[0]),
+    .zip_help = "MAME's aking.zip (Angler King, Japan, AG1 Ver. A), plus namco_fca10.zip if your MAME set has one (current sets keep the I/O board ROM asc3_io-c.ic14 there),",
+    .zips = zips, .nzips = (int)(sizeof zips / sizeof zips[0]), .chips = chips, .nchips = (int)(sizeof chips / sizeof chips[0]),
     .clock = 169344000u,                          /* BUSCLOCK * 5 (MAME ss23) */
     .px_num = 200, .px_den = 1323,                /* 25.6 MHz / 169.344 MHz */
     .sub_div = 10,                                /* 16.9344 MHz */

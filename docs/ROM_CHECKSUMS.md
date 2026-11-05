@@ -448,7 +448,16 @@ MAME set: `crszone` (World, CSZO4 Ver.B). Unpacked chips end up in `crszone/extr
 
 ## Angler King
 
-MAME set: `aking` (Japan, AG1 Ver.A). Unpacked chips end up in `aking/extracted/`. 24 files. The I/O board's program is the revision `aking.zip` carries, `asc3_io-c1.ic14` (MAME 0.289's `namco_fca10` device lists `asc3_io-c.ic14`; that one is not used).
+MAME set: `aking` (Japan, AG1 Ver.A). Unpacked chips end up in `aking/extracted/`. 24 files.
+
+The I/O board's program comes in two revisions, and **either works** (GitHub #89):
+
+| File | Where MAME keeps it | Size | MD5 | CRC32 |
+|---|---|---:|---|---|
+| `asc3_io-c1.ic14` | older sets: inside `aking.zip` (and `500gp.zip`) | 131072 | `162005b32c4b3ddb9afa772bffb97505` | `b6627a0e` |
+| `asc3_io-c.ic14` | current sets: the device zip `namco_fca10.zip` (or inside a non-merged `aking.zip`) | 131072 | `e1cd95ededc8283491ec9c4f43cd99b0` | `2f272a7b` |
+
+The program code in both is byte-identical. They differ only in the board's name string: `FCA-1;Ver1.00` in the first, `ASCA-3;Ver2.04` in the second. Angler King refuses the second name ("Please connect FCA-1 PCB."), so when the game or `tools/setup_roms.py` finds `asc3_io-c.ic14` it writes the FCA-1 name into it. It then checks the result against `b6627a0e`. Either way, `extracted/asc3_io-c1.ic14` is the file in the table below.
 
 | File | Size | MD5 | CRC32 |
 |---|---:|---|---|

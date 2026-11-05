@@ -68,8 +68,13 @@ def successors(pc, mx):
         return []                                        # indirect: needs coverage
     if mn in ('JSR', 'JSL'):
         out = [(nxt, mx)]
-        if ea == 'A': out.append((bank | int.from_bytes(b[1:3], 'little'), mx))
-        if ea == 'AL': out.append((int.from_bytes(b[1:4], 'little'), mx))
+        tgt = None
+        if ea == 'A': tgt = bank | int.from_bytes(b[1:3], 'little')
+        if ea == 'AL': tgt = int.from_bytes(b[1:4], 'little')
+        if tgt is not None:
+            out.append((tgt, mx))
+            if not os.environ.get('SND_NO_EXITS'):          # the return point also in every M/X the callee can RETURN with (tools/gen/snd_exits.py, GitHub #62)
+                out += [(nxt, m) for m in sorted(_exits(tgt, mx, 'RTS' if mn == 'JSR' else 'RTL')) if m != mx]
         return out
     return [(nxt, mx)]
 
@@ -81,6 +86,8 @@ for i in range(0, 0x30, 2):
     if 0xC000 <= t < 0x10000:
         for mx in range(4):
             if mx not in ins[t]: ins[t][mx] = decode(source(t, 6)[0], mx)[2]
+from snd_exits import Exits
+_exits = Exits(source, decode, successors)
 work = [(pc, mx) for pc in ins for mx in ins[pc]]
 seen = set(work)
 def _walk():

@@ -5,8 +5,9 @@ Time Crisis 2 (`../tc2`) and Crisis Zone (`../crszone`): the game's own programs
 board's H8 -- are translated to C, and the hardware around them is our own code. Nothing interprets ROM code; MAME was used only as a
 reference.
 
-**No game data is included.** You need your own copy of MAME's ROM set `aking.zip` (Angler King, Japan, AG1 Ver. A). It carries
-the I/O board program as `asc3_io-c1.ic14`; no other zip is needed.
+**No game data is included.** You need your own copy of MAME's ROM set `aking.zip` (Angler King, Japan, AG1 Ver. A). Current MAME
+sets keep the I/O board program (`asc3_io-c.ic14`) in a second zip, `namco_fca10.zip`: put it beside `aking.zip`. Older sets carry it
+inside `aking.zip` as `asc3_io-c1.ic14`, and that works too.
 
 ## Download
 

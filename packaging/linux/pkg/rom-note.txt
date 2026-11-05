@@ -40,7 +40,7 @@
     Crisis Zone:  crszone.zip
                  -> ~/.local/share/namco-2x-systems/crszone/roms/
 
-    Angler King:  aking.zip
+    Angler King:  aking.zip  (and namco_fca10.zip, if your MAME set has it)
                  -> ~/.local/share/namco-2x-systems/aking/roms/
 
   (Folders from an older namco22 install, ~/.local/share/namco22/, are used as they are.)

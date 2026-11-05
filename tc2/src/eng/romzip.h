@@ -21,15 +21,22 @@
 #include <stdint.h>
 
 #define ENG_ROM_HAS_CRC 1    /* this copy's table carries CRCs: romzip.c matches a chip by CRC32 + size whatever its name */
-typedef struct { const char *name; uint32_t size; const char *zname; const char *alt; uint32_t crc; } eng_rom_t;   /* crc: MAME's CRC32 of the chip (0 = not checked) -- TC2's copy */
+typedef struct { const char *name; uint32_t size; const char *zname; const char *alt; uint32_t crc; uint32_t crc_alt; void (*from_alt)(uint8_t *data, uint32_t n); } eng_rom_t;   /* crc: MAME's CRC32 of the chip (0 = not checked) -- TC2's copy */
     /* zname: the entry's PATH in the zip when it is not top-level ("dirtdasha/dt2vera.1"); NULL = top-level `name`.
-       alt: an alternate top-level NAME a different MAME set uses for this same chip; NULL = none. */
+       alt: an alternate top-level NAME a different MAME set uses for this same chip; NULL = none.
+       crc_alt: a second dump that is just as good (0 = none) -- Angler King's I/O program: MAME's older sets carry asc3_io-c1.ic14
+       (b6627a0e), current ones asc3_io-c.ic14 (2f272a7b) in namco_fca10.zip; the code is byte-identical, only the board's JVS name
+       string differs, and the game refuses the newer name ("Please connect FCA-1 PCB."), so:
+       from_alt: turns the crc_alt dump into the crc one in place; the result must then have CRC `crc` or the file is not taken. NULL = keep
+       the crc_alt dump as it is. */
 
 /* the first chip missing from dir (or of the wrong size), NULL when complete */
 const char *eng_romzip_missing(const char *dir, const eng_rom_t *roms, int n);
 /* every chip this zip holds into dest_dir: the number taken, -1 when the zip cannot be read */
 int eng_romzip_extract(const char *zip_path, const char *dest_dir, const eng_rom_t *roms, int n, char *err, size_t errlen);
-/* look for each zip (cwd, roms/, exe_dir, exe_dir/roms), unpack it, and check the folder is now complete */
+/* look for each zip (cwd, roms/, exe_dir, exe_dir/roms), unpack it, and check the folder is now complete. A name in `zips` ending in '*'
+   is a PREFIX ("Angler King*"): any zip there starting with it is read too -- a download that bundles the set's zips in one zip.
+   Zips inside a zip are read as well (one level deep). */
 bool eng_romzip_autosetup(const char *rom_dir, const char *exe_dir, const char *const *zips, int nzips,
                           const eng_rom_t *roms, int n, char *err, size_t errlen);
 #endif

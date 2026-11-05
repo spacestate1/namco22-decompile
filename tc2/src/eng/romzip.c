@@ -60,7 +60,7 @@ static int rom_index(const char *name, size_t len, uint32_t ecrc, uint32_t esize
     (void)ecrc; (void)esize;
 #ifdef ENG_ROM_HAS_CRC
     for (int i = 0; i < NROMS; i++)
-        if (k_roms[i].crc && k_roms[i].crc == ecrc && k_roms[i].size == esize) { *rank = 3; return i; }
+        if (k_roms[i].size == esize && ((k_roms[i].crc && k_roms[i].crc == ecrc) || (k_roms[i].crc_alt && k_roms[i].crc_alt == ecrc))) { *rank = 3; return i; }
 #endif
     size_t b = len;
     while (b > 0 && name[b - 1] != '/' && name[b - 1] != '\\') b--;
@@ -80,14 +80,31 @@ static int rom_index(const char *name, size_t len, uint32_t ecrc, uint32_t esize
  * missing chip is not an error here -- eng_romzip_autosetup checks the folder afterwards.) A chip already in dest_dir at its right size is
  * left alone, so a second zip (a stale copy, a clone's zip) never replaces what the first one supplied. Reads plain and ZIP64 archives
  * (`zip -fz`, 7-Zip and RomVault write ZIP64 records), entries with data descriptors, Store and Deflate. */
+static int extract_mem(const uint8_t *z, long zn, const char *zip_path, const char *dest_dir, const eng_rom_t *k_roms, int NROMS, char *err, size_t errlen, int depth);
+static bool ends_zip(const char *name, size_t len)
+{
+    return len > 4 && name[len - 4] == '.' && tolower((unsigned char)name[len - 3]) == 'z' && tolower((unsigned char)name[len - 2]) == 'i' && tolower((unsigned char)name[len - 1]) == 'p';
+}
 int eng_romzip_extract(const char *zip_path, const char *dest_dir, const eng_rom_t *k_roms, int NROMS, char *err, size_t errlen)
 {
     FILE *f = fopen(zip_path, "rb");
-    uint8_t *z = NULL, *out = NULL;
-    long zn;
+    if (!f) { snprintf(err, errlen, "cannot open %s", zip_path); return -1; }
+    fseek(f, 0, SEEK_END); const long zn = ftell(f); fseek(f, 0, SEEK_SET);
+    uint8_t *z = zn >= 22 ? malloc((size_t)zn) : NULL;
+    int ok = -1;
+    if (!z || fread(z, 1, (size_t)zn, f) != (size_t)zn) snprintf(err, errlen, "cannot read %s", zip_path);
+    else ok = extract_mem(z, zn, zip_path, dest_dir, k_roms, NROMS, err, errlen, 0);
+    free(z);
+    fclose(f);
+    return ok;
+}
+/* the same for a zip already in memory; depth 0 = a file on disk, 1 = a zip found inside it (not opened further) */
+static int extract_mem(const uint8_t *z, long zn, const char *zip_path, const char *dest_dir, const eng_rom_t *k_roms, int NROMS, char *err, size_t errlen, int depth)
+{
+    uint8_t *out = NULL;
     int ok = -1;
     int *got = calloc((size_t)NROMS, sizeof *got), *best = malloc((size_t)NROMS * sizeof *best);
-    if (!got || !best) { free(got); free(best); if (f) fclose(f); return -1; }
+    if (!got || !best) { free(got); free(best); return -1; }
     for (int i = 0; i < NROMS; i++) {
         char p[1024];
         snprintf(p, sizeof p, "%s/%s", dest_dir, k_roms[i].name);
@@ -95,12 +112,7 @@ int eng_romzip_extract(const char *zip_path, const char *dest_dir, const eng_rom
     }
     const char *zbase = zip_path;
     for (const char *c = zip_path; *c; c++) if (*c == '/' || *c == '\\') zbase = c + 1;
-    if (!f) { snprintf(err, errlen, "cannot open %s", zip_path); free(got); free(best); return -1; }
-    fseek(f, 0, SEEK_END); zn = ftell(f); fseek(f, 0, SEEK_SET);
-    if (zn < 22 || !(z = malloc((size_t)zn)) || fread(z, 1, (size_t)zn, f) != (size_t)zn) {
-        snprintf(err, errlen, "cannot read %s", zip_path);
-        goto done;
-    }
+    if (zn < 22) { snprintf(err, errlen, "%s is not a zip file (or is damaged)", zip_path); goto done; }
 
     /* End of central directory: the last "PK\5\6" within 64 KB of the end; ZIP64 when its fields are saturated and a locator precedes it. */
     long eocd = -1;
@@ -136,6 +148,35 @@ int eng_romzip_extract(const char *zip_path, const char *dest_dir, const eng_rom
         if (nlen && (name[nlen - 1] == '/' || name[nlen - 1] == '\\')) continue;     /* a folder */
         int rank = -1;
         int idx = rom_index(name, nlen, ecrc, (uint32_t)usize, k_roms, NROMS, &rank);
+        if (idx < 0 && depth == 0 && ends_zip(name, nlen) && usize >= 22 && usize < ((uint64_t)1 << 31) && !(gflags & 1)
+            && lho + 30 <= (uint64_t)zn && rd32(z + lho) == 0x04034b50) {        /* a zip in the zip (a download bundling aking.zip + namco_fca10.zip) */
+            const uint64_t data = lho + 30 + rd16(z + lho + 26) + rd16(z + lho + 28);
+            uint8_t *inner = data + csize <= (uint64_t)zn ? malloc(usize) : NULL;
+            int fine = 0;
+            if (inner && method == 0 && csize == usize) { memcpy(inner, z + data, usize); fine = 1; }
+            else if (inner && method == 8) {
+                z_stream s; memset(&s, 0, sizeof s);
+                if (inflateInit2(&s, -MAX_WBITS) == Z_OK) {
+                    s.next_in = (Bytef *)(z + data); s.avail_in = (uInt)csize; s.next_out = inner; s.avail_out = (uInt)usize;
+                    fine = inflate(&s, Z_FINISH) == Z_STREAM_END && s.total_out == usize;
+                    inflateEnd(&s);
+                }
+            }
+            if (fine && crc32(0L, inner, (uInt)usize) == ecrc) {
+                char inner_name[600]; snprintf(inner_name, sizeof inner_name, "%s/%.*s", zip_path, (int)nlen, name);
+                printf("  reading %.*s inside %s\n", (int)nlen, name, zbase);
+                char e2[300] = "";
+                if (extract_mem(inner, (long)usize, inner_name, dest_dir, k_roms, NROMS, e2, sizeof e2, 1) < 0 && (!strncmp(e2, "cannot write", 12) || !strncmp(e2, "out of memory", 13))) {
+                    snprintf(err, errlen, "%s", e2); free(inner); goto done;
+                }
+                for (int i = 0; i < NROMS; i++) {      /* what the inner zip supplied is now on disk */
+                    char pp[1024]; snprintf(pp, sizeof pp, "%s/%s", dest_dir, k_roms[i].name);
+                    if (file_size(pp) == (long)k_roms[i].size) { if (best[i] < 99) got[i] = 1; best[i] = 99; }
+                }
+            }
+            free(inner);
+            continue;
+        }
         if (idx < 0 || rank <= best[idx]) continue;                  /* not ours, or a better-placed copy is already taken */
         if (usize != k_roms[idx].size) {
             WHY(idx, "\"%.*s\" in %s is %llu bytes, not the %u bytes this game uses (a different or damaged dump)", (int)nlen, name, zbase,
@@ -155,7 +196,7 @@ int eng_romzip_extract(const char *zip_path, const char *dest_dir, const eng_rom
         } else if (method == 8) {
             z_stream s; memset(&s, 0, sizeof s);
             if (inflateInit2(&s, -MAX_WBITS) != Z_OK) continue;
-            s.next_in = z + data; s.avail_in = (uInt)csize;
+            s.next_in = (Bytef *)(z + data); s.avail_in = (uInt)csize;
             s.next_out = out;     s.avail_out = (uInt)usize;
             int r = inflate(&s, Z_FINISH);
             inflateEnd(&s);
@@ -173,10 +214,18 @@ int eng_romzip_extract(const char *zip_path, const char *dest_dir, const eng_rom
             continue;
         }
 #ifdef ENG_ROM_HAS_CRC
-        if (k_roms[idx].crc && ecrc != k_roms[idx].crc) {   /* a sound zip, but not the dump this game was made from */
+        if (k_roms[idx].crc && ecrc != k_roms[idx].crc && !(k_roms[idx].crc_alt && ecrc == k_roms[idx].crc_alt)) {   /* a sound zip, but not the dump this game was made from */
             WHY(idx, "\"%.*s\" in %s is not the expected dump (CRC32 %08X, MAME's is %08X): a different version or a bad dump", (int)nlen, name, zbase,
                 (unsigned)ecrc, (unsigned)k_roms[idx].crc);
             continue;
+        }
+        if (k_roms[idx].crc_alt && ecrc == k_roms[idx].crc_alt && ecrc != k_roms[idx].crc && k_roms[idx].from_alt) {   /* the other dump: made into ours */
+            k_roms[idx].from_alt(out, (uint32_t)usize);
+            if (crc32(0L, out, (uInt)usize) != k_roms[idx].crc) {
+                WHY(idx, "\"%.*s\" in %s could not be converted to the dump this game uses (CRC32 %08X)", (int)nlen, name, zbase, (unsigned)k_roms[idx].crc);
+                continue;
+            }
+            printf("  %.*s: the CRC32 %08X dump, converted to %08X (%s)\n", (int)nlen, name, (unsigned)ecrc, (unsigned)k_roms[idx].crc, k_roms[idx].name);
         }
 #endif
 
@@ -198,8 +247,6 @@ done:
     free(got);
     free(best);
     free(out);
-    free(z);
-    fclose(f);
     return ok;
 }
 
@@ -255,14 +302,22 @@ bool eng_romzip_autosetup(const char *rom_dir, const char *exe_dir, const char *
     for (int pass = 0; pass < 2 && eng_romzip_missing(rom_dir, roms, n); pass++)
         for (int d = 0; d < nd && eng_romzip_missing(rom_dir, roms, n); d++) {
             char cand[64][256]; int nc = 0;
-            if (pass == 0) for (int zi = 0; zi < nzips && nc < 64; zi++) snprintf(cand[nc++], 256, "%s", zips[zi]);
+            if (pass == 0) { for (int zi = 0; zi < nzips && nc < 64; zi++) if (!strchr(zips[zi], '*')) snprintf(cand[nc++], 256, "%s", zips[zi]); }
             else {
                 char stem[64]; snprintf(stem, sizeof stem, "%s", zips[0]);
                 char *dot = strrchr(stem, '.'); if (dot) *dot = 0;
                 DIR *dh = opendir(dirs[d]);
                 if (!dh) continue;
-                for (struct dirent *de; (de = readdir(dh)) && nc < 64;)
-                    if (name_ieq_zip(de->d_name, stem) || name_ieq_zip(de->d_name, "namco")) snprintf(cand[nc++], 256, "%s", de->d_name);
+                for (struct dirent *de; (de = readdir(dh)) && nc < 64;) {
+                    bool want = name_ieq_zip(de->d_name, stem) || name_ieq_zip(de->d_name, "namco");
+                    for (int zi = 0; zi < nzips && !want; zi++) {          /* "Angler King*": a prefix */
+                        const char *st = strchr(zips[zi], '*');
+                        if (!st) continue;
+                        char pre[128]; snprintf(pre, sizeof pre, "%.*s", (int)(st - zips[zi]), zips[zi]);
+                        want = name_ieq_zip(de->d_name, pre);
+                    }
+                    if (want) snprintf(cand[nc++], 256, "%s", de->d_name);
+                }
                 closedir(dh);
             }
             for (int c = 0; c < nc && eng_romzip_missing(rom_dir, roms, n); c++) {
