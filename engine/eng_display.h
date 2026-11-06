@@ -33,6 +33,9 @@ typedef struct {
     int fps;                     /* Frame rate: pictures a second, 0 = Auto (the default; engine/eng_vsync.h; the game itself always runs at 59.906 Hz) */
 } eng_display_t;
 extern eng_display_t g_eng_disp;
+extern int g_eng_disp_refresh;              /* Mac: the display's refresh after a fullscreen refresh switch (0: none yet) */
+extern unsigned g_eng_disp_refresh_serial;  /* bumped when it changes: eng_vsync_want re-reads it */
+extern int g_eng_disp_fill;                 /* Mac: the window fills the desktop (window_fill=1; off by default) */
 extern bool g_eng_disp_light_gun;          /* the host: this game aims a light gun (the Display menu shows the Crosshair row) */
 
 /* Before the window exists: load cfg_path (engine/eng_cfg.c) into g_eng_disp. scale > 0 overrides the saved window size,

@@ -64,7 +64,9 @@ bool ss22_host_open(const ss22_host_game *g, int scale, bool fs)      /* scale <
     eng_disp_load(game->cfg_file, scale, fs);                /* the saved display choices; --window N / --fullscreen override */
     if (game->aim) SDL_SetHint(SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH, "1");      /* a light gun: the click that focuses the window is still a shot */
     g_eng_disp_light_gun = game->aim != NULL;
-    win = SDL_CreateWindow(game->title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+    const int wpos = getenv("ENG_WINDOW_DISPLAY") ? (int)SDL_WINDOWPOS_CENTERED_DISPLAY(atoi(getenv("ENG_WINDOW_DISPLAY")))
+                                                  : (int)SDL_WINDOWPOS_CENTERED;   /* tests: $ENG_WINDOW_DISPLAY=n opens on monitor n */
+    win = SDL_CreateWindow(game->title, wpos, wpos,
                            eng_disp_win_w(g_eng_disp.scale), eng_disp_win_h(g_eng_disp.scale),
                            SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI |
                            (g_eng_disp.winmode ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0));
@@ -279,6 +281,9 @@ bool ss22_host_frame(void)
     if (game->aim) SDL_ShowCursor(eng_ui_is_open() || paused ? SDL_ENABLE : SDL_DISABLE);   /* the crosshair is the pointer */
     else { const int want = (!g_eng_disp.winmode || eng_ui_is_open()) ? SDL_ENABLE : SDL_DISABLE;   /* fullscreen hides the pointer for the game, the menu needs it */
            if (SDL_ShowCursor(SDL_QUERY) != want) SDL_ShowCursor(want); }
+#ifdef GLMC_METAL
+    { void glmc_pointer_hide(void *, int); glmc_pointer_hide(win, game->aim && !eng_ui_is_open() && !paused); }   /* and the system's own hide */
+#endif
     if (!paused && !eng_ui_is_open()) game->input_update();
     if (ftm) clock_gettime(CLOCK_MONOTONIC, &a1);
     eng_vsync_want(&vs, g_eng_disp.fps);            /* Display > Frame rate */
