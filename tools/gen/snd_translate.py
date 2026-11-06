@@ -100,10 +100,15 @@ def _walk():
             seen.add(t); work.append(t)
             ins[t[0]][t[1]] = decode(b, t[1])[2]
 # push-and-RTS dispatch tables (tools/gen/snd_dispatch.py, GitHub #62): their handlers, then walk on from them, until nothing new
+# and the code pointers kept in RAM (tools/gen/snd_indirect.py, GitHub #62): the targets of the indirect jumps that read them
 from snd_dispatch import dispatch_seeds
+from snd_indirect import indirect_seeds
 _walk()
 while not os.environ.get('SND_NO_DISPATCH'):                # SND_NO_DISPATCH=1: without the tables, for A/B
-    _new = [t for t in dispatch_seeds(ins, source, decode) if t not in seen and source(t[0], 6)[0] is not None]
+    _cand = set(dispatch_seeds(ins, source, decode))
+    if not os.environ.get('SND_NO_INDIRECT'):               # SND_NO_INDIRECT=1: without the RAM pointers, for A/B
+        _cand |= indirect_seeds(ins, source, decode, _exits)
+    _new = [t for t in _cand if t not in seen and source(t[0], 6)[0] is not None]
     if not _new: break
     for t in _new:
         seen.add(t); work.append(t); ins[t[0]][t[1]] = decode(source(t[0], 6)[0], t[1])[2]
