@@ -484,6 +484,8 @@ Press `Esc` and open **Display**. Your choices are saved by themselves.
 
 ## Starting a game with settings (command line)
 
+The full list, including two players on one PC: [docs/CLI.md](docs/CLI.md).
+
 Every game takes its settings on the command line too, for a launcher or a shortcut. They hold for that run only: the settings
 file is not changed (unless you change the same thing in the menu).
 
