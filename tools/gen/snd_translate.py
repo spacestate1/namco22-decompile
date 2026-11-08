@@ -86,7 +86,7 @@ for i in range(0, 0x30, 2):
     if 0xC000 <= t < 0x10000:
         for mx in range(4):
             if mx not in ins[t]: ins[t][mx] = decode(source(t, 6)[0], mx)[2]
-from snd_exits import Exits
+from snd_exits import Exits, plp_seeds
 _exits = Exits(source, decode, successors)
 work = [(pc, mx) for pc in ins for mx in ins[pc]]
 seen = set(work)
@@ -108,6 +108,8 @@ while not os.environ.get('SND_NO_DISPATCH'):                # SND_NO_DISPATCH=1:
     _cand = set(dispatch_seeds(ins, source, decode))
     if not os.environ.get('SND_NO_INDIRECT'):               # SND_NO_INDIRECT=1: without the RAM pointers, for A/B
         _cand |= indirect_seeds(ins, source, decode, _exits)
+    if not os.environ.get('SND_NO_PLP'):                    # SND_NO_PLP=1: without the flags a PLP restores, for A/B (GitHub #95)
+        _cand |= plp_seeds(ins, source, decode)
     _new = [t for t in _cand if t not in seen and source(t[0], 6)[0] is not None]
     if not _new: break
     for t in _new:

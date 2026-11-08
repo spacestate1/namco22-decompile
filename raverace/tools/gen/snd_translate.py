@@ -33,6 +33,31 @@ for l in open(cov_path):
     if b is None: raise SystemExit(f'no ROM source for executed code at {pc:06X}')
     if decode(b, mx)[2] != ln: raise SystemExit(f'decoder disagrees with the oracle at {pc:06X} mx={mx}')
     ins[pc][mx] = ln
+# The BIOS is the same ROM on every C74 game: what one game executed is real code for all of them (tools/gen/c74_bios.cov, GitHub #95)
+C74_BIOS_SHA1 = '8f3248b1890abb2e649927240ae46f73bb171e3b'     # the c74.bin the pool was measured on
+if not os.environ.get('SND_NO_POOL'):                       # SND_NO_POOL=1: this game's own coverage only, for A/B
+    import hashlib
+    _h = hashlib.sha1(source(0xC000, 0x4000)[0]).hexdigest()
+    if _h != C74_BIOS_SHA1:
+        raise SystemExit(f'c74.bin sha1 {_h} is not the BIOS c74_bios.cov was measured on ({C74_BIOS_SHA1}); '
+                         'rebuild the pool for it, or set SND_NO_POOL=1')
+    for l in open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'c74_bios.cov')):
+        if l.lstrip().startswith('#'): continue
+        p = l.split()
+        if len(p) != 3: continue
+        pc, mx, ln = int(p[0], 16), int(p[1]), int(p[2])
+        if decode(source(pc, 6)[0], mx)[2] != ln: raise SystemExit(f'decoder disagrees with c74_bios.cov at {pc:06X} mx={mx}')
+        ins[pc][mx] = ln
+# Interrupt entry points, at every M/X (an interrupt keeps the interrupted code's M/X), as the shared translator does: the BIOS's
+# vectors at 0xFFD0 point at its `JMP (RAM vector)` trampolines (0xC68B..0xC6C7), which coverage only ever saw in the M/X the
+# scenarios happened to interrupt (Rave Racer's sound sweep trapped at 0x00C6A9 M/X=0).
+if not os.environ.get('SND_NO_VECMX'):                      # SND_NO_VECMX=1: as before, for A/B
+    _vec = source(0xFFD0, 0x30)[0]
+    for i in range(0, 0x30, 2):
+        t = _vec[i] | _vec[i + 1] << 8
+        if 0xC000 <= t < 0x10000:
+            for mx in range(4):
+                if mx not in ins[t]: ins[t][mx] = decode(source(t, 6)[0], mx)[2]
 covered = sum(len(v) for v in ins.values())
 
 # ---- static walk: extend coverage along control flow with known M/X ----
@@ -72,7 +97,7 @@ def successors(pc, mx):
         return out
     return [(nxt, mx)]
 
-from snd_exits import Exits
+from snd_exits import Exits, plp_seeds, flagset_seeds
 _exits = Exits(source, decode, successors)
 work = [(pc, mx) for pc in ins for mx in ins[pc]]
 seen = set(work)
@@ -94,6 +119,9 @@ while not os.environ.get('SND_NO_DISPATCH'):                # SND_NO_DISPATCH=1:
     _cand = set(dispatch_seeds(ins, source, decode))
     if not os.environ.get('SND_NO_INDIRECT'):               # SND_NO_INDIRECT=1: without the RAM pointers, for A/B
         _cand |= indirect_seeds(ins, source, decode, _exits)
+    if not os.environ.get('SND_NO_PLP'):                    # SND_NO_PLP=1: without the flags a PLP restores, for A/B (GitHub #95)
+        _cand |= plp_seeds(ins, source, decode)
+    _cand |= flagset_seeds(ins, source, decode)
     _new = [t for t in _cand if t not in seen and source(t[0], 6)[0] is not None]
     if not _new: break
     for t in _new:
