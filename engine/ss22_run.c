@@ -395,7 +395,12 @@ void rr_tick(void)
             const bool restart = ss22_host_restart_requested();       /* File > Restart: power-cycle the cabinet */
             ss22_eeprom_save(); ss22_snd_close(); ss22_out_close(); ss22_input_close(); ss22_host_close(); fprintf(stderr, "[%s] quit at frame %u\n", g_ss22_game->tag, rr_frame);
 #ifndef _WIN32
+#ifdef __APPLE__                                                 /* macOS has no /proc: our own executable by its path */
+            if (restart) { fflush(NULL); char self[4096]; uint32_t sn = sizeof self; extern int _NSGetExecutablePath(char *, uint32_t *);
+                           if (_NSGetExecutablePath(self, &sn) == 0) execv(self, g_argv); perror("restart"); }
+#else
             if (restart) { fflush(NULL); execv("/proc/self/exe", g_argv); perror("restart"); }
+#endif
 #else
             (void)restart;
 #endif

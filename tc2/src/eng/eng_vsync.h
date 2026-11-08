@@ -54,6 +54,7 @@ typedef struct {
     unsigned char sample[16][4]; int check;          /* ENG_VSYNC_CHECK: 16 pixels of the original; -1 unset */
     unsigned log_frames, log_pics, log_checked, log_bad; uint64_t log_t0; int log_on;
     bool forced;                                     /* ENG_FPS set: the menu's choice is ignored */
+    unsigned refresh_seen;                           /* g_eng_disp_refresh_serial last applied (eng_display.h) */
     void (*extra)(void *ctx, double frac);           /* set: draws each EXTRA picture itself (TC2's motion smoothing) instead of re-showing the kept one;
                                                       * frac = the tick's place in the game frame, 0..1 */
     void *extra_ctx;
@@ -149,7 +150,18 @@ static inline void eng_vsync_init(eng_vsync *v, SDL_Window *win, const char *for
 }
 
 /* the menu's choice (called every frame; a no-op unless it changed) */
-static inline void eng_vsync_want(eng_vsync *v, int fps) { if (!v->forced) eng_vsync_set_lock(v, fps); }
+static inline void eng_vsync_want(eng_vsync *v, int fps)
+{
+    extern int g_eng_disp_refresh; extern unsigned g_eng_disp_refresh_serial;
+    if (v->refresh_seen != g_eng_disp_refresh_serial) {   /* the display's refresh changed (a fullscreen refresh switch): Auto follows it */
+        v->refresh_seen = g_eng_disp_refresh_serial;
+        if (g_eng_disp_refresh > 0 && !getenv("ENG_DISPLAY_HZ") && g_eng_disp_refresh != v->hz) {
+            fprintf(stderr, "[HOST] display now %d Hz\n", g_eng_disp_refresh);
+            v->hz = g_eng_disp_refresh; v->choice = -1;     /* re-apply the choice at the new rate */
+        }
+    }
+    if (!v->forced) eng_vsync_set_lock(v, fps);
+}
 
 /* this game frame: is a picture due? (AUTO: always) */
 static inline bool eng_vsync_show(eng_vsync *v)

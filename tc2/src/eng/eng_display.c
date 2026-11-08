@@ -13,6 +13,21 @@
 
 eng_display_t g_eng_disp = { 0, 0, 2, 640, 480, 1, 0, 100 };
 static SDL_Window *win;
+int g_eng_disp_refresh; unsigned g_eng_disp_refresh_serial;
+int g_eng_disp_fill;            /* Mac: the window fills the desktop (menu bar and Dock stay visible); window_fill=1, off by default */
+#ifdef GLMC_METAL
+/* fullscreen or the filled window on a screen the frame rate does not divide (144 Hz for 120): macos/glshim switches that screen
+ * to a refresh it does divide while the game runs (Display > Frame rate, Auto = 120), and back for a sized window */
+int glmc_display_match_refresh(void *sdl_window, int fullscreen, int cap);
+static void match_refresh(void)
+{
+    const int on = g_eng_disp.winmode != 0 || g_eng_disp_fill;      /* fullscreen, or the window that fills the screen */
+    const int hz = glmc_display_match_refresh(win, on, g_eng_disp.fps > 0 ? g_eng_disp.fps : 120);
+    if (hz > 0 && hz != g_eng_disp_refresh) { g_eng_disp_refresh = hz; g_eng_disp_refresh_serial++; }
+}
+#else
+static void match_refresh(void) {}
+#endif
 static void (*volume_hook)(int);
 
 static const struct { int w, h; } res_list[] = {
@@ -122,13 +137,16 @@ static void apply_window(void)
         } else fprintf(stderr, "[DISPLAY] exclusive fullscreen %dx%d @ %d Hz\n", got.w, got.h, got.refresh_rate);
     } else SDL_SetWindowFullscreen(win, g_eng_disp.winmode ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
     SDL_ShowCursor(g_eng_disp.winmode ? SDL_DISABLE : SDL_ENABLE);
-    if (!g_eng_disp.winmode) {                          /* back to the chosen window size, centred */
+    if (!g_eng_disp.winmode && g_eng_disp_fill) SDL_MaximizeWindow(win);   /* Mac: the window fills the desktop, menu bar and Dock visible */
+    else if (!g_eng_disp.winmode) {                     /* back to the chosen window size, centred */
+        if (SDL_GetWindowFlags(win) & SDL_WINDOW_MAXIMIZED) SDL_RestoreWindow(win);
         const int ms = max_scale();
         const int k = g_eng_disp.scale < ms ? g_eng_disp.scale : ms;
         if (k != g_eng_disp.scale) fprintf(stderr, "[DISPLAY] %dx does not fit this display; using %dx\n", g_eng_disp.scale, k);
         SDL_SetWindowSize(win, eng_disp_win_w(k), eng_disp_win_h(k));
         SDL_SetWindowPosition(win, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
     }
+    match_refresh();
 }
 
 /* ---- loading ---------------------------------------------------------------- */
@@ -140,6 +158,9 @@ void eng_disp_load(const char *cfg_path, int scale, bool fullscreen)
     d->winmode = eng_cfg_int("window_mode", eng_cfg_int("fullscreen", 0) ? 1 : 0);
     if (d->winmode < 0 || d->winmode > 2) d->winmode = 0;
     d->scale = eng_cfg_int("window_scale", 2);
+#ifdef GLMC_METAL
+    g_eng_disp_fill = eng_cfg_int("window_fill", 0) != 0;   /* window_fill=1: the window fills the desktop (off by default) */
+#endif
     if (d->scale < 1 || d->scale > 4) d->scale = 2;
     d->res_w = BASE_W; d->res_h = BASE_H;
     const char *r = eng_cfg_get("resolution");
@@ -180,9 +201,10 @@ void eng_disp_attach(SDL_Window *w)
 {
     win = w;
     if (g_eng_disp.winmode == 2) apply_window();                                  /* exclusive: set the mode */
-    else if (!g_eng_disp.winmode && g_eng_disp.scale > max_scale()) apply_window();   /* too big for this display: shrink */
+    else if (!g_eng_disp.winmode && (g_eng_disp_fill || g_eng_disp.scale > max_scale())) apply_window();   /* fill the desktop; too big for this display: shrink */
     if (g_eng_disp.winmode) SDL_ShowCursor(SDL_DISABLE);
     if (volume_hook) volume_hook(g_eng_disp.volume);
+    match_refresh();                                   /* started fullscreen: apply_window did not run */
 }
 
 /* ---- the setters the menu drives: apply, and save ---------------------------- */
@@ -198,6 +220,7 @@ void eng_disp_set_scale(int k)
 {
     g_eng_disp.scale = k < 1 ? 1 : k > 4 ? 4 : k;
     eng_cfg_set_int("window_scale", g_eng_disp.scale);
+    if (g_eng_disp_fill) { g_eng_disp_fill = 0; eng_cfg_set_int("window_fill", 0); }   /* a chosen size: no longer the filled window */
     if (!g_eng_disp.winmode) apply_window();
 }
 void eng_disp_set_res(int w, int h)
