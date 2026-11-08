@@ -461,7 +461,8 @@ static void axis_label(int kind, char *v, size_t vn)
 }
 
 static int nsw(void) { return (game->test_bit ? 1 : 0) + (game->service_bit ? 1 : 0); }
-static int nffb(void) { return game->wheel_motor ? (game->torque.addr ? 4 : 2) : game->kick_wheel ? 1 : 0; }   /* motor: Force feedback, FFB direction[, FFB centering, FFB road effects]; kick only: Force feedback */
+static int nffb0(void) { return game->wheel_motor ? (game->torque.addr ? 4 : 2) : game->kick_wheel ? 1 : 0; }   /* motor: Force feedback, FFB direction[, FFB centering, FFB road effects]; kick only: Force feedback */
+static int nffb(void) { return nffb0() + (game->wheel_motor ? 2 : 0); }   /* + FFB keep-alive restart, FFB log (GitHub #73) */
 static int gun_flash_on = 1;                                     /* light-gun games: draw the shot flash (gun_flash in the cfg; ss22_gl.c hides it when 0) */
 static int ngun(void) { return game->trackball ? 12 : game->light_gun ? 5 : game->kick_wheel ? 1 : 0; }   /* Gun shot flash, Gun border, Pad aim speed, Pad aim deadzone, Pad rumble on recoil -- or (kick_wheel: Pad rumble on recoil) -- or Trackball sensitivity, orientation, keys/pad steering, keys/pad smoothing, pad+keys invert x/y, mouse invert x/y, swap stick axes, stick layout, stick deadzone, stick curve */
 static int aim_speed = 100;                                     /* light gun: % of the default crosshair speed for the sticks / D-pad / arrow keys (aim_speed in the cfg) */
@@ -544,9 +545,11 @@ static void pg_text(int r, char *l, size_t ln, char *v, size_t vn)
         else snprintf(v, vn, "OFF");
         return;
     }
-    if (r == 1 && nffb() > 1) { snprintf(l, ln, "FFB direction"); snprintf(v, vn, "%s", ffb_invert ? "reversed" : "normal"); return; }
-    if (r == 2 && nffb() > 2) { snprintf(l, ln, "FFB centering"); snprintf(v, vn, "%d%%", ffb_centre); return; }
-    if (r == 3 && nffb() > 2) { snprintf(l, ln, "FFB road effects"); snprintf(v, vn, "%d%%", ffb_road); return; }
+    if (r == 1 && nffb0() > 1) { snprintf(l, ln, "FFB direction"); snprintf(v, vn, "%s", ffb_invert ? "reversed" : "normal"); return; }
+    if (r == 2 && nffb0() > 2) { snprintf(l, ln, "FFB centering"); snprintf(v, vn, "%d%%", ffb_centre); return; }
+    if (r == 3 && nffb0() > 2) { snprintf(l, ln, "FFB road effects"); snprintf(v, vn, "%d%%", ffb_road); return; }
+    if (game->wheel_motor && r == nffb0()) { snprintf(l, ln, "FFB keep-alive restart"); snprintf(v, vn, "%s", eng_ffb_restart() ? "ON (every second)" : "OFF (only when stopped)"); return; }
+    if (game->wheel_motor && r == nffb0() + 1) { snprintf(l, ln, "FFB log"); snprintf(v, vn, "%s", eng_ffb_log() ? "ON (once a second, to the log)" : "OFF"); return; }
     r -= nffb();
     if (r == 0 && ngun() && game->trackball) { snprintf(l, ln, "Trackball / mouse sensitivity"); snprintf(v, vn, "%d%%", tb_sens); return; }
     if (r == 1 && ngun() && game->trackball) { snprintf(l, ln, "Trackball orientation"); snprintf(v, vn, "%s", tb_direct ? "direct" : "natural (the cabinet's)"); return; }
@@ -615,8 +618,8 @@ static void pg_change(int r, int dir)
         eng_cfg_set_int("ffb_strength", ffb_strength);
         return;
     }
-    if (r == 1 && nffb() > 1) { ffb_invert = !ffb_invert; eng_cfg_set_int("ffb_invert", ffb_invert); return; }
-    if ((r == 2 || r == 3) && nffb() > 2) {                      /* 0-200 %: Left/Right 10% steps, Enter cycles */
+    if (r == 1 && nffb0() > 1) { ffb_invert = !ffb_invert; eng_cfg_set_int("ffb_invert", ffb_invert); return; }
+    if ((r == 2 || r == 3) && nffb0() > 2) {                      /* 0-200 %: Left/Right 10% steps, Enter cycles */
         int *g = r == 2 ? &ffb_centre : &ffb_road;
         *g = dir ? *g + 10 * dir : (*g + 10) % 210;
         if (*g < 0) *g = 0;
@@ -624,6 +627,9 @@ static void pg_change(int r, int dir)
         eng_cfg_set_int(r == 2 ? "ffb_centering" : "ffb_road", *g);
         return;
     }
+    if (game->wheel_motor && r == nffb0()) { eng_ffb_set_restart(!eng_ffb_restart()); eng_cfg_set_int("ffb_restart", eng_ffb_restart()); return; }
+    if (game->wheel_motor && r == nffb0() + 1) { eng_ffb_set_log(!eng_ffb_log()); eng_cfg_set_int("ffb_log", eng_ffb_log());
+        fprintf(stderr, "[FFB] log %s\n", eng_ffb_log() ? "ON" : "OFF"); return; }
     r -= nffb();
     if (r == 0 && ngun() && game->trackball) {                    /* 25..400 %: Left/Right 25% steps, Enter cycles */
         tb_sens = dir ? tb_sens + 25 * dir : (tb_sens >= 400 ? 25 : tb_sens + 25);
@@ -774,6 +780,8 @@ void ss22_input_init(const ss22_input_game *g)
         if (ffb_centre > 200) ffb_centre = 200;
         if (ffb_road < 0) ffb_road = 0;
         if (ffb_road > 200) ffb_road = 200;
+        eng_ffb_set_restart(eng_cfg_int("ffb_restart", 1) != 0);
+        eng_ffb_set_log(eng_cfg_int("ffb_log", 0) != 0);
         if (g->torque.addr && g->torque.parts > 0) {          /* tap the torque sum as the 68K writes it */
             g_ss22_wram_watch_off = g->torque.addr - 0xE00000u;
             g_ss22_wram_watch = torque_write;

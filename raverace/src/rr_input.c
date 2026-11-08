@@ -24,6 +24,7 @@
 #include "rr_input.h"
 #include "twin_stick.h"
 #include "eng_args.h"
+#include "eng_ffb.h"
 
 rr_bind_t g_bind[RR_ACT_N];
 int g_steer_speed = 160, g_steer_return = 160;      /* MAME PORT_KEYDELTA(160) */
@@ -121,6 +122,8 @@ static void load_kv(const char *path, char *k, char *v)
     if (!strcmp(k, "car")) { g_cfg_car = atoi(v); return; }
     if (!strcmp(k, "ffb_strength")) { int x = atoi(v); g_cfg_ffb_strength = x < 0 ? 0 : x > 100 ? 100 : x; return; }
     if (!strcmp(k, "ffb_invert")) { g_cfg_ffb_invert = atoi(v) ? 1 : 0; return; }
+    if (!strcmp(k, "ffb_restart")) { eng_ffb_set_restart(atoi(v) != 0); return; }   /* GitHub #73 */
+    if (!strcmp(k, "ffb_log")) { eng_ffb_set_log(atoi(v) != 0); return; }
     if (!strcmp(k, "volume")) { int x = atoi(v); g_cfg_volume = x < 0 ? 0 : x > 100 ? 100 : x; return; }
     if (!strcmp(k, "fullscreen")) { g_cfg_fullscreen = atoi(v) ? 1 : 0; return; }
     if (!strcmp(k, "window_mode")) { int x = atoi(v); if (x >= 0 && x <= 2) g_cfg_winmode = x; return; }
@@ -237,7 +240,9 @@ bool rr_input_write(const char *path)
                "aspect = 4:3        # widescreen off: stretch | 4:3 | 8:7 | 16:9\n"
                "scaling = smooth    # smooth | sharp | integer\nvolume = 100        # master volume, percent\n"
                "ffb_strength = 100  # the steering motor on a force-feedback wheel, percent (0 = off)\n"
-               "ffb_invert = 0      # 1: the wheel pushes the wrong way round\n\n");
+               "ffb_invert = 0      # 1: the wheel pushes the wrong way round\n"
+               "ffb_restart = 1     # 1: re-start the wheel's force every second (a base that drops it); 0: only when it reports it stopped\n"
+               "ffb_log = 0         # 1: one [FFB] line a second in the log (what was sent, what the wheel reports)\n\n");
     fprintf(f, "# Raw joysticks (wheels, pedals, arcade sticks -- anything SDL does not list\n"
                "# as a gamepad). Find axis/button numbers with: ./build/rr --joytest\n"
                "# axis spec: <n>[ invert][ half]   (half = pedal reads 0..32767 only; -1 = off)\n"

@@ -10,6 +10,8 @@ static SDL_JoystickID dev = -1;                 /* the device last tried, so a w
 static int applied;
 static Uint8 dirtype = SDL_HAPTIC_CARTESIAN;    /* the direction encoding the device took (eng_ffb_device) */
 static unsigned query;                          /* SDL_HapticQuery of the open device */
+static bool restart_on = true, log_on;            /* eng_ffb_set_restart / eng_ffb_set_log (GitHub #73) */
+static struct { int lo, hi, sent, upd_fail, run_fail, restarts, st_play, st_stop, st_err; } lg;   /* the log's second */
 static unsigned calls, fails;                   /* eng_ffb_force_f calls (one a frame): the keep-alive's clock; update failures in a row */
 
 int eng_ffb_decode(uint8_t b)
@@ -101,6 +103,15 @@ bool eng_ffb_device(SDL_Joystick *js)
     }
     if (effect < 0) { fprintf(stderr, "[FFB] %s: %s\n", name, SDL_GetError()); release(); return false; }
     applied = 0; calls = fails = 0;
+    memset(&lg, 0, sizeof lg);
+    if (log_on) {
+        SDL_version v; SDL_GetVersion(&v);
+        fprintf(stderr, "[FFB] log: %s, SDL %d.%d.%d (%s), %d haptic axes, query %08X (status %s, gain %s, autocentre %s), %s direction, "
+                "keep-alive restart %s\n", name, v.major, v.minor, v.patch, SDL_GetPlatform(),
+                SDL_HapticNumAxes(haptic), q, q & SDL_HAPTIC_STATUS ? "yes" : "no", q & SDL_HAPTIC_GAIN ? "yes" : "no",
+                q & SDL_HAPTIC_AUTOCENTER ? "yes" : "no", dirtype == SDL_HAPTIC_STEERING_AXIS ? "steering-axis" : "cartesian",
+                restart_on ? "ON" : "OFF");
+    }
     static bool at_exit;
     if (!at_exit) { atexit(eng_ffb_close); at_exit = true; }      /* every way out that ends in exit() */
     fprintf(stderr, "[FFB] %s drives the wheel motor\n", name);
@@ -138,20 +149,43 @@ void eng_ffb_force_f(double f, int strength, bool reverse)
     /* KEEP-ALIVE (GitHub #73: a direct-drive base lost its force within ~20 s, or at full lock, and never got it back). The force used
      * to be sent only when it CHANGED, so an effect the driver or the wheel stopped -- DirectInput when the window loses focus and is
      * re-acquired, a base's own safety cut-out -- stayed stopped. Every 30 calls (0.5 s) the effect is checked: restarted if the device
-     * reports it stopped, or simply re-sent and re-run once a second where it cannot report; an update that fails recreates the effect. */
+     * reports it stopped, or simply re-sent and re-run once a second where it cannot report; an update that fails recreates the effect.
+     * 0.10.3 (#73 again, 0.9.5 did not help a Simagic base, and nothing failed in its log): with eng_ffb_set_restart (the default) it is
+     * re-sent and re-run once a second whatever the device reports -- a base whose own protection cut the motor may still say "playing".
+     * eng_ffb_set_log: one [FFB] line a second, so a drop in a player's log shows which side let go. */
     calls++;
+    if (log_on) {
+        if (level < lg.lo) lg.lo = level;
+        if (level > lg.hi) lg.hi = level;
+    }
     bool resend = false;
     if (calls % 30 == 0) {
-        if (query & SDL_HAPTIC_STATUS) { if (SDL_HapticGetEffectStatus(haptic, effect) == 0) resend = true; }
+        if (query & SDL_HAPTIC_STATUS) {
+            const int st = SDL_HapticGetEffectStatus(haptic, effect);
+            if (st == 0) resend = true;
+            if (st > 0) lg.st_play++; else if (st == 0) lg.st_stop++; else lg.st_err++;
+        }
         else if (calls % 60 == 0) resend = true;
+        if (restart_on && calls % 60 == 0) resend = true;   /* even while the device says it is playing (GitHub #73) */
+    }
+    if (log_on && calls % 60 == 0) {
+        char st[64];
+        if (query & SDL_HAPTIC_STATUS) snprintf(st, sizeof st, "playing %d stopped %d error %d", lg.st_play, lg.st_stop, lg.st_err);
+        else snprintf(st, sizeof st, "not reported by the device");
+        fprintf(stderr, "[FFB] level %d..%d (now %d), sent %d, status %s, update fails %d, restarts %d (run fails %d)\n",
+                lg.lo, lg.hi, level, lg.sent, st, lg.upd_fail, lg.restarts, lg.run_fail);
+        if (lg.upd_fail || lg.run_fail) fprintf(stderr, "[FFB]   last SDL error: %s\n", SDL_GetError());
+        memset(&lg, 0, sizeof lg);
+        lg.lo = lg.hi = level;
     }
     if (level == applied && !resend) return;
     SDL_HapticEffect e = constant(level);
     if (SDL_HapticUpdateEffect(haptic, effect, &e) == 0) {
-        applied = level; fails = 0;
-        if (resend) SDL_HapticRunEffect(haptic, effect, 1);
+        applied = level; fails = 0; lg.sent++;
+        if (resend) { lg.restarts++; if (SDL_HapticRunEffect(haptic, effect, 1) != 0) lg.run_fail++; }
         return;
     }
+    lg.upd_fail++;
     if (++fails >= 30) {                                    /* half a second of failures: a new effect (the old one may be gone with the device's state) */
         fails = 0;
         SDL_HapticDestroyEffect(haptic, effect);
@@ -160,3 +194,8 @@ void eng_ffb_force_f(double f, int strength, bool reverse)
         else { if (effect >= 0) SDL_HapticDestroyEffect(haptic, effect); effect = -1; dev = -1; fprintf(stderr, "[FFB] effect lost: %s (will retry the device)\n", SDL_GetError()); }
     }
 }
+
+void eng_ffb_set_restart(bool on) { restart_on = on; }
+bool eng_ffb_restart(void) { return restart_on; }
+void eng_ffb_set_log(bool on) { log_on = on; }
+bool eng_ffb_log(void) { return log_on; }

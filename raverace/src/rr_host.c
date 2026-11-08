@@ -228,6 +228,8 @@ void rr_host_set_ffb_strength(int pct)
     char v[8]; snprintf(v, sizeof v, "%d", g_cfg_ffb_strength); save_opt("ffb_strength", v);
 }
 void rr_host_set_ffb_invert(bool on) { g_cfg_ffb_invert = on; save_opt("ffb_invert", on ? "1" : "0"); }
+void rr_host_set_ffb_restart(bool on) { eng_ffb_set_restart(on); save_opt("ffb_restart", on ? "1" : "0"); }
+void rr_host_set_ffb_log(bool on) { eng_ffb_set_log(on); save_opt("ffb_log", on ? "1" : "0"); fprintf(stderr, "[FFB] log %s\n", on ? "ON" : "OFF"); }
 void rr_host_set_stick_steer(int level)
 {
     g_cfg_stick_steer = (level % RR_STICK_N + RR_STICK_N) % RR_STICK_N;

@@ -36,5 +36,13 @@ void eng_ffb_forget(SDL_JoystickID id);
  * XOR the user's FFB direction setting) */
 void eng_ffb_force(int motor, int strength, bool reverse);
 void eng_ffb_force_f(double f, int strength, bool reverse);   /* the same in full resolution: f = motor / 63, -1..1 */
+/* GitHub #73, both saved per game and on the Controls page:
+ * restart -- re-send and re-start the force once a second even while the device says it is playing (a direct-drive base whose own
+ *            protection cut the motor may still report the effect as running). Off: only a stop the device reports is restarted.
+ * log     -- once a second, a [FFB] line in the game's log: the force sent, what the device reports, failures and restarts. */
+void eng_ffb_set_restart(bool on);
+bool eng_ffb_restart(void);
+void eng_ffb_set_log(bool on);
+bool eng_ffb_log(void);
 void eng_ffb_close(void);                       /* stop the force and let go of the device (also run at exit) */
 #endif
