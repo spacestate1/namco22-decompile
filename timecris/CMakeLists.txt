@@ -2,8 +2,8 @@ cmake_minimum_required(VERSION 3.16)
 project(timecris C)
 # Time Crisis (SUPER System 22) on the shared Super 22 host (../engine/ss22_*): the lifted 68K (gen/tc_lifted.c, tools/namco22/lift.py) and ONE table
 # (src/tc_game.c). Dirt Dash's build is the template (../dirtdash/CMakeLists.txt). HARD RULE 3: no copies of the engine.
-if(NOT CMAKE_C_COMPILER_ID STREQUAL "GNU")
-  message(FATAL_ERROR "gcc required (the lifted code uses computed labels and statement expressions)")
+if(NOT CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+  message(FATAL_ERROR "gcc or clang required (the lifted code uses computed labels and statement expressions)")
 endif()
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE RelWithDebInfo)
@@ -39,6 +39,29 @@ add_custom_command(OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/gen/tc_c25.c
   COMMENT "Translating the master DSP program to C")
 set_source_files_properties(gen/tc_c25.c PROPERTIES COMPILE_OPTIONS "-O2;-w")
 
+if(EMSCRIPTEN)
+  # Browser build: SDL2 + zlib from Emscripten's ports, the fixed-function GL through
+  # the legacy-GL emulation over WebGL. The host presents frames from INSIDE the lifted
+  # program's stack (rr_tick), so the build needs JSPI: SDL_Delay in the frame pacer
+  # suspends the whole wasm stack and the browser paints/resumes. ROMs are written into
+  # MEMFS by the page before callMain (-sINVOKE_RUN=0).
+  add_compile_options(-sUSE_SDL=2 -sUSE_ZLIB=1)
+  set(SDL2_LIBRARIES "")
+  set(TC_ZLIB "")
+  set(TC_GL_LIB "")
+  set(TC_GL_SRC ${NAMCO22_ENGINE_DIR}/gl_webgl_compat.c)   # glPushAttrib & co: not in the legacy-GL emulation
+  add_link_options(
+    -sUSE_SDL=2 -sUSE_ZLIB=1
+    -sLEGACY_GL_EMULATION=1 -sGL_ENABLE_GET_PROC_ADDRESS=1
+    -sGL_MAX_TEMP_BUFFER_SIZE=8388608   # quad_gl batches up to 60000 verts x 40 B interleaved = 2.4 MB; the 2 MB default SILENTLY drops the tail (release builds compile the assert out)
+    -sJSPI=1
+    -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=268435456 -sSTACK_SIZE=8388608
+    -sMODULARIZE=1 -sEXPORT_NAME=createTimeCrisis -sENVIRONMENT=web
+    -sINVOKE_RUN=0
+    -sEXPORTED_RUNTIME_METHODS=FS,callMain,ENV)
+  # the generated FFP shaders must divide by the texcoords' q (tools/web/glemu_texproj.py)
+  set(TC_WEB_POSTBUILD COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/../tools/web/glemu_texproj.py $<TARGET_FILE_DIR:tc>/tc.js)
+else()
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(SDL2 REQUIRED sdl2)
 if(WIN32)
@@ -48,6 +71,8 @@ find_package(ZLIB REQUIRED)
 set(OpenGL_GL_PREFERENCE GLVND)
 find_package(OpenGL REQUIRED)
 include_directories(${SDL2_INCLUDE_DIRS})
+link_directories(${SDL2_LIBRARY_DIRS})   # macOS: Homebrew's /opt/homebrew/lib is not a default search path
+set(TC_ZLIB ZLIB::ZLIB)
 # Windows (MinGW-w64): same block as Dirt Dash -- win_compat.h, no console, everything static; OpenGL resolved at run time (gl_dyn.c)
 if(WIN32)
   add_compile_options(-include ${CMAKE_CURRENT_SOURCE_DIR}/../include/win_compat.h)
@@ -58,6 +83,7 @@ if(WIN32)
 else()
   set(TC_GL_LIB OpenGL::GL)
   set(TC_GL_SRC "")
+endif()
 endif()
 
 # The SOUND MCU program (ts1data.8k), translated to C from the ROM file by the shared tools/gen/snd_translate.py (--game tc). tools/gen/snd.cov: the
@@ -79,7 +105,10 @@ set(TC_CORE_SRC src/tc_game.c
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tools/gen/snd.cov)
 add_executable(tc ${TC_CORE_SRC} gen/tc_snd_driver.c)
 target_compile_options(tc PRIVATE -Wall)
-target_link_libraries(tc ${SDL2_LIBRARIES} ${TC_GL_LIB} ZLIB::ZLIB m)
+if(EMSCRIPTEN)
+  add_custom_command(TARGET tc POST_BUILD ${TC_WEB_POSTBUILD})
+endif()
+target_link_libraries(tc ${SDL2_LIBRARIES} ${TC_GL_LIB} ${TC_ZLIB} m)
 endif()
 
 # DEV builds (HARD RULE 2: the DSP and the sound MCU INTERPRETED, never shipped): the window / headless run, and the instruction trace for the T3 proof
@@ -88,11 +117,11 @@ add_executable(tc_oracle ${TC_CORE_SRC} ${NAMCO22_C25_ORACLE_SRC}
     ${NAMCO22_TOOLS_DIR}/sndoracle/m37710.c ${NAMCO22_TOOLS_DIR}/sndoracle/sound_oracle.c)
 target_compile_options(tc_oracle PRIVATE -Wall)
 target_compile_definitions(tc_oracle PRIVATE TC_ORACLE SS22_ORACLE C25_DEV_HOOKS)
-target_link_libraries(tc_oracle ${SDL2_LIBRARIES} ${TC_GL_LIB} ZLIB::ZLIB m)
+target_link_libraries(tc_oracle ${SDL2_LIBRARIES} ${TC_GL_LIB} ${TC_ZLIB} m)
 
 add_executable(tc_trace ${TC_CORE_SRC} ${NAMCO22_C25_ORACLE_SRC}
     ${NAMCO22_TOOLS_DIR}/sndoracle/m37710.c ${NAMCO22_TOOLS_DIR}/sndoracle/sound_oracle.c)
 target_compile_options(tc_trace PRIVATE -Wall)
 target_compile_definitions(tc_trace PRIVATE RR_TRACE TC_ORACLE SS22_ORACLE C25_DEV_HOOKS)
-target_link_libraries(tc_trace ${SDL2_LIBRARIES} ${TC_GL_LIB} ZLIB::ZLIB m)
+target_link_libraries(tc_trace ${SDL2_LIBRARIES} ${TC_GL_LIB} ${TC_ZLIB} m)
 endif()

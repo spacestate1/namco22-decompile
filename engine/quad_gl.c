@@ -31,6 +31,11 @@ static void mt_resolve(void)
     p_active_texture = (void (APIENTRY *)(GLenum))SDL_GL_GetProcAddress("glActiveTexture");
     const char *e = getenv("ENG_FOG2PASS");
     mt_state = (p_active_texture && !(e && *e == '1')) ? 1 : 0;
+#ifdef __EMSCRIPTEN__
+    /* the legacy-GL emulation's COMBINE INTERPOLATE misrenders on real GPUs
+     * (Metal: distant geometry goes black); the two-pass fog is correct */
+    mt_state = 0;
+#endif
     if (!mt_state) return;
     p_active_texture(GL_TEXTURE1);
     glGenTextures(1, &mt_dummy_tex);
@@ -56,9 +61,25 @@ int    g_eng_degen_uv_legacy = 0;
 static struct { int valid, tex_on, alpha_on, blend_on, env_scale, prio_mask, fog; GLuint tex; float frgb[3]; } qs;
 long g_bb_draws, g_bb_binds;                     /* per-run GL calls, for the FTIME line */
 static void qs_reset(void) { qs.valid = 0; qs.env_scale = -1; }   /* qs.fog stays truthful: unit 1 may really be on */
-static void qs_tex_on(int on) { if (!qs.valid || qs.tex_on != on) { if (on) glEnable(GL_TEXTURE_2D); else glDisable(GL_TEXTURE_2D); qs.tex_on = on; } }
+#ifdef __EMSCRIPTEN__
+static int qs_notex = -1;                  /* ENG_NOTEX=1: bisect -- flat vertex colours, no texturing */
+#endif
+static void qs_tex_on(int on) {
+#ifdef __EMSCRIPTEN__
+    if (qs_notex < 0) qs_notex = getenv("ENG_NOTEX") != NULL;
+    if (qs_notex) on = 0;
+#endif
+    if (!qs.valid || qs.tex_on != on) { if (on) glEnable(GL_TEXTURE_2D); else glDisable(GL_TEXTURE_2D); qs.tex_on = on; } }
 static void qs_bind(GLuint t) { if (!qs.valid || qs.tex != t) { glBindTexture(GL_TEXTURE_2D, t); qs.tex = t; g_bb_binds++; } }
-static void qs_alpha(int on) { if (!qs.valid || qs.alpha_on != on) { if (on) glEnable(GL_ALPHA_TEST); else glDisable(GL_ALPHA_TEST); qs.alpha_on = on; } }
+#ifdef __EMSCRIPTEN__
+static int qs_noat = -1;                   /* ENG_NOALPHATEST=1: bisect */
+#endif
+static void qs_alpha(int on) {
+#ifdef __EMSCRIPTEN__
+    if (qs_noat < 0) qs_noat = getenv("ENG_NOALPHATEST") != NULL;
+    if (qs_noat) on = 0;
+#endif
+    if (!qs.valid || qs.alpha_on != on) { if (on) glEnable(GL_ALPHA_TEST); else glDisable(GL_ALPHA_TEST); qs.alpha_on = on; } }
 static void qs_blend(int on) { if (!qs.valid || qs.blend_on != on) { if (on) { glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA); } else glDisable(GL_BLEND); qs.blend_on = on; } }
 static void qs_prio_mask(int off) { if (!qs.valid || qs.prio_mask != off) { glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, off ? GL_FALSE : GL_TRUE); qs.prio_mask = off; } }
 static int qs_sc_on; static int qs_sc[4];
@@ -99,6 +120,9 @@ static void qs_env(int scale)
  * textured quads only, and only when write_prio_alpha is off. */
 static void qs_fog(int mode, const float *frgb, int scale)
 {
+#ifdef __EMSCRIPTEN__
+    if (getenv("ENG_NOFOG")) mode = 0;   /* experiment: fog off entirely */
+#endif
     /* mode 0: no fog -- unit 1 off, unit 0 as before */
     if (!mode) {
         if (qs.fog) {   /* leaving fog: unit 1 off, unit 0 rebuilt by qs_env below */
@@ -338,20 +362,104 @@ static int bb_n, bb_valid;
 static struct bbstate { GLuint tex; int env, alpha, blend, prio, tex_on, sc_on, fog; int sc[4]; float frgb[3]; int depth; } bb_run;
 static int depth_applied;                /* GL_DEPTH_TEST as this file last set it (only depth-tested runs ever turn it on) */
 
+static int bb_probe_on = -2;                 /* ENG_BBPROBE=<frame> */
+static void bb_probe(void)
+{
+    float cx = (bb_xy[0] + bb_xy[2] + bb_xy[4]) / 3.0f, cy = (bb_xy[1] + bb_xy[3] + bb_xy[5]) / 3.0f;
+    int vp[4]; glGetIntegerv(GL_VIEWPORT, vp);
+    /* bb_xy is SCENE coordinates (640x480 ortho, top-down y); glReadPixels
+     * wants WINDOW pixels, bottom-up -- map through the viewport, as the
+     * scissor path does. The old direct cast read an unrelated pixel. */
+    int px = vp[0] + (int)((cx - g_scene_x0) * vp[2] / (g_scene_x1 - g_scene_x0));
+    int py = vp[1] + (int)(((float)ENG_SCREEN_H - cy) * vp[3] / (float)ENG_SCREEN_H);
+    if (px < vp[0]) px = vp[0]; if (px >= vp[0] + vp[2]) px = vp[0] + vp[2] - 1;
+    if (py < vp[1]) py = vp[1]; if (py >= vp[1] + vp[3]) py = vp[1] + vp[3] - 1;
+    unsigned char rgba[4] = { 9, 9, 9, 9 };
+    glReadPixels(px, py, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+    fprintf(stderr, "[BBP] n=%d tex=%u tex_on=%d at(%d,%d) -> %u,%u,%u err=%x\n",
+            bb_n, bb_run.tex, bb_run.tex_on, px, py, rgba[0], rgba[1], rgba[2], glGetError());
+}
 static void bb_flush(void)
 {
     if (!bb_n) return;
+    { static long logframe = -2;               /* ENG_BBLOG=<frame>: print each flush's first vertices that frame */
+      if (logframe == -2) { const char *e = getenv("ENG_BBLOG"); logframe = e ? atol(e) : -1; }
+      if (logframe >= 0 && g_eng_frame == (unsigned)logframe) {
+          fprintf(stderr, "[BB] n=%d tex=%u env=%d fog=%d depth=%d xy0=(%.3f,%.3f) xy1=(%.3f,%.3f) xy2=(%.3f,%.3f) st0=(%.4f,%.4f,%.4f,%.4f) rgba0=(%.3f,%.3f,%.3f,%.3f)\n",
+                  bb_n, bb_run.tex, bb_run.env, bb_run.fog, bb_run.depth,
+                  bb_xy[0], bb_xy[1], bb_xy[2], bb_xy[3], bb_xy[4], bb_xy[5],
+                  bb_st[0], bb_st[1], bb_st[2], bb_st[3],
+                  bb_rgba[0], bb_rgba[1], bb_rgba[2], bb_rgba[3]);
+          /* the transform the emulation will apply to this flush: print the
+           * three matrices whenever they differ from the last flush printed */
+          static float lastm[48]; float m[48];
+          glGetFloatv(GL_MODELVIEW_MATRIX,  m);
+          glGetFloatv(GL_PROJECTION_MATRIX, m + 16);
+          glGetFloatv(GL_TEXTURE_MATRIX,    m + 32);
+          if (memcmp(m, lastm, sizeof m)) {
+              memcpy(lastm, m, sizeof m);
+              fprintf(stderr, "[BBM] mv=[%g %g %g %g; %g %g %g %g; %g %g %g %g; %g %g %g %g]\n",
+                      m[0],m[1],m[2],m[3],m[4],m[5],m[6],m[7],m[8],m[9],m[10],m[11],m[12],m[13],m[14],m[15]);
+              fprintf(stderr, "[BBM] pr=[%g %g %g %g; %g %g %g %g; %g %g %g %g; %g %g %g %g]\n",
+                      m[16],m[17],m[18],m[19],m[20],m[21],m[22],m[23],m[24],m[25],m[26],m[27],m[28],m[29],m[30],m[31]);
+              fprintf(stderr, "[BBM] tx=[%g %g %g %g; %g %g %g %g; %g %g %g %g; %g %g %g %g] err=%x\n",
+                      m[32],m[33],m[34],m[35],m[36],m[37],m[38],m[39],m[40],m[41],m[42],m[43],m[44],m[45],m[46],m[47], glGetError());
+          }
+      } }
     /* re-bind the run's page OURSELVES: tex_bake's atlas_page_init (a cold bake
      * creating a page, e.g. from a quad that then clips away) binds the new page
      * behind our back, and commit() below binds only when the page is dirty --
      * a clean page would draw against whatever texture was last bound */
     if (bb_run.tex_on) { qs_bind(bb_run.tex); tex_bake_commit(bb_run.tex); }   /* the page's dirty bands upload once, here, not per bake */
+    { static long logframe2 = -2;              /* ENG_BBLOG companion: the GL-side truth right before the draw */
+      if (logframe2 == -2) { const char *e = getenv("ENG_BBLOG"); logframe2 = e ? atol(e) : -1; }
+      if (logframe2 >= 0 && g_eng_frame == (unsigned)logframe2) {
+          GLint bt = -1, sb[4] = { -1, -1, -1, -1 };
+          glGetIntegerv(GL_TEXTURE_BINDING_2D, &bt);
+          glGetIntegerv(GL_SCISSOR_BOX, sb);
+          fprintf(stderr, "[BBS] run: tex=%u on=%d alpha=%d blend=%d prio=%d sc=%d(%d,%d,%d,%d) | GL: bound=%d t2d=%d bl=%d at=%d sc=%d box=(%d,%d,%d,%d) st0=(%.6g,%.6g,%.6g,%.6g) err=%x\n",
+                  bb_run.tex, bb_run.tex_on, bb_run.alpha, bb_run.blend, bb_run.prio,
+                  bb_run.sc_on, bb_run.sc[0], bb_run.sc[1], bb_run.sc[2], bb_run.sc[3],
+                  (int)bt, glIsEnabled(GL_TEXTURE_2D), glIsEnabled(GL_BLEND), glIsEnabled(GL_ALPHA_TEST), glIsEnabled(GL_SCISSOR_TEST),
+                  (int)sb[0], (int)sb[1], (int)sb[2], (int)sb[3],
+                  bb_st[0], bb_st[1], bb_st[2], bb_st[3], glGetError());
+      } }
+#ifdef __EMSCRIPTEN__
+    /* THE ATTRACT-FLYOVER BUG. Emscripten's GLImmediate supports PLANAR client
+     * arrays (ours: three separate tight arrays) by memcpying them into one
+     * interleaved buffer -- but only when a gl*Pointer / client-state call has
+     * set modifiedClientAttributes since the last draw. These arrays are
+     * static and refilled in place, so in a depth-off pass (attract, menus --
+     * no state change touches the pointers between flushes) every draw after
+     * the first re-uploaded the FIRST flush's vertices under the new flush's
+     * texture: the castle scene drew one flush's geometry all frame. The
+     * depth-tested passes (gameplay) were immune only because the bb_xyz
+     * pointer swap below marks the attributes modified every flush. Re-issue
+     * ALL the pointers to force the re-copy -- all three, because the
+     * emulation's restride pass overwrites each attribute's pointer to point
+     * into its own staging buffer, so any pointer NOT re-issued here would be
+     * re-copied from that stale staging area, not from our array. Native GL
+     * reads client memory at draw time and never had the problem. */
+    glColorPointer(4, GL_FLOAT, 0, bb_rgba);
+    glTexCoordPointer(4, GL_FLOAT, 0, bb_st);
+    if (!bb_run.depth) glVertexPointer(2, GL_FLOAT, 0, bb_xy);
+#endif
     if (bb_run.depth) {
         glVertexPointer(3, GL_FLOAT, 0, bb_xyz);
         glDrawArrays(GL_TRIANGLES, 0, bb_n);
         glVertexPointer(2, GL_FLOAT, 0, bb_xy);
     } else
     glDrawArrays(GL_TRIANGLES, 0, bb_n);
+    if (bb_probe_on == -2) { const char *e = getenv("ENG_BBPROBE"); bb_probe_on = e ? atol(e) : -1; }
+    if (bb_probe_on >= 0 && g_eng_frame == (unsigned)bb_probe_on) bb_probe();
+    { static unsigned crc_last; extern void tex_bake_pages_crc(void);
+      static long crc_from = -2;
+      if (crc_from == -2) { const char *e = getenv("ENG_PAGECRC"); crc_from = e ? atol(e) : -1; }
+      if (crc_from >= 0 && g_eng_frame >= (unsigned)crc_from && g_eng_frame != crc_last) {
+          crc_last = g_eng_frame;
+          fprintf(stderr, "[PCRC] frame %u:\n", g_eng_frame);
+          tex_bake_pages_crc();
+      } }
     g_bb_draws++;
     bb_n = 0;
 }
@@ -377,7 +485,13 @@ static void bb_apply(const struct bbstate *st)
     qs_prio_mask(st->prio);
     qs_scissor(st->sc_on, st->sc);
     if (st->depth != depth_applied) {
-        if (st->depth) { glEnable(GL_DEPTH_TEST); glDepthFunc(GL_LESS); glDepthMask(GL_TRUE); }
+        int want_depth = st->depth;
+#ifdef __EMSCRIPTEN__
+        { static int nodepth = -1;           /* ENG_NODEPTH=1: bisect -- painter's order only */
+          if (nodepth < 0) nodepth = getenv("ENG_NODEPTH") != NULL;
+          if (nodepth) want_depth = 0; }
+#endif
+        if (want_depth) { glEnable(GL_DEPTH_TEST); glDepthFunc(GL_LESS); glDepthMask(GL_TRUE); }
         else glDisable(GL_DEPTH_TEST);
         depth_applied = st->depth;
     }
@@ -821,6 +935,21 @@ static void draw_quad_one(const geo_quad *q, const eng_draw_cfg *cfg)
     {
         float inv = 1.0f / (float)rgb_scale;
         int n = ncv > 32 ? 32 : ncv;
+        /* ENG_STNORM: normalise the quad's homogeneous texcoords by a PER-QUAD
+         * constant so the components the GPU interpolates are O(1) instead of
+         * O(1e-7) on very distant geometry (the castle flyover's z reaches
+         * 1.2M, so s*q and q go to 1e-7 -- exact same rational function, only
+         * the magnitude changes, so native output is bit-comparable). */
+        float wn = 1.0f;
+        {
+            static int stnorm = -1;
+            if (stnorm < 0) { const char *e = getenv("ENG_STNORM"); stnorm = e ? (*e != '0') : 0; }
+            if (stnorm) {
+                float m = 0.0f;
+                for (int i = 0; i < n; i++) if (cv[i].w > m) m = cv[i].w;
+                if (m > 0.0f) wn = 1.0f / m;
+            }
+        }
         for (int i = 0; i < n; i++) {
             float cr = cv[i].bri * inv, cg = cv[i].bri * inv, cb = cv[i].bri * inv;
             if (cfg->fade_rgb) cfg->fade_rgb(&cr, &cg, &cb);
@@ -830,8 +959,8 @@ static void draw_quad_one(const geo_quad *q, const eng_draw_cfg *cfg)
              * exactly what the GL texture matrix computed per emitted vertex
              * (matrix follows clipping on the GPU), so batching no longer
              * breaks per slot. bou/bov are 0 with per-quad textures: s+0 == s. */
-            qa_st[i*4+0] = cv[i].s + bou * cv[i].w; qa_st[i*4+1] = cv[i].t + bov * cv[i].w;
-            qa_st[i*4+2] = 0.0f;   qa_st[i*4+3] = cv[i].w;
+            qa_st[i*4+0] = (cv[i].s + bou * cv[i].w) * wn; qa_st[i*4+1] = (cv[i].t + bov * cv[i].w) * wn;
+            qa_st[i*4+2] = 0.0f;   qa_st[i*4+3] = cv[i].w * wn;
             qa_xy[i*2+0] = cv[i].x; qa_xy[i*2+1] = cv[i].y;
         }
         bb_emit(n, &(struct bbstate){ .tex = tex, .env = rgb_scale, .alpha = base_alpha, .blend = 0, .prio = 0,
