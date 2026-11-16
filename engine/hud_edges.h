@@ -70,4 +70,5 @@ void eng_hud_text_draw(void);
  * eng_hud_quad_dx as g_eng_quad_dx (engine/quad_gl.h). */
 void eng_hud_quads_scan(const geo_quad *buf, int n, int hud_band, bool zero_depth);
 int  eng_hud_quad_dx(const geo_quad *q);
+int  eng_hud_quad_piece(const geo_quad *q);   /* 1 = a screen-space HUD polygon (stays sharp under the 3D texture filter) */
 #endif

@@ -27,6 +27,7 @@
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_opengl.h>
 #include "tc2_build.h"
+#include "eng_display.h"
 
 /* the post-1.1 entry points, from the driver at run time (the same on Linux and Windows) */
 #define GLFN(T, n) static T p_##n;
@@ -71,6 +72,21 @@ static const char *fs_poly =
     "uniform sampler2D t_fog; uniform int u_fog, u_seam;\n"
     "in vec3 v_uvs; flat in vec4 v_par; flat in vec4 v_clip; flat in vec2 v_ext;\n"
     "uint b8(vec4 t, int c) { return uint(t[c] * 255.0 + 0.5); }\n"
+    "uniform int u_filt;\n"                                            /* the optional 3D texture filter: 1 = bilinear for polygons without the no-filter flag (128) */
+    "uint tex_pen(uint tx, uint ty) {\n"                               /* the pen at texel (tx, ty): tile map, its flips, the texture ROM -- ty already holds the polygon's tbase */
+    "  uint id = ((tx >> 4u) & 0xFFu) | ((ty << 4u) & 0x1FFF00u);\n"
+    "  vec4 m = texelFetch(t_map, ivec2(int(id & 2047u), int(id >> 11u)), 0);\n"
+    "  uint mb = b8(m, 2); uint tile = b8(m, 0) | (b8(m, 1) << 8u) | ((mb & 1u) << 16u); uint a = mb >> 1u;\n"
+    "  if ((a & 1u) != 0u) ty = ~ty;\n"
+    "  if ((a & 2u) != 0u) tx = ~tx;\n"
+    "  if ((a & 4u) != 0u) { uint t = tx; tx = ty; ty = t; }\n"
+    "  uint ri = ((tile << 8u) | ((ty << 4u) & 0xF0u) | (tx & 0x0Fu)) & 0x1FFFFFFu;\n"
+    "  return b8(texelFetch(t_rom, ivec2(int(ri & 8191u), int(ri >> 13u)), 0), 0);\n"
+    "}\n"
+    "vec3 pen_col(uint pen, uint pbase, uint pshift, uint pmask) {\n"
+    "  uint ci = pbase + ((pen >> pshift) & pmask);\n"
+    "  return texelFetch(t_pal, ivec2(int(ci & 255u), int((ci >> 8u) & 127u)), 0).rgb * 255.0;\n"
+    "}\n"
     "void main() {\n"
     "  ivec2 px = ivec2(int(gl_FragCoord.x) / u_scale - u_ex, int(gl_FragCoord.y) / u_scale);\n"
     "  if (px.x < int(v_clip.x) || px.x >= int(v_clip.z) || px.y < int(v_clip.y) || px.y >= int(v_clip.w)) discard;\n"
@@ -101,21 +117,22 @@ static const char *fs_poly =
     "  int cmode = int(v_par.y); uint pbase = uint(v_par.x); uint pmask = 0xFFu; uint pshift = 0u;\n"
     "  if ((cmode & 4) != 0) { pbase += 0xECu + uint((cmode & 8) << 1); pmask = 3u; pshift = uint(2 * (~cmode & 3)); }\n"
     "  else if ((cmode & 2) != 0) { pbase += 0xE0u + uint((cmode & 8) << 1); pmask = 15u; pshift = uint(4 * (~cmode & 1)); }\n"
-    "  uint id = ((tx >> 4u) & 0xFFu) | ((ty << 4u) & 0x1FFF00u);\n"   /* the tile map: tile number and its flips */
-    "  vec4 m = texelFetch(t_map, ivec2(int(id & 2047u), int(id >> 11u)), 0);\n"
-    "  uint mb = b8(m, 2); uint tile = b8(m, 0) | (b8(m, 1) << 8u) | ((mb & 1u) << 16u); uint a = mb >> 1u;\n"
-    "  if ((a & 1u) != 0u) ty = ~ty;\n"
-    "  if ((a & 2u) != 0u) tx = ~tx;\n"
-    "  if ((a & 4u) != 0u) { uint t = tx; tx = ty; ty = t; }\n"
-    "  uint ri = ((tile << 8u) | ((ty << 4u) & 0xF0u) | (tx & 0x0Fu)) & 0x1FFFFFFu;\n"
-    "  uint pen = b8(texelFetch(t_rom, ivec2(int(ri & 8191u), int(ri >> 13u)), 0), 0);\n"
+    "  uint pen = tex_pen(tx, ty);\n"                                      /* the tile map: tile number and its flips, then the texture ROM */
     "  if (u_prio != 0) {\n"                                               /* the priority target: R text-or-7, G any polygon, A last was 7 */
     "    int pv = (fl >> 3) & 7;\n"
     "    gl_FragColor = vec4(pv == 7 ? 1.0 : 0.0, pv != 0 ? 1.0 : 0.0, 0.0, pv == 7 ? 1.0 : 0.0); return;\n"
     "  }\n"
-    "  uint ci = pbase + ((pen >> pshift) & pmask);\n"
-    "  vec4 c = texelFetch(t_pal, ivec2(int(ci & 255u), int((ci >> 8u) & 127u)), 0);\n"
-    "  ivec3 col = ivec3(c.rgb * 255.0 + 0.5);\n"
+    "  vec3 cf = pen_col(pen, pbase, pshift, pmask);\n"
+    "  if (u_filt != 0 && (fl & 128) == 0) {\n"                          /* BILINEAR (optional): the four texels from (tx, ty) on, weighted by the texel coordinate's fraction. Each is
+                                                                           fetched through the whole tile-map chain, so a blend across a tile edge is right. The polygon's far edge
+                                                                           (fraction 0 there) never reaches past its own texels. */
+    "    float fx = fract(v_uvs.x), fy = fract(v_uvs.y);\n"
+    "    vec3 c10 = pen_col(tex_pen(tx + 1u, ty), pbase, pshift, pmask);\n"
+    "    vec3 c01 = pen_col(tex_pen(tx, ty + 1u), pbase, pshift, pmask);\n"
+    "    vec3 c11 = pen_col(tex_pen(tx + 1u, ty + 1u), pbase, pshift, pmask);\n"
+    "    cf = mix(mix(cf, c10, fx), mix(c01, c11, fx), fy);\n"
+    "  }\n"
+    "  ivec3 col = ivec3(cf + 0.5);\n"
     "  int sh = clamp(int(v_uvs.z), 0, 63);\n"
     "  col = (col * sh) >> 6;\n"
     "  if (u_fog != 0 && (fl & 64) != 0) {\n"                          /* the depth fog: the level at z * 64, toward the fog colour */
@@ -171,7 +188,7 @@ static int ok, scale = 1, ex, fbw, fbh;                  /* ex: widescreen margi
 static GLuint prog_poly, prog_text, prog_gamma, vbo, quad_vbo, t_out, fbo_out, t_lut;
 static GLint ug[2];
 static GLuint t_fog, t_band, t_rom, t_map, t_pal, t_sten, t_mix, t_col, t_prio, fbo_col, fbo_prio;
-static GLint up[24], ut[16];
+static GLint up[32], ut[16];
 static GLuint t_near, t_nearz, fbo_near;          /* the exact-depth pre-pass target: nearest object / band (colour), its 1/z (depth) */
 enum { A_POS, A_UVS, A_PAR, A_CLIP, A_EXT };
 #define VFLOATS 17
@@ -277,8 +294,8 @@ int tc2_gl_init(void)
     if (!(prog_poly = program(vs_poly, fs_poly)) || !(prog_text = program(vs_text, fs_text)) || !(prog_gamma = program(vs_text, fs_gamma))) return 0;
     ug[0] = p_glGetUniformLocation(prog_gamma, "t_src"); ug[1] = p_glGetUniformLocation(prog_gamma, "t_lut");
     static const char *pn[] = { "t_rom", "t_map", "t_pal", "t_sten", "u_scale", "u_h", "u_prio", "u_pfade", "u_ff", "u_alpha", "u_alpha_pen", "u_pcol", "u_fcol", "u_ex",
-                                "t_near", "t_nearz", "u_near", "u_depth", "u_keep", "t_fog", "u_fog", "u_fogc", "u_seam" };
-    for (int i = 0; i < 23; i++) up[i] = p_glGetUniformLocation(prog_poly, pn[i]);
+                                "t_near", "t_nearz", "u_near", "u_depth", "u_keep", "t_fog", "u_fog", "u_fogc", "u_seam", "u_filt" };
+    for (int i = 0; i < 24; i++) up[i] = p_glGetUniformLocation(prog_poly, pn[i]);
     static const char *tn[] = { "t_mix", "t_pal", "t_prio", "u_scale", "u_h", "u_pass", "u_fade", "u_ff", "u_alpha", "u_amask", "u_c12", "u_c13", "u_fcol", "u_ex", "t_band" };
     for (int i = 0; i < 15; i++) ut[i] = p_glGetUniformLocation(prog_text, tn[i]);
 
@@ -328,7 +345,7 @@ static int fill_vertices(const tc2_built *b)
         /* widescreen (Hor+): a viewport that fills the 4:3 screen fills the wide one -- same camera, more world at the sides */
         const int full = ex && cl <= 0 && cr >= 640;
         const int ccl = full ? -ex : cl, ccr = full ? 640 + ex : cr;
-        const float flags = (float)(p->stencil | p->blend << 1 | p->alpha_enabled << 2 | (p->prioverchar & 7) << 3 | p->fog << 6);
+        const float flags = (float)(p->stencil | p->blend << 1 | p->alpha_enabled << 2 | (p->prioverchar & 7) << 3 | p->fog << 6 | (p->model < 0) << 7);   /* bit 7: an immediate (screen-space) polygon: the 3D texture filter leaves it sharp */
         for (int k = 1; k + 1 < p->n; k++) {
             const int tri[3] = { 0, k, k + 1 };
             for (int j = 0; j < 3; j++) {
@@ -420,6 +437,10 @@ unsigned tc2_gl_draw(const tc2_built *b)
         p_glUniform3i(up[11], f->pr, f->pg, f->pb); p_glUniform3i(up[12], f->fr, f->fg, f->fb); p_glUniform1i(up[13], ex);
         bind_tex(0, t_rom); bind_tex(1, t_map); bind_tex(2, t_pal); bind_tex(3, t_sten);
         p_glUniform1i(up[22], seam);
+        { static int ef = -2; if (ef == -2) { const char *e = getenv("TC2_TEX_FILTER"); ef = e && *e ? (atoi(e) != 0) : -1; }       /* TC2_TEX_FILTER=0|1 wins for a run */
+          const int tf = ef >= 0 ? ef : g_eng_disp.tex_filter;
+          static int last = -1; if (tf != last) { last = tf; fprintf(stderr, "[GPU] 3D texture filter: %s\n", tf ? "bilinear" : "off"); }
+          p_glUniform1i(up[23], tf); }
         bind_tex(6, t_fog); p_glUniform1i(up[19], 6); p_glUniform1i(up[20], f->fog); p_glUniform3i(up[21], f->cr, f->cg, f->cb);
         p_glUniform1i(up[14], 4); p_glUniform1i(up[15], 5); p_glUniform1i(up[16], 0);
         const int depth = tc2_depth_on() && fbo_near;

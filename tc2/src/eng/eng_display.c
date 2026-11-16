@@ -156,6 +156,7 @@ void eng_disp_load(const char *cfg_path, int scale, bool fullscreen)
     d->gun_border = eng_cfg_int("gun_border", 0);
     if (d->gun_border < 0 || d->gun_border > 6) d->gun_border = 0;
     d->crosshair = eng_cfg_int("crosshair", 1) != 0;
+    { const char *tf = eng_cfg_get("texture_filter"); d->tex_filter = tf && (!strcmp(tf, "bilinear") || !strcmp(tf, "1")); }
     d->fps = eng_vsync_rate_valid(eng_cfg_int("frame_rate", ENG_VSYNC_DEFAULT));
     d->volume = eng_cfg_int("volume", 100);
     if (d->volume < 0) d->volume = 0;
@@ -222,6 +223,12 @@ void eng_disp_set_crosshair(int on)
 {
     g_eng_disp.crosshair = on != 0;
     eng_cfg_set("crosshair", g_eng_disp.crosshair ? "1" : "0");
+}
+
+void eng_disp_set_texfilter(int on)
+{
+    g_eng_disp.tex_filter = on != 0;
+    eng_cfg_set("texture_filter", g_eng_disp.tex_filter ? "bilinear" : "off");
 }
 
 void eng_disp_set_fps(int fps)

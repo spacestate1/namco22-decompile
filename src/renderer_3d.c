@@ -1996,6 +1996,9 @@ static void geohw_flush(void)
       } }
 
     int qi = 0, si = 0;
+    /* the optional 3D texture filter (Display > 3D texture filter, texture_filter in the cfg; ENG_TEX_FILTER=0|1 wins for a run) */
+    { static int ef = -2; extern int g_eng_tex_filter, g_eng_tex_filter_setting; /* engine/tex_bake.h (not included: this file has its own texture_pen_lookup) */ if (ef == -2) { const char *e = getenv("ENG_TEX_FILTER"); ef = e && *e ? (atoi(e) != 0) : -1; }
+      g_eng_tex_filter = ef >= 0 ? ef : g_eng_tex_filter_setting; }
     eng_draw_begin();
     while (qi < geohw_nbuf || si < ni) {
         uint32_t qz = (qi < geohw_nbuf)
@@ -2185,6 +2188,9 @@ static int pc_fog_quad(const geo_quad *q, eng_fog *f)
 /* One quad through the engine's rasteriser (engine/quad_gl.c), with Prop
  * Cycle's board settings: Super 22 fog applied AFTER shading, the mixer's
  * poly fade, and the SEAMTEST coverage probe. */
+/* a polygon that is screen-space HUD, not the world: it stays NEAREST under the 3D texture filter */
+static int pc_nofilter_quad(const geo_quad *q) { return q->direct; }
+
 static void geohw_draw_one(const geo_quad *q)
 {
     if (g_seamtest) {
@@ -2207,6 +2213,7 @@ static void geohw_draw_one(const geo_quad *q)
     cfg.flat_white = g_seamtest;
     cfg.fog_quad = pc_fog_quad;
     cfg.fade_rgb = geohw_fade_rgb;
+    cfg.nofilter_quad = pc_nofilter_quad;
     { static int tc = -1; if (tc < 0) { const char *e = getenv("PROPCYCL_TEXEL_CENTRE"); tc = e ? atoi(e) : 1; }
       cfg.texel_centre = tc; }
     eng_draw_quad(q, &cfg);

@@ -554,6 +554,12 @@ void ss22_draw(int vw, int vh)
     cfg.fade_rgb = ss22_fade_rgb;
     cfg.wide_backdrop = 1;                   /* a menu's screen-sized backdrop reaches the wide picture's edges (engine/quad_gl.c) */
     { static int tc = -1; if (tc < 0) { const char *e = getenv("ENG_TEXEL_CENTRE"); tc = e ? atoi(e) : 1; } cfg.texel_centre = tc; }
+    /* the optional 3D texture filter (Display > 3D texture filter, texture_filter in the cfg; ENG_TEX_FILTER=0|1 wins for a run): world
+     * polygons only -- the HUD pieces drawn as polygons, and the sprite and text layers, stay NEAREST */
+    { static int ef = -2; if (ef == -2) { const char *e = getenv("ENG_TEX_FILTER"); ef = e && *e ? (atoi(e) != 0) : -1; }
+      g_eng_tex_filter = ef >= 0 ? ef : g_eng_tex_filter_setting; }
+    { static int last = -1; if (g_eng_tex_filter != last) { last = g_eng_tex_filter; fprintf(stderr, "[TEX] 3D texture filter: %s\n", last ? "bilinear" : "off"); } }
+    cfg.nofilter_quad = eng_hud_quad_piece;
 
     /* MERGED Z ORDER, not layers: MAME queues sprites and polygons into the same radix tree keyed on a 24-bit z and
      * walks it far to near, so a sprite can sit behind a polygon (the HUD plate behind the score digits) */

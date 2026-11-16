@@ -424,6 +424,7 @@ GLuint tex_bake_white_tex(void) { return ap_n ? apages[0].tex : 0; }
  * outermost vertices sample the CENTRES of its outermost texels: the bilinear footprint never leaves the slot. The page being
  * changed is the one currently bound (the caller has just bound it). */
 int g_eng_tex_filter = 0;
+int g_eng_tex_filter_setting = 0;      /* the player's choice (a game's Display menu / cfg writes it); the draw pass copies it to g_eng_tex_filter, ENG_TEX_FILTER wins */
 void tex_bake_set_filter(GLuint tex, int linear)
 {
     linear = linear ? 1 : 0;

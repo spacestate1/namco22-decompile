@@ -411,14 +411,10 @@ void rr_gl_prepare(bool slave_active)
 
 int rr_gl_quads(void) { return qn; }
 
-/* The polygons that are the HUD, not the world: they stay NEAREST when the 3D texture filter is on, like the text and sprite layers.
- * The same pieces the widescreen HUD moves (engine/hud_edges.c): direct (screen-space) polygons, the zero-depth ones (the tacho needle)
- * and priority band 0 (map dots, mirror frame). */
+/* The polygons that are the HUD, not the world, stay NEAREST when the 3D texture filter is on, like the text and sprite layers: the same pieces the
+ * widescreen HUD moves (engine/hud_edges.c, scanned just below with band 0 and zero depth): direct polygons, band 0 (map dots, mirror frame), depth 0 (the
+ * tacho needle). */
 extern int g_cfg_texfilter;                             /* rr_input.c: Display > 3D texture filter */
-static int rr_hud_quad(const geo_quad *q)
-{
-    return q->direct || (q->zsort & 0x1FFFFF) == 0 || ((q->zsort >> 21) & 7) == 0;
-}
 
 void rr_gl_draw(int vw, int vh)
 {
@@ -466,7 +462,7 @@ void rr_gl_draw(int vw, int vh)
     { static int ef = -2; if (ef == -2) { const char *e = getenv("ENG_TEX_FILTER"); ef = e && *e ? (atoi(e) != 0) : -1; }
       g_eng_tex_filter = ef >= 0 ? ef : g_cfg_texfilter; }                 /* env first (A/B), then the setting */
     { static int last = -1; if (g_eng_tex_filter != last) { last = g_eng_tex_filter; fprintf(stderr, "[TEX] 3D texture filter: %s\n", last ? "bilinear" : "off"); } }
-    dc.nofilter_quad = rr_hud_quad;
+    dc.nofilter_quad = eng_hud_quad_piece;
     dc.flat_white = seamtest == 1 || seamtest == 2;
     if (seamtest >= 3) { dc.flat_quad = seam_colour; seam_by_quad = seamtest == 4; }         /* RR_SEAMTEST=3: each object its own flat colour, to name the backdrop pieces */
     eng_draw_begin();

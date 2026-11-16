@@ -179,6 +179,15 @@ void eng_hud_quads_scan(const geo_quad *buf, int n, int band, bool zero_depth)
     }
 }
 
+/* A screen-space HUD piece drawn as a polygon, by the same marks the widescreen HUD uses (direct polygons, and the full-frame ones in the game's
+ * HUD priority band / at depth 0): what a 3D texture filter must leave sharp. Valid after this frame's eng_hud_quads_scan, whether or not the
+ * widescreen HUD is on. */
+int eng_hud_quad_piece(const geo_quad *q)
+{
+    if (q->direct) return 1;
+    return (hud_band >= 0 && ((q->zsort >> 21) & 7) == hud_band) || (hud_zero_depth && (q->zsort & 0x1FFFFF) == 0);
+}
+
 int eng_hud_quad_dx(const geo_quad *q)
 {
     if (!g_eng_hud_e) return 0;
