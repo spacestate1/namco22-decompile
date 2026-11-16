@@ -336,7 +336,6 @@ static int atlas_on(void)
     return g_tex_atlas && !g_tex_pow2sample && !g_tex_pow2alloc;   /* the A/B legacy paths keep per-quad textures */
 }
 int tex_bake_atlas_active(void) { return atlas_on(); }
-int tex_bake_atlas_dim(void) { return ATLAS_DIM; }
 
 /* Bakes write the page's SHADOW (CPU memory); the GL texture is refreshed in
  * dirty SLOT RECTS, once, when a drawn quad actually needs the page

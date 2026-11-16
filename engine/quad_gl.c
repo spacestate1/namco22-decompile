@@ -672,20 +672,6 @@ static void draw_quad_one(const geo_quad *q, const eng_draw_cfg *cfg)
     /* Build screen-space vertices with attributes, clip, then emit. */
     geo_sv sv[8], cv[32];
     int nsv = 0;
-    /* BILINEAR AND DECIMATED SLOTS. A quad far from the camera is baked at 1 texel in `step` (the on-screen cap), and the
-     * texcoord of a vertex at source texel u is ((u-min)+0.5)/step slot texels: 0.5/step, i.e. LESS than half a texel from the
-     * slot's near edge. NEAREST floors that to texel 0; a bilinear footprint centred there reaches texel -1, which in the atlas is
-     * the NEIGHBOURING slot (a different texture), and draws a coloured line along the quad's near edges (distant road in Ace
-     * Driver). With step 1 the vertex sits exactly on a texel centre (0.5) and the footprint stays inside, which is why only
-     * decimated quads showed it. Fix: when this quad is filtered, put the vertex on the CENTRE of baked texel 0 (offset 0.5 BAKED
-     * texels = 0.5*step source texels). The far edge ends at range/step + 0.5 <= sw + 0.5, the centre of the guard texel. */
-    int filt_q = g_eng_tex_filter && !(cfg->nofilter_quad && cfg->nofilter_quad(q)) && tex_bake_atlas_active();
-    float stepu = 1.0f, stepv = 1.0f;
-    if (filt_q && cfg->texel_centre && bsu > 0.0f && bsv > 0.0f) {
-        float dim = (float)tex_bake_atlas_dim();
-        stepu = floorf((float)brange_u / (bsu * dim) + 0.5f);  if (stepu < 1.0f) stepu = 1.0f;
-        stepv = floorf((float)brange_v / (bsv * dim) + 0.5f);  if (stepv < 1.0f) stepv = 1.0f;
-    }
     for (int i = 0; i < q->nrv && nsv < 8; i++) {
         /* a single-texel axis samples the texel's CENTRE: all four vertices
          * carry the same coordinate, and exactly on the texel edge the
@@ -695,7 +681,7 @@ static void draw_quad_one(const geo_quad *q, const eng_draw_cfg *cfg)
         float cv_ = (range_v == 1 && brange_v != range_v) ? 0.5f : 0.0f;
         /* TEXEL CENTRES: MAME interpolates (u + 0.5) / z (poly3d_drawquad),
          * i.e. a vertex at texel u samples the MIDDLE of texel u. */
-        if (cfg->texel_centre) { if (cu == 0.0f) cu = 0.5f * stepu; if (cv_ == 0.0f) cv_ = 0.5f * stepv; }
+        if (cfg->texel_centre) { if (cu == 0.0f) cu = 0.5f; if (cv_ == 0.0f) cv_ = 0.5f; }
         float tu = ((float)((int)q->rv[i].u - bmin_u) + cu) / (float)brange_u * bsu;
         float tv = ((float)((int)q->rv[i].v - bmin_v) + cv_) / (float)brange_v * bsv;
         /* PERSPECTIVE-CORRECT texturing: the hardware interpolates u*ooz /
