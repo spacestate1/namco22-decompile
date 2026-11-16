@@ -24,6 +24,7 @@ GLuint bake_quad_texture(int min_u, int min_v, int range_u, int range_v,
  * can draw them first if they reference that page. */
 void tex_bake_set_flush_hook(void (*f)(GLuint page_tex));
 int  tex_bake_atlas_active(void);
+int  tex_bake_atlas_dim(void);          /* an atlas page's side in texels (texcoord = slot texel / dim) */
 GLuint tex_bake_white_tex(void);        /* an atlas page whose texel (0,0) is permanently white (solid quads sample it) */
 void tex_bake_commit(GLuint tex);   /* upload tex's atlas page if bakes dirtied it since its last use */
 extern int g_eng_tex_filter_setting;   /* the saved choice: 0 off, 1 bilinear (set by the menus; a draw pass copies it to g_eng_tex_filter) */
