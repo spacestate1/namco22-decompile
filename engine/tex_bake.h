@@ -27,8 +27,12 @@ int  tex_bake_atlas_active(void);
 GLuint tex_bake_white_tex(void);        /* an atlas page whose texel (0,0) is permanently white (solid quads sample it) */
 void tex_bake_commit(GLuint tex);   /* upload tex's atlas page if bakes dirtied it since its last use */
 extern int g_eng_tex_filter_setting;   /* the saved choice: 0 off, 1 bilinear (set by the menus; a draw pass copies it to g_eng_tex_filter) */
-extern int g_eng_tex_filter;        /* optional 3D texture filter: 0 nearest (default, the board's), 1 bilinear (engine/quad_gl.c applies it to world polygons only) */
-void tex_bake_set_filter(GLuint tex, int linear);   /* set the BOUND texture's min/mag filter (tracked per atlas page) */
+extern int g_eng_tex_filter;        /* optional 3D texture filter: 0 nearest (default, the board's), 1 bilinear, 2 trilinear (mips + averaged decimation); engine/quad_gl.c applies it to world polygons only */
+extern int g_eng_tex_aniso_setting; /* the saved anisotropy choice: 0 off, else 2/4/8/16 (trilinear only) */
+extern int g_eng_tex_aniso;         /* the level a draw pass uses: set from the setting, clamped by the GPU's maximum */
+int  tex_bake_aniso_max(void);      /* the GPU's maximum anisotropy, 0 when it offers none (needs a GL context) */
+void tex_bake_set_layout(int mips); /* 1: the block-aligned mip layout the trilinear filter needs (re-bakes everything), 0: the plain slots; call before a draw pass */
+void tex_bake_set_filter(GLuint tex, int mode);   /* set the BOUND texture's filter: 0 NEAREST, 1 bilinear, 2 trilinear (+ g_eng_tex_aniso); tracked per atlas page */
 
 extern int    g_tex_opaque;       /* 1 = no pen-0 keying (hardware polygon path) */
 extern int    g_tex_bake_cap_req; /* the quad's on-screen extent, window pixels */

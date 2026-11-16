@@ -322,7 +322,7 @@ typedef struct {
     uint8_t *shadow;                           /* the page's pixels, CPU side */
     arect dr[128]; int ndr;                    /* dirty slot rects since the last upload */
     int dirty_x0, dirty_y0, dirty_x1, dirty_y1;  /* their bbox (the upload when ndr overflows) */
-    int filt;                                  /* the page's GL min/mag filter as last set: 0 NEAREST, 1 LINEAR (tex_bake_set_filter) */
+    int filt;                                  /* the page's GL filter as last set: mode (0 NEAREST, 1 bilinear, 2 trilinear) | aniso << 4 (tex_bake_set_filter) */
 } apage;
 static apage apages[ATLAS_MAXP];
 static int  ap_n, ap_reset_hand;
@@ -337,11 +337,63 @@ static int atlas_on(void)
 }
 int tex_bake_atlas_active(void) { return atlas_on(); }
 
+/* MIP LAYOUT (3D texture filter "trilinear"). A trilinear page carries TEX_MIPL extra mip levels, and the mips of a page are boxes of the
+ * page: texels of two neighbouring slots would mix in every mip. So in this layout every slot is a BLOCK aligned to TEX_MIPM texels
+ * (x, y, width, height all multiples of it) with TEX_MIPM texels of margin on every side, the margin a copy of the nearest edge texel of
+ * the slot (guard texel included): at mip level n the footprint of a sample inside the slot reaches at most 2^n <= TEX_MIPM texels past
+ * it, i.e. only into this block's margin, never into a neighbour's. Texcoords point at the slot inside the block (ou/ov below).
+ * The layout is global: switching the filter to or from trilinear re-lays the atlas out (atlas_relayout, tex_bake_set_layout), which
+ * re-bakes everything once. Off and bilinear keep the original exact-size slots, byte for byte as before. */
+#define TEX_MIPL 3
+#define TEX_MIPM (1 << TEX_MIPL)
+static int g_mip_layout;
+static int atlas_mips(void) { return g_mip_layout && atlas_on(); }
+int g_eng_tex_aniso = 0;               /* anisotropic filtering level for trilinear pages: 0 off, else 2/4/8/16 (clamped to what the GPU offers) */
+int g_eng_tex_aniso_setting = 0;       /* the player's choice (the menu / cfg writes it); the draw pass copies it to g_eng_tex_aniso */
+
 /* Bakes write the page's SHADOW (CPU memory); the GL texture is refreshed in
  * dirty SLOT RECTS, once, when a drawn quad actually needs the page
  * (tex_bake_commit). A scene change's hundreds of bakes become a handful of
  * uploads -- per-call, a glTexSubImage2D costs ~18 us on a Mesa/i965 mobile
  * driver, and 1700 of them were the 30 ms frame at Dirt Dash's race start. */
+/* The mip levels of a dirty rect of a trilinear page, from the page's shadow. The rect is block-aligned (x, y, w, h multiples of
+ * TEX_MIPM), so every mip texel it covers is made of texels inside it. A mip texel is the ALPHA-WEIGHTED mean of its four parents --
+ * a transparent texel (alpha 0) must not darken or tint its opaque neighbours -- and keeps the mean alpha. */
+static uint8_t *mip_buf_a, *mip_buf_b;
+static void mip_down(const uint8_t *src, long sstride, uint8_t *dst, int dw, int dh)
+{
+    for (int y = 0; y < dh; y++) {
+        const uint8_t *r0 = src + (size_t)(2 * y) * sstride, *r1 = r0 + sstride;
+        uint8_t *d = dst + (size_t)y * dw * 4;
+        for (int x = 0; x < dw; x++, d += 4) {
+            const uint8_t *t[4] = { r0 + 8 * x, r0 + 8 * x + 4, r1 + 8 * x, r1 + 8 * x + 4 };
+            unsigned a = t[0][3] + t[1][3] + t[2][3] + t[3][3];
+            if (!a) { d[0] = d[1] = d[2] = d[3] = 0; continue; }
+            for (int c = 0; c < 3; c++)
+                d[c] = (uint8_t)((t[0][c] * t[0][3] + t[1][c] * t[1][3] + t[2][c] * t[2][3] + t[3][c] * t[3][3] + a / 2) / a);
+            d[3] = (uint8_t)((a + 2) / 4);
+        }
+    }
+}
+static void mip_upload(const apage *p, int x, int y, int w, int h)
+{
+    if (!mip_buf_a) {
+        mip_buf_a = malloc((size_t)ATLAS_DIM / 2 * (ATLAS_DIM / 2) * 4);
+        mip_buf_b = malloc((size_t)ATLAS_DIM / 4 * (ATLAS_DIM / 4) * 4);
+        if (!mip_buf_a || !mip_buf_b) { fprintf(stderr, "[TEX] mip buffers: out of memory\n"); free(mip_buf_a); free(mip_buf_b); mip_buf_a = mip_buf_b = NULL; return; }
+    }
+    const uint8_t *src = p->shadow + ((size_t)y * ATLAS_DIM + x) * 4;
+    long sstride = (long)ATLAS_DIM * 4;
+    uint8_t *dst = mip_buf_a, *other = mip_buf_b;
+    for (int l = 1; l <= TEX_MIPL; l++) {
+        w >>= 1; h >>= 1; x >>= 1; y >>= 1;
+        mip_down(src, sstride, dst, w, h);
+        glTexSubImage2D(GL_TEXTURE_2D, l, x, y, w, h, GL_RGBA, GL_UNSIGNED_BYTE, dst);
+        src = dst; sstride = (long)w * 4;
+        { uint8_t *t = dst; dst = other; other = t; }
+    }
+}
+
 void tex_bake_commit(GLuint tex)               /* upload tex's page if bakes dirtied it */
 {
     for (int i = 0; i < ap_n; i++) {
@@ -360,6 +412,10 @@ void tex_bake_commit(GLuint tex)               /* upload tex's page if bakes dir
                             GL_RGBA, GL_UNSIGNED_BYTE, p->shadow + ((size_t)p->dirty_y0 * ATLAS_DIM + p->dirty_x0) * 4);
         }
         glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+        if (atlas_mips()) {                         /* the mips of what was just uploaded (block-aligned rects) */
+            if (p->ndr > 0) for (int r = 0; r < p->ndr; r++) mip_upload(p, p->dr[r].x, p->dr[r].y, p->dr[r].w, p->dr[r].h);
+            else mip_upload(p, p->dirty_x0, p->dirty_y0, p->dirty_x1 - p->dirty_x0, p->dirty_y1 - p->dirty_y0);
+        }
         p->ndr = 0; p->dirty_x0 = p->dirty_y0 = ATLAS_DIM; p->dirty_x1 = p->dirty_y1 = 0;
         return;
     }
@@ -400,6 +456,11 @@ static void atlas_page_init(int i)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, ATLAS_DIM, ATLAS_DIM, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    if (atlas_mips()) {                                     /* the mip levels of a trilinear page (tex_bake_commit fills them) */
+        glTexParameteri(GL_TEXTURE_2D, 0x813D /* GL_TEXTURE_MAX_LEVEL */, TEX_MIPL);
+        for (int l = 1; l <= TEX_MIPL; l++)
+            glTexImage2D(GL_TEXTURE_2D, l, GL_RGBA, ATLAS_DIM >> l, ATLAS_DIM >> l, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    }
     apages[i].shadow = malloc((size_t)ATLAS_DIM * ATLAS_DIM * 4);
     if (!apages[i].shadow) fprintf(stderr, "[TEX] atlas shadow: out of memory\n");
     apages[i].ndr = 0; apages[i].dirty_x0 = apages[i].dirty_y0 = ATLAS_DIM; apages[i].dirty_x1 = apages[i].dirty_y1 = 0;
@@ -409,10 +470,15 @@ static void atlas_page_init(int i)
     /* texel (0,0) is a permanent WHITE slot: solid quads sample it through the
      * normal textured path and so stay inside the batch's current run */
     if (apages[i].shadow) {
-        memset(apages[i].shadow, 0xFF, 4);
-        page_dirty(i, 0, 0, 1, 1);
+        if (atlas_mips()) {                                 /* an aligned 8x8 white block: its mips stay white */
+            for (int y = 0; y < TEX_MIPM; y++) memset(apages[i].shadow + (size_t)y * ATLAS_DIM * 4, 0xFF, TEX_MIPM * 4);
+            page_dirty(i, 0, 0, TEX_MIPM, TEX_MIPM);
+        } else {
+            memset(apages[i].shadow, 0xFF, 4);
+            page_dirty(i, 0, 0, 1, 1);
+        }
     }
-    apages[i].cx = 1;                                       /* slot (0,0) is taken */
+    apages[i].cx = atlas_mips() ? TEX_MIPM : 1;             /* slot (0,0) is taken */
 }
 
 GLuint tex_bake_white_tex(void) { return ap_n ? apages[0].tex : 0; }
@@ -425,17 +491,44 @@ GLuint tex_bake_white_tex(void) { return ap_n ? apages[0].tex : 0; }
  * changed is the one currently bound (the caller has just bound it). */
 int g_eng_tex_filter = 0;
 int g_eng_tex_filter_setting = 0;      /* the player's choice (a game's Display menu / cfg writes it); the draw pass copies it to g_eng_tex_filter, ENG_TEX_FILTER wins */
-void tex_bake_set_filter(GLuint tex, int linear)
+/* anisotropic filtering (GL_EXT_texture_filter_anisotropic, core since 4.6): the largest level the driver offers, 0 when it offers none */
+#ifndef GL_TEXTURE_MAX_ANISOTROPY_EXT
+#define GL_TEXTURE_MAX_ANISOTROPY_EXT 0x84FE
+#define GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT 0x84FF
+#endif
+static float aniso_max_get(void)
 {
-    linear = linear ? 1 : 0;
+    static float mx = -1.0f;
+    if (mx < 0.0f) {
+        mx = 0.0f;
+        const char *ext = (const char *)glGetString(GL_EXTENSIONS);
+        if (ext && (strstr(ext, "GL_EXT_texture_filter_anisotropic") || strstr(ext, "GL_ARB_texture_filter_anisotropic"))) {
+            GLfloat f = 0.0f;
+            glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &f);
+            if (f >= 2.0f) mx = f;
+        }
+        fprintf(stderr, "[TEX] anisotropic filtering: %s (max %.0fx)\n", mx > 0 ? "available" : "not offered by this GPU/driver", mx);
+    }
+    return mx;
+}
+int tex_bake_aniso_max(void) { return (int)aniso_max_get(); }
+/* mode: 0 NEAREST, 1 bilinear, 2 trilinear (LINEAR_MIPMAP_LINEAR on a page in the mip layout) plus the anisotropy g_eng_tex_aniso asks for */
+void tex_bake_set_filter(GLuint tex, int mode)
+{
+    mode = mode < 0 ? 0 : mode > 2 ? 2 : mode;
+    int an = 0;
+    if (mode == 2 && atlas_mips() && g_eng_tex_aniso >= 2) { float mx = aniso_max_get(); an = (int)(g_eng_tex_aniso < mx ? g_eng_tex_aniso : mx); if (an < 2) an = 0; }
+    int code = mode | (an << 4);
     for (int i = 0; i < ap_n; i++)
         if (apages[i].tex == tex) {
-            if (apages[i].filt == linear) return;
-            apages[i].filt = linear;
+            if (apages[i].filt == code) return;
+            apages[i].filt = code;
             break;
         }
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, linear ? GL_LINEAR : GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, linear ? GL_LINEAR : GL_NEAREST);
+    if (mode == 2 && !atlas_mips()) mode = 1;      /* no mips on this page (layout switching): the plain bilinear */
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, mode == 2 ? GL_LINEAR_MIPMAP_LINEAR : mode ? GL_LINEAR : GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, mode ? GL_LINEAR : GL_NEAREST);
+    if (aniso_max_get() > 0.0f) glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, an >= 2 ? (float)an : 1.0f);
 }
 
 /* evict every cache entry living on page p (a page reset) */
@@ -577,11 +670,33 @@ static void atlas_page_reset(int p)
             e->occupied = 0;
         }
     }
-    apages[p].cx = 1;                   /* texel (0,0) stays the white slot */
+    apages[p].cx = atlas_mips() ? TEX_MIPM : 1;   /* texel (0,0) (the 8x8 block, in the mip layout) stays the white slot */
     apages[p].cy = apages[p].row_h = 0;
     apages[p].nfr = 0;
     apages[p].ndr = 0; apages[p].dirty_x0 = apages[p].dirty_y0 = ATLAS_DIM; apages[p].dirty_x1 = apages[p].dirty_y1 = 0;
-    page_dirty(p, 0, 0, 1, 1);          /* keep the white slot uploaded */
+    if (atlas_mips()) page_dirty(p, 0, 0, TEX_MIPM, TEX_MIPM); else page_dirty(p, 0, 0, 1, 1);   /* keep the white slot uploaded */
+}
+
+/* Switch the atlas between the plain slots (filter off / bilinear) and the block-aligned mip layout (trilinear). Every page is dropped
+ * and every cache entry on one evicted (they re-bake on demand), then page 0 is made so the white slot exists at once. Call it between
+ * frames, before a draw pass starts (quad_gl's pending batch is drawn first through the flush hook, as a page reset does). */
+void tex_bake_set_layout(int mips)
+{
+    mips = mips ? 1 : 0;
+    if (mips == g_mip_layout || !atlas_on()) return;
+    for (int i = 0; i < ap_n; i++) {
+        tex_bake_commit(apages[i].tex);
+        if (atlas_flush_hook) atlas_flush_hook(apages[i].tex);
+    }
+    for (int i = 0; i < TEX_CACHE_SIZE; i++) {
+        TexCacheEntry *e = &tex_cache[i];
+        if (e->occupied) { tex_cache_bytes -= e->bytes; tex_cache_total--; tex_cache_evictions++; e->occupied = 0; }
+    }
+    for (int i = 0; i < ap_n; i++) { glDeleteTextures(1, &apages[i].tex); free(apages[i].shadow); apages[i].shadow = NULL; apages[i].tex = 0; }
+    ap_n = 0; ap_reset_hand = 0;
+    g_mip_layout = mips;
+    fprintf(stderr, "[TEX] atlas layout: %s\n", mips ? "mip blocks (trilinear)" : "plain slots");
+    if (ap_n < atlas_maxp) atlas_page_init(ap_n++);
 }
 
 /* Static pixel buffer for baking (TEX_BAKE_MAX^2 RGBA, reused each bake) */
@@ -861,6 +976,13 @@ static GLuint bake_impl(int min_u, int min_v, int range_u, int range_v,
     int bw = (sw < tw) ? sw + 1 : sw;
     int bh = (sh < th) ? sh + 1 : sh;
     if (atlas_on()) { bw = sw + 1; bh = sh + 1; }   /* atlas slots always have room for the guard texel */
+    /* the mip layout's BLOCK: the slot in the middle of a TEX_MIPM margin, the whole aligned to TEX_MIPM (see atlas_mips) */
+    int moff = 0, aw = bw, ah = bh;
+    if (atlas_mips()) {
+        moff = TEX_MIPM;
+        aw = (bw + 2 * moff + TEX_MIPM - 1) & ~(TEX_MIPM - 1);
+        ah = (bh + 2 * moff + TEX_MIPM - 1) & ~(TEX_MIPM - 1);
+    }
     g_bake_texels += (double)bw * bh;
     /* THE HOT LOOP OF THE WHOLE RENDERER. Measured over a 3600-frame run:
      * 1046 MILLION texels baked, 14.0 s of a 17.8 s flush -- and in gameplay
@@ -913,13 +1035,13 @@ static GLuint bake_impl(int min_u, int min_v, int range_u, int range_v,
     if (atlas_on()) {
         /* allocate the slot and bake STRAIGHT into the page's shadow; the GL
          * texture is refreshed in dirty rects when a drawn quad needs the page */
-        atlas_alloc(bw, bh, &slot_page, &slot_x, &slot_y);   /* never fails: a full atlas resets a page */
+        atlas_alloc(aw, ah, &slot_page, &slot_x, &slot_y);   /* never fails: a full atlas resets a page */
         if (atlas_flush_hook) atlas_flush_hook(apages[slot_page].tex);   /* buffered quads may reference pixels on this page: draw them before the bytes change */
         apage *ap = &apages[slot_page];
         if (ap->shadow) {
-            bake_dst = ap->shadow + ((size_t)slot_y * ATLAS_DIM + slot_x) * 4;
+            bake_dst = ap->shadow + ((size_t)(slot_y + moff) * ATLAS_DIM + slot_x + moff) * 4;
             bake_stride = (long)ATLAS_DIM * 4;
-            page_dirty(slot_page, slot_x, slot_y, bw, bh);
+            page_dirty(slot_page, slot_x, slot_y, aw, ah);
         }
     }
     for (int py = 0; py < bh; py++) {
@@ -968,6 +1090,41 @@ static GLuint bake_impl(int min_u, int min_v, int range_u, int range_v,
             dst += 4;
         }
     }
+    if (atlas_mips() && (step_u > 1 || step_v > 1)) {
+        /* TRILINEAR + decimated (a quad whose uv range is over the cap): every baked texel is the MEAN of the step_u x step_v block of
+         * source texels it stands for -- alpha-weighted, like the mips -- instead of the one at the block's corner. The texel-centre
+         * mapping (u-min+0.5)/step puts a baked texel's centre on the middle of that block, so this is also where it belongs. */
+        for (int py = 0; py < bh; py++) {
+            int tv0 = min_v + py * step_v;
+            if (atlas_clamp_v && py == sh) tv0 = min_v + (sh - 1) * step_v;
+            uint8_t *dst = bake_dst + (size_t)py * bake_stride;
+            for (int px = 0; px < bw; px++, dst += 4) {
+                unsigned as = 0, rs = 0, gs = 0, bs = 0;
+                for (int dv = 0; dv < step_v; dv++)
+                    for (int du = 0; du < step_u; du++) {
+                        uint8_t fetch = texture_pen_lookup(tu_row[px] + du, tv0 + dv, texbank);
+                        const uint8_t *c = lut[(cm_offset + ((fetch >> cm_shift) & cm_mask)) & 0xFF];
+                        as += c[3]; rs += c[0] * c[3]; gs += c[1] * c[3]; bs += c[2] * c[3];
+                    }
+                const unsigned n = (unsigned)(step_u * step_v);
+                if (!as) { dst[0] = dst[1] = dst[2] = dst[3] = 0; continue; }
+                dst[0] = (uint8_t)((rs + as / 2) / as); dst[1] = (uint8_t)((gs + as / 2) / as); dst[2] = (uint8_t)((bs + as / 2) / as);
+                dst[3] = (uint8_t)((as + n / 2) / n);
+            }
+        }
+    }
+    if (atlas_mips() && apages[slot_page].shadow) {
+        /* the block's margin: a copy of the nearest edge texel of the slot (guard texel included), left and right, then top and bottom rows */
+        uint8_t *org = apages[slot_page].shadow + ((size_t)slot_y * ATLAS_DIM + slot_x) * 4;   /* the block's corner */
+        const long st = (long)ATLAS_DIM * 4;
+        for (int py = moff; py < moff + bh; py++) {
+            uint8_t *row = org + (size_t)py * st;
+            for (int px = 0; px < moff; px++) memcpy(row + px * 4, row + moff * 4, 4);
+            for (int px = moff + bw; px < aw; px++) memcpy(row + px * 4, row + (moff + bw - 1) * 4, 4);
+        }
+        for (int py = 0; py < moff; py++) memcpy(org + (size_t)py * st, org + (size_t)moff * st, (size_t)aw * 4);
+        for (int py = moff + bh; py < ah; py++) memcpy(org + (size_t)py * st, org + (size_t)(moff + bh - 1) * st, (size_t)aw * 4);
+    }
     }
 
     /* Upload to GL (NEAREST filtering — pixel art, no blurring) */
@@ -999,8 +1156,8 @@ static GLuint bake_impl(int min_u, int min_v, int range_u, int range_v,
         sv = (float)range_v / (float)(step_v * ATLAS_DIM);
         if (out_su) *out_su = su;
         if (out_sv) *out_sv = sv;
-        if (out_ou) *out_ou = (float)slot_x / ATLAS_DIM;
-        if (out_ov) *out_ov = (float)slot_y / ATLAS_DIM;
+        if (out_ou) *out_ou = (float)(slot_x + moff) / ATLAS_DIM;
+        if (out_ov) *out_ov = (float)(slot_y + moff) / ATLAS_DIM;
     } else {
     int had_w = slotp->alloc_w, had_h = slotp->alloc_h;
     if (!tex) {
@@ -1094,15 +1251,15 @@ static GLuint bake_impl(int min_u, int min_v, int range_u, int range_v,
     slotp->cap       = (uint16_t)cap;
     slotp->gl_texture = tex;
     if (atlas_on()) {
-        slotp->alloc_w = (uint16_t)bw; slotp->alloc_h = (uint16_t)bh;
+        slotp->alloc_w = (uint16_t)aw; slotp->alloc_h = (uint16_t)ah;   /* the whole block (== bw x bh unless the mip layout) */
         slotp->a_page = (uint16_t)slot_page; slotp->a_x = (uint16_t)slot_x; slotp->a_y = (uint16_t)slot_y;
-        slotp->ou = (float)slot_x / ATLAS_DIM; slotp->ov = (float)slot_y / ATLAS_DIM;
+        slotp->ou = (float)(slot_x + moff) / ATLAS_DIM; slotp->ov = (float)(slot_y + moff) / ATLAS_DIM;
     } else {
         slotp->alloc_w = (uint16_t)tw; slotp->alloc_h = (uint16_t)th;
     }
     slotp->used_w  = (uint16_t)sw; slotp->used_h  = (uint16_t)sh;
     slotp->su = su; slotp->sv = sv;
-    slotp->bytes = atlas_on() ? (uint32_t)(bw * bh * 4) : (uint32_t)(tw * th * 4);
+    slotp->bytes = atlas_on() ? (uint32_t)(aw * ah * 4) : (uint32_t)(tw * th * 4);
     tex_cache_bytes += slotp->bytes;
     if (!slotp->occupied) tex_cache_total++;
     slotp->occupied = 1;

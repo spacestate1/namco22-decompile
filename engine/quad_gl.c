@@ -842,7 +842,7 @@ static void draw_quad_one(const geo_quad *q, const eng_draw_cfg *cfg)
         bb_emit(n, &(struct bbstate){ .tex = tex, .env = rgb_scale, .alpha = base_alpha, .blend = 0, .prio = 0,
                                       .tex_on = 1, .sc_on = scissored, .sc = { scbox[0], scbox[1], scbox[2], scbox[3] },
                                       .fog = fogm, .frgb = { fogrgb[0], fogrgb[1], fogrgb[2] },
-                                      .filt = g_eng_tex_filter && !(cfg->nofilter_quad && cfg->nofilter_quad(q)) && tex_bake_atlas_active() });
+                                      .filt = (g_eng_tex_filter && !(cfg->nofilter_quad && cfg->nofilter_quad(q)) && tex_bake_atlas_active()) ? g_eng_tex_filter : 0 });
     }
     }
     g_perf_gl += eng_now() - _tg;
