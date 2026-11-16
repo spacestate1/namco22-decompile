@@ -52,6 +52,7 @@
     GLF(glFrustum) \
     GLF(glGenTextures) \
     GLF(glGetError) \
+    GLF(glGetFloatv) \
     GLF(glGetIntegerv) \
     GLF(glGetString) \
     GLF(glLineWidth) \
@@ -77,6 +78,7 @@
     GLF(glTexEnvi) \
     GLF(glTexEnvfv) \
     GLF(glTexImage2D) \
+    GLF(glTexParameterf) \
     GLF(glTexParameteri) \
     GLF(glTexSubImage2D) \
     GLF(glTranslatef) \
