@@ -557,10 +557,16 @@ void replay_frame_tick(void)
       W[0x2C04] = (int32_t)vrd32(rp + 0x8);
       W[0x0C8C] = (int32_t)vrd32(rp + 0xc);
     } else {
-      W[0x0D50] = *(int32_t*)W[0x16D7C];
-      W[0x0D54] = ((int32_t*)W[0x16D7C])[1];
-      W[0x2C04] = ((int32_t*)W[0x16D7C])[2];
-      W[0x0C8C] = ((int32_t*)W[0x16D7C])[3];
+      /* A RECORDED run (replay_record_frame): each record is four longs at work-RAM offsets +0/+4/+8/+0xC,
+       * and in this port every long lives in its own intptr_t slot of _W[] -- so the fields are rp[0], rp[4],
+       * rp[8], rp[12] and a record is 16 SLOTS apart. Reading them as int32 at +0/+4/+8/+0xC bytes (and
+       * stepping 16 bytes) returned zeros and half-words of other fields: the replay's pitch/bank targets
+       * and frame counter were garbage, and the player's bike and rider glitched at random. */
+      const intptr_t *rrec = (const intptr_t *)W[0x16D7C];
+      W[0x0D50] = (int32_t)rrec[0];
+      W[0x0D54] = (int32_t)rrec[4];
+      W[0x2C04] = (int32_t)rrec[8];
+      W[0x0C8C] = (int32_t)rrec[12];
     } }
   debug_profiler_mark(&g_sys.rom[0x3A27D]);
   player_bounds_check();
@@ -592,7 +598,7 @@ void replay_frame_tick(void)
   particle_system_update();
   debug_profiler_mark(&g_sys.rom[0x3A264]);
   /* next 16-byte record (was +4: one field, not one record) */
-  W[0x16D7C] = W[0x16D7C] + (((uint32_t)W[0x16D7C] < ROM_SIZE) ? 0x10 : 16);
+  W[0x16D7C] = W[0x16D7C] + (((uint32_t)W[0x16D7C] < ROM_SIZE) ? 0x10 : 16 * (int)sizeof(intptr_t));   /* ROM: 16 bytes; recorded: 16 slots */
   W[0x15BE4] = W[0x15BE4] + 1;
   return;
 }
