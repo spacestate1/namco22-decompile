@@ -322,6 +322,7 @@ typedef struct {
     uint8_t *shadow;                           /* the page's pixels, CPU side */
     arect dr[128]; int ndr;                    /* dirty slot rects since the last upload */
     int dirty_x0, dirty_y0, dirty_x1, dirty_y1;  /* their bbox (the upload when ndr overflows) */
+    int filt;                                  /* the page's GL min/mag filter as last set: 0 NEAREST, 1 LINEAR (tex_bake_set_filter) */
 } apage;
 static apage apages[ATLAS_MAXP];
 static int  ap_n, ap_reset_hand;
@@ -404,6 +405,7 @@ static void atlas_page_init(int i)
     apages[i].ndr = 0; apages[i].dirty_x0 = apages[i].dirty_y0 = ATLAS_DIM; apages[i].dirty_x1 = apages[i].dirty_y1 = 0;
     apages[i].cx = apages[i].cy = apages[i].row_h = 0;
     apages[i].nfr = 0;
+    apages[i].filt = 0;                                     /* created NEAREST above */
     /* texel (0,0) is a permanent WHITE slot: solid quads sample it through the
      * normal textured path and so stay inside the batch's current run */
     if (apages[i].shadow) {
@@ -414,6 +416,26 @@ static void atlas_page_init(int i)
 }
 
 GLuint tex_bake_white_tex(void) { return ap_n ? apages[0].tex : 0; }
+
+/* OPTIONAL 3D TEXTURE FILTERING. 0 = NEAREST, as the board (and every game here) always drew; 1 = bilinear, for the polygons that
+ * ask for it (engine/quad_gl.c: world polygons, never the HUD pieces). Only the 3D polygon textures live in these pages -- the
+ * sprite, text and tilemap layers have textures of their own that stay NEAREST. It is safe on the atlas because every slot is baked
+ * with a guard texel past its far edge and, with texel-centre sampling (eng_draw_cfg.texel_centre, the default), a quad's
+ * outermost vertices sample the CENTRES of its outermost texels: the bilinear footprint never leaves the slot. The page being
+ * changed is the one currently bound (the caller has just bound it). */
+int g_eng_tex_filter = 0;
+void tex_bake_set_filter(GLuint tex, int linear)
+{
+    linear = linear ? 1 : 0;
+    for (int i = 0; i < ap_n; i++)
+        if (apages[i].tex == tex) {
+            if (apages[i].filt == linear) return;
+            apages[i].filt = linear;
+            break;
+        }
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, linear ? GL_LINEAR : GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, linear ? GL_LINEAR : GL_NEAREST);
+}
 
 /* evict every cache entry living on page p (a page reset) */
 static void atlas_page_reset(int p);

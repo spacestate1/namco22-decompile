@@ -53,6 +53,9 @@ typedef struct {
     void (*fade_rgb)(float *r, float *g, float *b);
     /* Widescreen: a quad that is the game's own screen-sized backdrop (see eng_draw_quad) continues sideways to the picture's edges. */
     int  wide_backdrop;
+    /* g_eng_tex_filter (engine/tex_bake.h) asks for filtered 3D textures; this says which quads must stay NEAREST anyway (a game's
+     * HUD pieces drawn as polygons). 1 = keep this quad nearest. May be NULL (every textured quad takes the filter). */
+    int  (*nofilter_quad)(const geo_quad *q);
     /* FLAT QUADS (System 21: untextured polygons). Non-NULL and returning 1: the quad is drawn as its rv polygon in ONE colour,
      * rgba[0..3] written to the framebuffer as given -- no texture, shade, fog, alpha test, blend or software clip (the viewport
      * clips). The board decides what the four channels mean (Cyber Sled: pen and z, resolved by its own mixer pass). */

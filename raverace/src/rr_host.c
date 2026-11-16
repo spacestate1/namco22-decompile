@@ -187,6 +187,15 @@ void rr_host_set_draw(int level)
     fprintf(stderr, "[HOST] draw distance: %s\n", draw_label[g_cfg_draw]);
 }
 
+/* TEXTURE FILTER (3D polygons only): 0 = off, the board's NEAREST; 1 = bilinear. The setting is g_eng_tex_filter (engine/tex_bake.h); the
+ * polygons that are the HUD (rr_gl.c) and the text, sprite and tilemap layers are never filtered. ENG_TEX_FILTER=0|1 overrides for a run. */
+void rr_host_set_texfilter(int mode)
+{
+    g_cfg_texfilter = mode ? 1 : 0;
+    save_opt("texture_filter", g_cfg_texfilter ? "bilinear" : "off");
+    fprintf(stderr, "[HOST] 3D texture filter: %s\n", g_cfg_texfilter ? "bilinear" : "off");
+}
+
 void rr_host_set_hud_edges(int on)
 {
     extern int g_eng_hud_edges_on;

@@ -335,7 +335,7 @@ static float qa_xy[32 * 2], qa_rgba[32 * 4], qa_st[32 * 4], qa_z[32];
 static float bb_xy[BB_MAXV * 2], bb_rgba[BB_MAXV * 4], bb_st[BB_MAXV * 4];
 static float *bb_xyz;                    /* depth-tested runs (eng_draw_cfg.depth_test): x, y, z -- allocated on first use */
 static int bb_n, bb_valid;
-static struct bbstate { GLuint tex; int env, alpha, blend, prio, tex_on, sc_on, fog; int sc[4]; float frgb[3]; int depth; } bb_run;
+static struct bbstate { GLuint tex; int env, alpha, blend, prio, tex_on, sc_on, fog; int sc[4]; float frgb[3]; int depth, filt; } bb_run;
 static int depth_applied;                /* GL_DEPTH_TEST as this file last set it (only depth-tested runs ever turn it on) */
 
 static void bb_flush(void)
@@ -361,6 +361,7 @@ static void bb_apply(const struct bbstate *st)
     qs_tex_on(st->tex_on);
     if (st->tex_on) {
         qs_bind(st->tex);
+        tex_bake_set_filter(st->tex, st->filt);       /* the page is bound: NEAREST or LINEAR for this run (a no-op when already so) */
         /* the atlas slot origin is folded into s,t per vertex (s + ou*q at the
          * qa_st fill in draw_quad_one), NOT the texture matrix: with the matrix
          * the slot origin was part of this run state and broke the batch on
@@ -384,10 +385,11 @@ static void bb_apply(const struct bbstate *st)
 }
 
 /* ENG_RUNSTATS=1: why runs break, printed at exit (per-field counts + hook flushes) */
-static long br_tex, br_env, br_alpha, br_blend, br_prio, br_sc, br_hook, br_full, br_quads, br_fog;
+static long br_filt, br_tex, br_env, br_alpha, br_blend, br_prio, br_sc, br_hook, br_full, br_quads, br_fog;
 static void bb_runstats(void)
 {
     if (!getenv("ENG_RUNSTATS")) return;
+    fprintf(stderr, "[RUNSTATS] filter breaks %ld\n", br_filt);
     fprintf(stderr, "[RUNSTATS] quads %ld  breaks: tex %ld env %ld alpha %ld blend %ld prio %ld scissor %ld fog %ld hook %ld full %ld\n",
             br_quads, br_tex, br_env, br_alpha, br_blend, br_prio, br_sc, br_fog, br_hook, br_full);
 }
@@ -417,6 +419,7 @@ static void bb_emit(int n, const struct bbstate *st_)
     if (bb_valid && memcmp(st, &bb_run, sizeof bb_run) != 0) {
         if (st->tex != bb_run.tex || st->tex_on != bb_run.tex_on) br_tex++;
         if (st->env != bb_run.env) br_env++;
+        if (st->filt != bb_run.filt) br_filt++;
         if (st->alpha != bb_run.alpha) br_alpha++;
         if (st->blend != bb_run.blend) br_blend++;
         if (st->prio != bb_run.prio) br_prio++;
@@ -800,9 +803,11 @@ static void draw_quad_one(const geo_quad *q, const eng_draw_cfg *cfg)
                 qa_st[i*4+2] = 0.0f; qa_st[i*4+3] = 1.0f;
                 qa_xy[i*2+0] = cv[i].x; qa_xy[i*2+1] = cv[i].y;
             }
+            /* a solid samples the page's white texel at the corner (0,0), which filters to white: it takes the run's filter, never breaks it */
             bb_emit(n, &(struct bbstate){ .tex = wtex, .env = 4, .alpha = base_alpha, .blend = 0, .prio = 0,
                                           .tex_on = 1, .sc_on = scissored, .sc = { scbox[0], scbox[1], scbox[2], scbox[3] },
-                                          .fog = fogm, .frgb = { fogrgb[0], fogrgb[1], fogrgb[2] } });
+                                          .fog = fogm, .frgb = { fogrgb[0], fogrgb[1], fogrgb[2] },
+                                          .filt = (bb_valid && bb_run.tex_on && bb_run.tex == wtex) ? bb_run.filt : 0 });
             g_perf_gl += eng_now() - _tg;
             goto fog_pass;      /* an unfogged-here solid still gets the two-pass fog when single-pass was unavailable */
         }
@@ -836,7 +841,8 @@ static void draw_quad_one(const geo_quad *q, const eng_draw_cfg *cfg)
         }
         bb_emit(n, &(struct bbstate){ .tex = tex, .env = rgb_scale, .alpha = base_alpha, .blend = 0, .prio = 0,
                                       .tex_on = 1, .sc_on = scissored, .sc = { scbox[0], scbox[1], scbox[2], scbox[3] },
-                                      .fog = fogm, .frgb = { fogrgb[0], fogrgb[1], fogrgb[2] } });
+                                      .fog = fogm, .frgb = { fogrgb[0], fogrgb[1], fogrgb[2] },
+                                      .filt = g_eng_tex_filter && !(cfg->nofilter_quad && cfg->nofilter_quad(q)) && tex_bake_atlas_active() });
     }
     }
     g_perf_gl += eng_now() - _tg;

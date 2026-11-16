@@ -26,6 +26,8 @@ void tex_bake_set_flush_hook(void (*f)(GLuint page_tex));
 int  tex_bake_atlas_active(void);
 GLuint tex_bake_white_tex(void);        /* an atlas page whose texel (0,0) is permanently white (solid quads sample it) */
 void tex_bake_commit(GLuint tex);   /* upload tex's atlas page if bakes dirtied it since its last use */
+extern int g_eng_tex_filter;        /* optional 3D texture filter: 0 nearest (default, the board's), 1 bilinear (engine/quad_gl.c applies it to world polygons only) */
+void tex_bake_set_filter(GLuint tex, int linear);   /* set the BOUND texture's min/mag filter (tracked per atlas page) */
 
 extern int    g_tex_opaque;       /* 1 = no pen-0 keying (hardware polygon path) */
 extern int    g_tex_bake_cap_req; /* the quad's on-screen extent, window pixels */
