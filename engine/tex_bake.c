@@ -346,6 +346,10 @@ int tex_bake_atlas_active(void) { return atlas_on(); }
  * re-bakes everything once. Off and bilinear keep the original exact-size slots, byte for byte as before. */
 #define TEX_MIPL 3
 #define TEX_MIPM (1 << TEX_MIPL)
+#ifndef MIP_MERGE_MIN
+#define MIP_MERGE_MIN 8                 /* dirty rects in one commit from which their mip uploads are merged per row band */
+#endif
+#define MIP_BAND 32                     /* the band height (a multiple of TEX_MIPM) */
 static int g_mip_layout;
 static int atlas_mips(void) { return g_mip_layout && atlas_on(); }
 int g_eng_tex_aniso = 0;               /* anisotropic filtering level for trilinear pages: 0 off, else 2/4/8/16 (clamped to what the GPU offers) */
@@ -369,6 +373,12 @@ static void mip_down(const uint8_t *src, long sstride, uint8_t *dst, int dw, int
             const uint8_t *t[4] = { r0 + 8 * x, r0 + 8 * x + 4, r1 + 8 * x, r1 + 8 * x + 4 };
             unsigned a = t[0][3] + t[1][3] + t[2][3] + t[3][3];
             if (!a) { d[0] = d[1] = d[2] = d[3] = 0; continue; }
+            if (a == 4 * 255) {                                  /* four opaque parents (nearly every texel): the plain mean, no division */
+                d[0] = (uint8_t)((t[0][0] + t[1][0] + t[2][0] + t[3][0] + 2) >> 2);
+                d[1] = (uint8_t)((t[0][1] + t[1][1] + t[2][1] + t[3][1] + 2) >> 2);
+                d[2] = (uint8_t)((t[0][2] + t[1][2] + t[2][2] + t[3][2] + 2) >> 2);
+                d[3] = 255; continue;
+            }
             for (int c = 0; c < 3; c++)
                 d[c] = (uint8_t)((t[0][c] * t[0][3] + t[1][c] * t[1][3] + t[2][c] * t[2][3] + t[3][c] * t[3][3] + a / 2) / a);
             d[3] = (uint8_t)((a + 2) / 4);
@@ -413,7 +423,27 @@ void tex_bake_commit(GLuint tex)               /* upload tex's page if bakes dir
         }
         glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
         if (atlas_mips()) {                         /* the mips of what was just uploaded (block-aligned rects) */
-            if (p->ndr > 0) for (int r = 0; r < p->ndr; r++) mip_upload(p, p->dr[r].x, p->dr[r].y, p->dr[r].w, p->dr[r].h);
+            if (p->ndr >= MIP_MERGE_MIN) {
+                /* Many dirty rects (a scene change): not one mip upload each -- that is 3 glTexSubImage2D per rect, ~70 us, a thousand rects
+                 * being a 70 ms hitch. The rects are merged per band of MIP_BAND rows into one block-aligned strip, the band's x extent the
+                 * union of its rects'. Slots are packed row by row, so a scene's rects sit together and a strip adds few texels (the mips of an
+                 * untouched neighbour are just recomputed from the same shadow: identical). A page has at most ATLAS_DIM / MIP_BAND strips. */
+                int nb = ATLAS_DIM / MIP_BAND;
+                int *bx0 = malloc(sizeof(int) * 2 * (size_t)nb), *bx1 = bx0 ? bx0 + nb : NULL;
+                if (bx0) {
+                    for (int b = 0; b < nb; b++) { bx0[b] = ATLAS_DIM; bx1[b] = 0; }
+                    for (int r = 0; r < p->ndr; r++) {
+                        const arect *d = &p->dr[r];
+                        for (int b = d->y / MIP_BAND; b <= (d->y + d->h - 1) / MIP_BAND && b < nb; b++) {
+                            if (d->x < bx0[b]) bx0[b] = d->x;
+                            if (d->x + d->w > bx1[b]) bx1[b] = d->x + d->w;
+                        }
+                    }
+                    for (int b = 0; b < nb; b++) if (bx1[b] > bx0[b]) mip_upload(p, bx0[b], b * MIP_BAND, bx1[b] - bx0[b], MIP_BAND);
+                    free(bx0);
+                } else for (int r = 0; r < p->ndr; r++) mip_upload(p, p->dr[r].x, p->dr[r].y, p->dr[r].w, p->dr[r].h);
+            }
+            else if (p->ndr > 0) for (int r = 0; r < p->ndr; r++) mip_upload(p, p->dr[r].x, p->dr[r].y, p->dr[r].w, p->dr[r].h);
             else mip_upload(p, p->dirty_x0, p->dirty_y0, p->dirty_x1 - p->dirty_x0, p->dirty_y1 - p->dirty_y0);
         }
         p->ndr = 0; p->dirty_x0 = p->dirty_y0 = ATLAS_DIM; p->dirty_x1 = p->dirty_y1 = 0;
@@ -1094,19 +1124,21 @@ static GLuint bake_impl(int min_u, int min_v, int range_u, int range_v,
         /* TRILINEAR + decimated (a quad whose uv range is over the cap): every baked texel is the MEAN of the step_u x step_v block of
          * source texels it stands for -- alpha-weighted, like the mips -- instead of the one at the block's corner. The texel-centre
          * mapping (u-min+0.5)/step puts a baked texel's centre on the middle of that block, so this is also where it belongs. */
+        const int nu = step_u < 3 ? step_u : 3, nv = step_v < 3 ? step_v : 3;   /* exact for steps up to 3; a wider block is sampled 3 x 3 (each lookup walks the tile map) */
         for (int py = 0; py < bh; py++) {
             int tv0 = min_v + py * step_v;
             if (atlas_clamp_v && py == sh) tv0 = min_v + (sh - 1) * step_v;
             uint8_t *dst = bake_dst + (size_t)py * bake_stride;
             for (int px = 0; px < bw; px++, dst += 4) {
                 unsigned as = 0, rs = 0, gs = 0, bs = 0;
-                for (int dv = 0; dv < step_v; dv++)
-                    for (int du = 0; du < step_u; du++) {
+                for (int iv = 0; iv < nv; iv++)
+                    for (int iu = 0; iu < nu; iu++) {
+                        const int dv = (2 * iv + 1) * step_v / (2 * nv), du = (2 * iu + 1) * step_u / (2 * nu);   /* evenly spread over the block */
                         uint8_t fetch = texture_pen_lookup(tu_row[px] + du, tv0 + dv, texbank);
                         const uint8_t *c = lut[(cm_offset + ((fetch >> cm_shift) & cm_mask)) & 0xFF];
                         as += c[3]; rs += c[0] * c[3]; gs += c[1] * c[3]; bs += c[2] * c[3];
                     }
-                const unsigned n = (unsigned)(step_u * step_v);
+                const unsigned n = (unsigned)(nu * nv);
                 if (!as) { dst[0] = dst[1] = dst[2] = dst[3] = 0; continue; }
                 dst[0] = (uint8_t)((rs + as / 2) / as); dst[1] = (uint8_t)((gs + as / 2) / as); dst[2] = (uint8_t)((bs + as / 2) / as);
                 dst[3] = (uint8_t)((as + n / 2) / n);
