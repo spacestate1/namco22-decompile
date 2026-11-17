@@ -197,6 +197,11 @@ static void tw_link_debug(uint32_t f)
             w16(0xE02062), w16(0xE02064), w16(0xE02066), w16(0xE02068));
 }
 
+/* The smoke, fire and spark sprites of the 2D layer, by the first tile of each sprite (found by listing every sprite of a played game against the sprite ROM's
+ * pictures): the ROM keeps all the explosion and smoke clouds, in their growing sizes, and the sparks from tile 0 up to ~5600; the banners, labels and fonts
+ * (6552 and up in play) come after. The Display menu's "Effects" option smooths exactly these. */
+static const int fx_tiles[][2] = { { 0, 5600 } };
+
 static const ss22_game game = {
     .name = "Tokyo Wars", .tag = "TW", .lname = "tw", .logname = "tokyowar.log", .zip = "tokyowar.zip",
     .out_gain = 1.4,      /* the chip runs ~4x hotter than Rave Racer's (raw median RMS 2369 against 563): x6 put 15% of the samples above the limiter's knee; 1.4 lands on Rave Racer's level (~3400 RMS) */
@@ -208,7 +213,8 @@ static const ss22_game game = {
     .snd = { "tw1data.8k", { "tw1wavea.2l", NULL }, { 0, 0 }, 0x400000, 0xFFFF, { 2, 3 } },
     .video = { { "tw1cg0.8d", "tw1cg1.10d", "tw1cg2.12d", "tw1cg3.13d", "tw1cg4.14d", "tw1cg5.16d", "tw1cg6.18d", "tw1cg7.19d" },
                "tw1ccrl.3d", "tw1ccrh.1d", { "tw1scg0.12f", "tw1scg1.10f", "tw1scg2.8f", "tw1scg3.7f" }, 4, 4 * 0x200000, 0x00,
-               .hud = { hud_marks, 2, 0x10, -1, .bake_all_without_hud = true } },
+               .hud = { hud_marks, 2, 0x10, -1, .bake_all_without_hud = true },
+               .fx = fx_tiles, .n_fx = 1 },
     .input = &input,
     .roms = k_roms, .n_roms = NROMS,
     .entry = L_4000,

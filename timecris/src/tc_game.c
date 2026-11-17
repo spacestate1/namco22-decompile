@@ -204,6 +204,12 @@ static bool start(const char *name, long n, uint16_t *p, unsigned *wheel, unsign
 
 static const eng_hud_mark hud_marks_none[] = { { 0, 0, 0 } };
 
+/* The smoke, fire and debris of the 2D sprite layer, by the first tile of each sprite (found by listing every sprite of whole games on the three stages
+ * and against the sprite ROM's pictures): the ROM keeps the explosion bursts, shards, sparks and smoke clouds in 6976..11600 (the cut scenes' full-screen
+ * flames are sprites of this family too). Everything below is the HUD, the score and time digits, the banners and the enemies' overlays. The Display
+ * menu's "Effects" option smooths exactly these. */
+static const int fx_tiles[][2] = { { 6976, 11600 } };
+
 static const ss22_game game = {
     .name = "Time Crisis", .tag = "TC", .lname = "tc", .logname = "timecris.log", .zip = "timecris.zip", .recoil_mask = 0x0002,   /* MAME: "Time Crisis: 1 = gun solenoid" (mcuout1) */
     .out_gain = 2.4,                         /* not measured for this game yet (Dirt Dash 2.4, Tokyo Wars 1.4) */
@@ -218,7 +224,8 @@ static const ss22_game game = {
                "ts1ccrl.3d", "ts1ccrh.1d",
                { "ts1scg0.12f", "ts1scg1.10f", "ts1scg2.8f", "ts1scg3.7f", "ts1scg4.5f", "ts1scg5.3f" }, 6, 0x1000000, 0xFF,
                false, false,                /* MAME: a 16 MB sprite region, ROMREGION_ERASEFF, six chips from 0 */
-               .hud = { hud_marks_none, 0, 0x10, -1 } },
+               .hud = { hud_marks_none, 0, 0x10, -1 },
+               .fx = fx_tiles, .n_fx = 1 },
     .input = &input,
     .roms = k_roms, .n_roms = NROMS,
     .entry = L_110D0,
