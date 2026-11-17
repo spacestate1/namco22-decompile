@@ -29,6 +29,8 @@ void tex_bake_commit(GLuint tex);   /* upload tex's atlas page if bakes dirtied 
 extern int g_eng_tex_filter_setting;   /* the saved choice: 0 off, 1 bilinear (set by the menus; a draw pass copies it to g_eng_tex_filter) */
 extern int g_eng_tex_filter;        /* optional 3D texture filter: 0 nearest (default, the board's), 1 bilinear, 2 trilinear (mips + averaged decimation); engine/quad_gl.c applies it to world polygons only */
 extern int g_eng_tex_aniso_setting; /* the saved anisotropy choice: 0 off, else 2/4/8/16 (trilinear only) */
+extern int g_eng_fx_filter_setting; /* the saved "Effects filter" choice (0 off, 1 on: smooth the 2D dust / mud / spray sprites; engine/sprite_hw.h) */
+extern int g_eng_fx_known;          /* 1 once the running game has told the compositor which sprite tiles are such effects (the Display menu shows the row only then) */
 extern int g_eng_tex_aniso;         /* the level a draw pass uses: set from the setting, clamped by the GPU's maximum */
 int  tex_bake_aniso_max(void);      /* the GPU's maximum anisotropy, 0 when it offers none (needs a GL context) */
 void tex_bake_set_layout(int mips); /* 1: the block-aligned mip layout the trilinear filter needs (re-bakes everything), 0: the plain slots; call before a draw pass */

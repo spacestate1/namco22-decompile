@@ -26,6 +26,7 @@
 #include "eng_crosshair.h"
 #include "eng_vsync.h"
 #include "eng_display.h"
+#include "tex_bake.h"
 
 #define MAXPAGES 8
 static struct nk_context *ctx;
@@ -60,10 +61,12 @@ static void file_change(int r, int dir)
 static const eng_ui_page page_file = { "File", 220, 0, 0, file_n, file_val, NULL, file_text, file_change, NULL };
 
 /* ---- Display: the choices of engine/eng_display.h ------------------------------ */
-enum { D_WIDE, D_MODE, D_SIZE, D_RES, D_ASPECT, D_SCALING, D_HUD, D_FPS, D_TEXF, D_ANISO, D_CROSS, D_XIMG, D_N };   /* D_CROSS.. last: only light-gun games show them */
-static int disp_n(void) { return g_eng_disp_light_gun ? D_N : D_CROSS; }
+enum { D_WIDE, D_MODE, D_SIZE, D_RES, D_ASPECT, D_SCALING, D_HUD, D_FPS, D_TEXF, D_ANISO, D_FX, D_CROSS, D_XIMG, D_N };   /* D_CROSS.. last: only light-gun games show them; D_FX only a game that names its effect sprites */
+static int disp_n(void) { return (g_eng_disp_light_gun ? D_N : D_CROSS) - (g_eng_fx_known ? 0 : 1); }
+static int disp_row(int i) { return !g_eng_fx_known && i >= D_FX ? i + 1 : i; }       /* menu line -> D_ row: the Effects line is left out when the game has none */
 static bool disp_enabled(int r)
 {
+    r = disp_row(r);
     if (r == D_SIZE) return g_eng_disp.winmode == 0;
     if (r == D_HUD) return g_eng_disp.wide;
     if (r == D_ANISO) return g_eng_disp.tex_filter == 2;     /* anisotropy rides on the trilinear filter's mips */
@@ -72,6 +75,7 @@ static bool disp_enabled(int r)
 }
 static void disp_text(int r, char *l, size_t ln, char *v, size_t vn)
 {
+    r = disp_row(r);
     *v = 0;
     switch (r) {
     case D_WIDE:    snprintf(l, ln, "Widescreen"); snprintf(v, vn, "%s", !g_eng_disp.wide ? "OFF (4:3)" : g_eng_disp.wide_169 ? "ON (16:9)" : "ON (fill the window)"); break;
@@ -85,6 +89,7 @@ static void disp_text(int r, char *l, size_t ln, char *v, size_t vn)
     case D_HUD:     snprintf(l, ln, "Widescreen HUD"); snprintf(v, vn, "%s", g_eng_disp.hud_edges ? "at the screen edges" : "original (4:3 centre)"); break;
     case D_TEXF:    snprintf(l, ln, "3D texture filter"); snprintf(v, vn, "%s", g_eng_disp.tex_filter == 2 ? "Trilinear (3D only)" : g_eng_disp.tex_filter ? "Bilinear (3D only)" : "Off (arcade)"); break;
     case D_ANISO:   snprintf(l, ln, "Anisotropic filter"); if (g_eng_disp.tex_aniso) snprintf(v, vn, "%dx", g_eng_disp.tex_aniso); else snprintf(v, vn, "Off"); break;
+    case D_FX:      snprintf(l, ln, "Effects (dust, mud, spray)"); snprintf(v, vn, "%s", g_eng_disp.fx_filter ? "Smooth (2D effects only)" : "Off (arcade)"); break;
     case D_FPS:     snprintf(l, ln, "Frame rate"); snprintf(v, vn, "%s", eng_vsync_rate_name(g_eng_disp.fps)); break;
     case D_CROSS:   snprintf(l, ln, "Crosshair"); snprintf(v, vn, "%s", g_eng_disp.crosshair ? "ON" : "OFF"); break;
     case D_XIMG:    snprintf(l, ln, "Crosshair image"); snprintf(v, vn, eng_xhair_count() ? "%s" : "%s (no PNG in crosshairs/)", eng_xhair_name()); break;
@@ -93,6 +98,7 @@ static void disp_text(int r, char *l, size_t ln, char *v, size_t vn)
 static void disp_change(int r, int dir)
 {
     if (!disp_enabled(r)) return;
+    r = disp_row(r);
     const int d = dir ? dir : 1;
     switch (r) {
     case D_WIDE:    eng_disp_set_wide(!g_eng_disp.wide); break;
@@ -107,6 +113,7 @@ static void disp_change(int r, int dir)
     case D_ASPECT:  if (g_eng_disp.wide) eng_disp_set_wide_169(!g_eng_disp.wide_169); else eng_disp_set_aspect(cyc(g_eng_disp.aspect, d, 4)); break;
     case D_SCALING: eng_disp_set_scaling(cyc(g_eng_disp.scaling, d, 3)); break;
     case D_HUD:     eng_disp_set_hud_edges(!g_eng_disp.hud_edges); break;
+    case D_FX:      eng_disp_set_fx(!g_eng_disp.fx_filter); break;
     case D_FPS:     eng_disp_set_fps(eng_vsync_rate_step(g_eng_disp.fps, d)); break;
     case D_TEXF:    eng_disp_set_texfilter(cyc(g_eng_disp.tex_filter, d, 3)); break;
     case D_ANISO:   { static const int lv[5] = { 0, 2, 4, 8, 16 }; int i = 0; for (int k = 0; k < 5; k++) if (lv[k] == g_eng_disp.tex_aniso) i = k;

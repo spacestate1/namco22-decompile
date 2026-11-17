@@ -101,6 +101,12 @@ static bool            hud_on;               /* the game is showing its race HUD
 static const eng_hud_cfg *hud_cfg;           /* the game's HUD description, set by its board host (NULL = the HUD stays put) */
 
 void ss22_gl_set_hud(const eng_hud_cfg *h) { hud_cfg = h; }
+void ss22_gl_set_effects(const int (*ranges)[2], int n)
+{
+    if (!ranges || n <= 0) return;
+    sprite_set_effect_tiles(ranges, n);
+    g_eng_fx_known = 1;                       /* the menu shows its row */
+}
 
 /* THE GUN SHOT FLASH (Time Crisis): a light-gun cabinet whitens the whole screen for the frame after the trigger so the gun's
  * photodiode can find the beam -- the mixer's screen fade at full strength in white, switched on for ONE frame with no ramp
@@ -239,11 +245,50 @@ static void tex_alloc(GLuint *t)
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, SPR_W, SPR_H, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 }
 
+/* An effect sprite (Display > Effects): sprite_render_item has already sampled the 32x32 tiles bilinearly; the item is premultiplied into a texture one
+ * transparent texel larger on every side and drawn LINEARLY, so what the stretched tiles show has no blocks. Only the sprites named in the game's fx table. */
+static GLuint spr_fx_tex;
+static uint8_t *spr_fx_buf;
+static void draw_effect_sprite(const sprite_item *it)
+{
+    const int TW = SPR_W + 2, TH = SPR_H + 2;
+    if (!spr_fx_buf && !(spr_fx_buf = malloc((size_t)TW * TH * 4))) return;
+    sprite_pad_premul(spr_buf, it->w, it->h, spr_fx_buf);
+    if (!spr_fx_tex) {
+        glGenTextures(1, &spr_fx_tex);
+        glBindTexture(GL_TEXTURE_2D, spr_fx_tex);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, TW, TH, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    } else glBindTexture(GL_TEXTURE_2D, spr_fx_tex);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, it->w + 2, it->h + 2, GL_RGBA, GL_UNSIGNED_BYTE, spr_fx_buf);
+    const float u0 = 1.0f / TW, u1 = (float)(it->w + 1) / TW, v0 = 1.0f / TH, v1 = (float)(it->h + 1) / TH;
+    glEnable(GL_TEXTURE_2D);
+    glDisable(GL_ALPHA_TEST);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+    const int dx = (g_eng_hud_e && hud_cfg && (int)(it->z & 0x1FFFFF) <= hud_cfg->sprite_zmax) ? eng_hud_dx(it->x0 + it->w / 2.0) : 0;
+    glBegin(GL_QUADS);
+    glTexCoord2f(u0, v0); glVertex2f((float)(it->x0 + dx),          (float)it->y0);
+    glTexCoord2f(u1, v0); glVertex2f((float)(it->x0 + it->w + dx), (float)it->y0);
+    glTexCoord2f(u1, v1); glVertex2f((float)(it->x0 + it->w + dx), (float)(it->y0 + it->h));
+    glTexCoord2f(u0, v1); glVertex2f((float)(it->x0 + dx),          (float)(it->y0 + it->h));
+    glEnd();
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDisable(GL_BLEND);
+    glEnable(GL_ALPHA_TEST);
+    glDisable(GL_TEXTURE_2D);
+}
+
 /* one sprite in its turn of the merged z order: rendered into the corner of one 640x480 texture, sub-imaged, blended */
 static void draw_sprite(const sprite_item *it)
 {
     if (!spr_buf && !(spr_buf = malloc((size_t)SPR_W * SPR_H * 4))) return;
     sprite_render_item(&sst, &g_fog, it, spr_buf, 1);
+    if (sprite_item_smooth(it)) { draw_effect_sprite(it); return; }       /* dust / mud / spray with the option on: a linear texture, never a HUD sprite */
     if (it->prioverchar) {                    /* the text layer shows nothing under this sprite's pixels */
         for (int y = 0; y < it->h; y++)
             for (int x = 0; x < it->w; x++)
@@ -566,6 +611,11 @@ void ss22_draw(int vw, int vh)
       if (g_eng_tex_filter != last || g_eng_tex_aniso != lasta) { last = g_eng_tex_filter; lasta = g_eng_tex_aniso;
           fprintf(stderr, "[TEX] 3D texture filter: %s, anisotropy %dx\n", last == 2 ? "trilinear" : last ? "bilinear" : "off", lasta ? lasta : 1); } }
     cfg.nofilter_quad = eng_hud_quad_piece;
+    if (g_eng_fx_known) {                                /* the 2D effects option (Display > Effects; ENG_FX_FILTER=0|1 wins for a run) */
+        static int ef = -2;
+        if (ef == -2) { const char *e = getenv("ENG_FX_FILTER"); ef = e && *e ? (atoi(e) != 0) : -1; }
+        g_sprite_smooth = ef >= 0 ? ef : g_eng_fx_filter_setting;
+    }
 
     /* MERGED Z ORDER, not layers: MAME queues sprites and polygons into the same radix tree keyed on a 24-bit z and
      * walks it far to near, so a sprite can sit behind a polygon (the HUD plate behind the score digits) */

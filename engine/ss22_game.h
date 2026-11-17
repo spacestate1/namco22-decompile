@@ -54,6 +54,9 @@ typedef struct {
     bool        vics_count_in_list;          /* the VICS bank's sprite count is stored in its list (Dirt Dash; MAME's per-game workaround) */
     bool        spot_in_dumps;               /* MAME's captures do not record the spot enable: treat the spot as ON in them (Dirt Dash; Tokyo Wars' table is not a spot) */
     eng_hud_cfg  hud;                        /* WIDESCREEN: which frames show the race HUD and what of the picture is HUD (engine/hud_edges.h) */
+    const int  (*fx)[2];                     /* the sprite tiles (first tile of a sprite, inclusive ranges) that are dust, mud or spray: the Display menu's "Effects" option
+                                              * smooths those and nothing else (engine/sprite_hw.h). NULL = the game has none named, the option is not offered */
+    int          n_fx;
 } ss22_video_cfg;
 
 typedef struct { const char *name; uint16_t bit; } ss22_press_name;      /* --press NAME@F[+LEN] */

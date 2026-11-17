@@ -256,6 +256,11 @@ static void pg_notes(void (*line)(const char *, ...))
 static const eng_ui_page dd_page = { "Dirt Dash", 380, 120, 0, pg_rows, NULL, NULL, pg_text, pg_change, pg_notes };
 static const eng_ui_page *dd_menu_page(void) { return &dd_page; }
 
+/* The dust, mud and spray puffs of the 2D sprite layer, by the first tile of each sprite (found by listing every sprite of whole races on all five stages,
+ * against the sprite ROM's pictures): 587..615 are the hill and mountain stages' dust, 635..663 the snow's spray, 743..755 the jungle's mud puffs; the ROM keeps that
+ * family in 584..774, and from 775 on the tiles are the HUD (gauges, digits, banners). The Display menu's "Effects" option smooths exactly these. */
+static const int fx_tiles[][2] = { { 584, 774 } };
+
 static const ss22_game game = {
     .name = "Dirt Dash", .tag = "DD", .lname = "dd", .logname = "dirtdash.log", .zip = "dirtdash.zip",
     .out_gain = 2.4,      /* the chip runs ~2.5x hotter than Rave Racer's (raw median RMS 1393 against 563): x6 pinned a race against the limiter; 2.4 lands on Rave Racer's level (~3400 RMS) */
@@ -272,7 +277,8 @@ static const ss22_game game = {
     .video = { { "dt1cg0.8d", "dt1cg1.10d", "dt1cg2.12d", "dt1cg3.13d", "dt1cg4.14d", "dt1cg5.16d", "dt1cg6.18d", "dt1cg7.19d" },
                "dt1ccrl.3d", "dt1ccrh.1d", { "dt1scg0.12f", "dt1scg1.10f" }, 2, 0x1000000, 0xFF,
                true, true,     /* MAME: a 16 MB region, ROMREGION_ERASEFF, the two chips at 0 and 0x200000; the spot is on in its captures */
-               .hud = { hud_marks, 2, 0x10, -1 } },
+               .hud = { hud_marks, 2, 0x10, -1 },
+               .fx = fx_tiles, .n_fx = 1 },
     .input = &input,
     .roms = k_roms, .n_roms = NROMS,
     .entry = L_1074,

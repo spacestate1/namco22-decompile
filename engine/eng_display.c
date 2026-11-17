@@ -165,6 +165,9 @@ void eng_disp_load(const char *cfg_path, int scale, bool fullscreen)
       int an = eng_cfg_int("texture_aniso", 0);
       d->tex_aniso = an >= 16 ? 16 : an >= 8 ? 8 : an >= 4 ? 4 : an >= 2 ? 2 : 0;
       g_eng_tex_aniso_setting = d->tex_aniso; }
+    { const char *fx = eng_cfg_get("effects_filter");
+      d->fx_filter = fx && (!strncmp(fx, "on", 2) || atoi(fx) == 1);
+      g_eng_fx_filter_setting = d->fx_filter; }
     d->fps = eng_vsync_rate_valid(eng_cfg_int("frame_rate", ENG_VSYNC_DEFAULT));
     d->volume = eng_cfg_int("volume", 100);
     if (d->volume < 0) d->volume = 0;
@@ -236,6 +239,13 @@ void eng_disp_set_texaniso(int level)
     g_eng_tex_aniso_setting = g_eng_disp.tex_aniso;
     char b[8]; snprintf(b, sizeof b, g_eng_disp.tex_aniso ? "%d" : "off", g_eng_disp.tex_aniso);
     eng_cfg_set("texture_aniso", b);
+}
+
+void eng_disp_set_fx(int on)
+{
+    g_eng_disp.fx_filter = on != 0;
+    g_eng_fx_filter_setting = g_eng_disp.fx_filter;
+    eng_cfg_set("effects_filter", g_eng_disp.fx_filter ? "on" : "off");
 }
 
 void eng_disp_set_fps(int fps)
