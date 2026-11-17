@@ -463,12 +463,7 @@ void rr_gl_draw(int vw, int vh)
       if (ef == -2) { const char *e = getenv("ENG_TEX_FILTER"); ef = e && *e ? atoi(e) : -1; if (ef > 2) ef = 2; }
       if (ea == -2) { const char *e = getenv("ENG_TEX_ANISO"); ea = e && *e ? atoi(e) : -1; }
       int mode = ef >= 0 ? ef : g_cfg_texfilter;                           /* env first (A/B), then the setting */
-#ifdef RR_TEX_QUALITY                                                      /* Ridge Racer 2: trilinear + anisotropic; the other games keep off / bilinear */
       g_eng_tex_aniso = mode == 2 ? (ea >= 0 ? ea : g_cfg_texaniso) : 0;
-#else
-      if (mode > 1) mode = 1;
-      g_eng_tex_aniso = 0;
-#endif
       g_eng_tex_filter = mode;
       tex_bake_set_layout(mode == 2); }                                    /* trilinear needs the block-aligned mip layout (a no-op while it is unchanged) */
     { static int last = -1, lasta = -1;

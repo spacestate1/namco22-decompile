@@ -80,8 +80,6 @@ set(R2_CORE ${RR}/src/rr_romzip.c ${NAMCO22_ENGINE_DIR}/romzip.c ${RR}/src/rr_ma
 # (HARD RULE 1/2: nm shows no c25_interp_exec, no m37710 fetch/decode).
 add_executable(r2 ${RR}/src/rr_win.c ${R2_CORE} ${R2_GL_SRC} gen/snd_driver.c)
 target_include_directories(r2 PRIVATE ${SDL2_INCLUDE_DIRS} ${RR}/src/snd)
-# Ridge Racer 2 alone offers the trilinear 3D texture filter and the anisotropic one (Display menu; the other games keep off / bilinear)
-target_compile_definitions(r2 PRIVATE RR_TEX_QUALITY=1)
 target_link_libraries(r2 ${SDL2_LIBRARIES} ${R2_GL_LIB} ZLIB::ZLIB ${R2_NET_LIB} m)
 
 # Development tools: only when their sources are present -- the public tree has just the game.
