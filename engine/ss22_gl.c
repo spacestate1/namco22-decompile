@@ -101,6 +101,7 @@ static bool            hud_on;               /* the game is showing its race HUD
 static const eng_hud_cfg *hud_cfg;           /* the game's HUD description, set by its board host (NULL = the HUD stays put) */
 
 void ss22_gl_set_hud(const eng_hud_cfg *h) { hud_cfg = h; }
+void ss22_gl_set_soft_effects(const int (*ranges)[2], int n) { sprite_set_soft_tiles(ranges, n); }
 void ss22_gl_set_effects(const int (*ranges)[2], int n)
 {
     if (!ranges || n <= 0) return;
@@ -273,18 +274,46 @@ static void draw_effect_sprite(const sprite_item *it)
         by1 = y;
     }
     if (bx1 < 0) return;                                                     /* nothing in it: nothing to draw */
+    /* a glow sprite (sprite_item_soft) is blurred a little after the bilinear pass: the box grows by 2 texels for it */
+    int ext = sprite_item_soft(it) ? 2 : 0;
+    if (bx1 - bx0 + 1 + 2 * ext + 2 > TW || by1 - by0 + 1 + 2 * ext + 2 > TH) ext = 0;
+    bx0 -= ext; by0 -= ext; bx1 += ext; by1 += ext;
     const int bw = bx1 - bx0 + 1, bh = by1 - by0 + 1, rw = bw + 2, rh = bh + 2;
     for (int y = 0; y < rh; y++) {                                           /* premultiplied, a transparent texel all round */
         uint8_t *d = spr_fx_buf + (size_t)y * rw * 4;
         const int sy = by0 + y - 1;
         if (sy < by0 || sy > by1) { memset(d, 0, (size_t)rw * 4); continue; }
         d[0] = d[1] = d[2] = d[3] = 0;
-        const uint8_t *s = spr_buf + ((size_t)sy * w + bx0) * 4; d += 4;
-        for (int x = 0; x < bw; x++, s += 4, d += 4) {
+        d += 4;
+        for (int x = 0; x < bw; x++, d += 4) {
+            const int sx = bx0 + x;
+            if (sx < 0 || sx >= w || sy < 0 || sy >= h) { d[0] = d[1] = d[2] = d[3] = 0; continue; }   /* (only the blur's margin lies outside the item) */
+            const uint8_t *s = spr_buf + ((size_t)sy * w + sx) * 4;
             const unsigned a = s[3];
             d[0] = (uint8_t)((s[0] * a + 127) / 255); d[1] = (uint8_t)((s[1] * a + 127) / 255); d[2] = (uint8_t)((s[2] * a + 127) / 255); d[3] = (uint8_t)a;
         }
         d[0] = d[1] = d[2] = d[3] = 0;
+    }
+    if (ext) {                                                               /* two passes of the 1-2-1 kernel, each way, on the premultiplied texels */
+        static uint8_t *tmp;
+        if (!tmp && !(tmp = malloc((size_t)TW * TH * 4))) tmp = NULL;
+        if (tmp) for (int pass = 0; pass < 2; pass++) {
+            for (int y = 0; y < rh; y++) {                                   /* horizontal: buf -> tmp */
+                const uint8_t *s = spr_fx_buf + (size_t)y * rw * 4; uint8_t *d = tmp + (size_t)y * rw * 4;
+                for (int x = 0; x < rw; x++)
+                    for (int c = 0; c < 4; c++) {
+                        const int l = x > 0 ? s[(x - 1) * 4 + c] : 0, r = x < rw - 1 ? s[(x + 1) * 4 + c] : 0;
+                        d[x * 4 + c] = (uint8_t)((l + 2 * s[x * 4 + c] + r + 2) >> 2);
+                    }
+            }
+            for (int y = 0; y < rh; y++) {                                   /* vertical: tmp -> buf */
+                uint8_t *d = spr_fx_buf + (size_t)y * rw * 4;
+                for (int x = 0; x < rw * 4; x++) {
+                    const int u = y > 0 ? tmp[(size_t)(y - 1) * rw * 4 + x] : 0, v = y < rh - 1 ? tmp[(size_t)(y + 1) * rw * 4 + x] : 0;
+                    d[x] = (uint8_t)((u + 2 * tmp[(size_t)y * rw * 4 + x] + v + 2) >> 2);
+                }
+            }
+        }
     }
     GLuint *tp = &spr_fx_tex[spr_fx_next]; spr_fx_next = (spr_fx_next + 1) % FX_TEX_N;
     if (!*tp) {

@@ -65,6 +65,19 @@ void sprite_set_effect_tiles(const int (*ranges)[2], int n)
     for (int i = 0; i < g_fx_n; i++) { g_fx_tiles[i][0] = ranges[i][0]; g_fx_tiles[i][1] = ranges[i][1]; }
 }
 int sprite_effects_known(void) { return g_fx_n > 0; }
+/* The glow sprites (Dirt Dash's headlights): drawn 1:1, so bilinear sampling alone leaves their edge as the bitmap has it; the renderer softens these a little more. */
+static int g_soft_tiles[8][2], g_soft_n;
+void sprite_set_soft_tiles(const int (*ranges)[2], int n)
+{
+    g_soft_n = (!ranges || n < 0) ? 0 : (n > 8 ? 8 : n);
+    for (int i = 0; i < g_soft_n; i++) { g_soft_tiles[i][0] = ranges[i][0]; g_soft_tiles[i][1] = ranges[i][1]; }
+}
+int sprite_item_soft(const sprite_item *it)
+{
+    if (!g_sprite_smooth) return 0;
+    for (int i = 0; i < g_soft_n; i++) if (it->tile >= g_soft_tiles[i][0] && it->tile <= g_soft_tiles[i][1]) return 1;
+    return 0;
+}
 int sprite_item_smooth(const sprite_item *it)
 {
     if (!g_sprite_smooth) return 0;

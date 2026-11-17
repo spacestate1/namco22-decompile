@@ -57,6 +57,8 @@ typedef struct {
     const int  (*fx)[2];                     /* the sprite tiles (first tile of a sprite, inclusive ranges) that are dust, mud or spray: the Display menu's "Effects" option
                                               * smooths those and nothing else (engine/sprite_hw.h). NULL = the game has none named, the option is not offered */
     int          n_fx;
+    const int  (*soft)[2];                   /* optional: glow sprites (a subset of fx) that are drawn 1:1 and get a light blur when the option is on (Dirt Dash's headlights) */
+    int          n_soft;
 } ss22_video_cfg;
 
 typedef struct { const char *name; uint16_t bit; } ss22_press_name;      /* --press NAME@F[+LEN] */

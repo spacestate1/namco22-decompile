@@ -95,6 +95,8 @@ extern int g_sprite_smooth_fast;   /* 1: resolve each tile's texels once for the
 void sprite_set_effect_tiles(const int (*ranges)[2], int n);
 int  sprite_effects_known(void);                       /* 1 once a game registered ranges: the menu offers the option */
 int  sprite_item_smooth(const sprite_item *it);
+void sprite_set_soft_tiles(const int (*ranges)[2], int n);   /* glow sprites drawn 1:1 (Dirt Dash's headlights): smoothed AND softened */
+int  sprite_item_soft(const sprite_item *it);                /* 1: smoothing is on and the item is one of them */
 void sprite_pad_premul(const uint8_t *rgba, int w, int h, uint8_t *dst);   /* dst: (w+2)*(h+2)*4 bytes */
 /* Render one sprite into a w*h RGBA buffer whose origin is (it->x0, it->y0). */
 void sprite_render_item(const sprite_state *st, const fog_state *fog,

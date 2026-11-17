@@ -22,6 +22,7 @@ bool ss22_video_init(const char *dir)
 {
     const ss22_video_cfg *c = &g_ss22_game->video;
     ss22_gl_set_effects(c->fx, c->n_fx);     /* the 2D effects option: which sprite tiles it may smooth */
+    ss22_gl_set_soft_effects(c->soft, c->n_soft);
     ss22_gl_set_hud(&c->hud);                /* widescreen: the compositor learns this game's HUD (Prop Cycle, which links it too, never does) */
     if (!eng_load_texture_roms(dir, c->cg, c->ccrl, c->ccrh)) return false;
 
