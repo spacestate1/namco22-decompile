@@ -505,8 +505,12 @@ void ui_draw(SDL_Window *win, bool *quit) {
 
         /* ---- Display ---- */
         nk_layout_row_push(ctx, 90);
-        if (nk_menu_begin_label(ctx, "Display", NK_TEXT_LEFT, nk_vec2(330, 590))) {
+        /* a Nuklear menu has no scrollbar of its own: the rows live in a group of the menu's height (fitted to the window, at most 720), which does */
+        const float disp_h = (float)wh - 40.0f < 720.0f ? (float)wh - 40.0f : 720.0f;
+        if (nk_menu_begin_label(ctx, "Display", NK_TEXT_LEFT, nk_vec2(350, disp_h))) {
             bool changed = false;
+            nk_layout_row_dynamic(ctx, disp_h - 26.0f, 1);
+            if (nk_group_begin(ctx, "dispscroll", NK_WINDOW_BORDER)) {
             nk_layout_row_dynamic(ctx, 24, 1);
             /* The one most people are looking for, first and on its own. */
             { nk_bool w = widescreen;
@@ -590,14 +594,17 @@ void ui_draw(SDL_Window *win, bool *quit) {
             nk_layout_row_push(ctx, 30);
             if (nk_button_label(ctx, ">")) { g_ui_fps = eng_vsync_rate_step(g_ui_fps, +1); changed = true; }
             nk_layout_row_end(ctx);
-            /* 3D texture filter: off is the board's own NEAREST; bilinear smooths the 3D polygons only (the HUD, text and sprites stay sharp) */
+            /* 3D texture filter: off is the board's own NEAREST; bilinear / trilinear smooth the 3D polygons only (the HUD, text and sprites stay sharp) */
             { extern int g_eng_tex_filter_setting, g_eng_tex_aniso_setting;
-              static const char *const tfl[3] = { "3D texture filter: Off (arcade)", "3D texture filter: Bilinear (3D only)", "3D texture filter: Trilinear (3D only)" };
+              static const char *const tfl[3] = { "Off", "Bilinear", "Trilinear" };
               static const int lv[5] = { 0, 2, 4, 8, 16 };
-              nk_layout_row_dynamic(ctx, 22, 1);
+              nk_layout_row_dynamic(ctx, 18, 1);
+              nk_label(ctx, "3D texture filter (3D only; Off = arcade)", NK_TEXT_LEFT);
+              nk_layout_row_dynamic(ctx, 22, 3);
               for (int i = 0; i < 3; i++)
                   if (nk_option_label(ctx, tfl[i], g_eng_tex_filter_setting == i) && g_eng_tex_filter_setting != i) { g_eng_tex_filter_setting = i; changed = true; }
-              nk_label(ctx, "Anisotropic filter (with trilinear)", NK_TEXT_LEFT);
+              nk_layout_row_dynamic(ctx, 18, 1);
+              nk_label(ctx, "Anisotropic filter (needs Trilinear)", NK_TEXT_LEFT);
               if (g_eng_tex_filter_setting != 2) nk_widget_disable_begin(ctx);
               nk_layout_row_dynamic(ctx, 22, 5);
               for (int i = 0; i < 5; i++) {
@@ -608,8 +615,10 @@ void ui_draw(SDL_Window *win, bool *quit) {
             { extern int g_sprite_smooth;                       /* the effect sprites only: dust, mud, spray -- never the gauges, banners, digits or titles */
               nk_layout_row_dynamic(ctx, 24, 1);
               nk_bool fx = g_sprite_smooth != 0, fx0 = fx;
-              nk_checkbox_label(ctx, fx ? "Effects filter (dust, mud, spray): Smooth" : "Effects filter (dust, mud, spray): Off (arcade)", &fx);
+              nk_checkbox_label(ctx, fx ? "Effects: dust, mud, spray smooth" : "Effects: dust, mud, spray arcade", &fx);
               if (fx != fx0) { g_sprite_smooth = fx ? 1 : 0; changed = true; } }
+            nk_group_end(ctx);
+            }
             if (changed) ui_controls_save();          /* display choices stick without a Save button */
             nk_menu_end(ctx);
         }
