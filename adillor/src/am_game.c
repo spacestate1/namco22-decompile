@@ -134,6 +134,12 @@ static void autoplay(long n, uint16_t *p, unsigned *wheel, unsigned *pedal1, uns
 
 static const eng_hud_mark hud_marks_none[] = { { 0, 0, 0 } };
 
+/* The dust of the armadillo rolling and bumping, by the first tile of each sprite (found by listing every sprite of whole races, 3600 frames of autoplay, against the
+ * sprite ROM's pictures): the puffs at the start and while running (3556..3584, 3484..3547: the same cloud in 3x3-tile and 4-tile sizes) and the small burst shapes the
+ * ROM keeps after them. Before 3484 are the HUD and the banners (Ready / 3 / 2 / GOOD LUCK, the heart, FREE PLAY, the place letters). The Display menu's "Effects"
+ * option smooths exactly these. (The red / white impact star is not a sprite of this layer.) */
+static const int fx_tiles[][2] = { { 3484, 4095 } };
+
 static const ss22_game game = {
     .name = "Armadillo Racing", .tag = "AM", .lname = "am", .logname = "adillor.log", .zip = "adillor.zip",
     .out_gain = 2.4,                         /* not measured for this game yet (Dirt Dash 2.4, Tokyo Wars 1.4) */
@@ -147,7 +153,8 @@ static const ss22_game game = {
     .video = { { "am1cg0.8d", "am1cg1.10d", "am1cg2.12d", "am1cg3.13d", "am1cg4.14d", "am1cg5.16d", "am1cg6.18d", "am1cg7.19d" },
                "am1ccrl.3d", "am1ccrh.1d", { "am1scg0.12f", "am1scg1.10f" }, 2, 0x1000000, 0xFF,
                false, false,                /* MAME: a 16 MB sprite region, ROMREGION_ERASEFF, the two chips at 0 and 0x200000 */
-               .hud = { hud_marks_none, 0, 0x10, -1 } },
+               .hud = { hud_marks_none, 0, 0x10, -1 },
+               .fx = fx_tiles, .n_fx = 1 },
     .input = &input,
     .roms = k_roms, .n_roms = NROMS,
     .entry = L_4000,
