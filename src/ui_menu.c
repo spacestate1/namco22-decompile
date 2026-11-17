@@ -98,6 +98,7 @@ int ui_controls_save(void) {
     { extern int g_eng_tex_filter_setting, g_eng_tex_aniso_setting;
       fprintf(f, "texture_filter=%s\n", g_eng_tex_filter_setting == 2 ? "trilinear" : g_eng_tex_filter_setting ? "bilinear" : "off");
       if (g_eng_tex_aniso_setting) fprintf(f, "texture_aniso=%d\n", g_eng_tex_aniso_setting); else fprintf(f, "texture_aniso=off\n"); }
+    { extern int g_sprite_smooth; fprintf(f, "effects_filter=%s\n", g_sprite_smooth ? "on" : "off"); }
     { extern void input_joy_cfg_save(FILE *); input_joy_cfg_save(f); }
     fclose(f);
     return 1;
@@ -115,6 +116,8 @@ static void load_setting(char *line, char *eq) {
                                    display_cfg = 1; return; }
     if (!strcmp(line, "texture_filter")) { extern int g_eng_tex_filter_setting; const char *v = eq + 1;   /* off | bilinear | trilinear: the 3D polygons only (engine/tex_bake.h) */
                                            g_eng_tex_filter_setting = (!strncmp(v, "trilinear", 9) || atoi(v) == 2) ? 2 : (!strncmp(v, "bilinear", 8) || atoi(v) == 1) ? 1 : 0; return; }
+    if (!strcmp(line, "effects_filter")) { extern int g_sprite_smooth; const char *v = eq + 1;   /* off | on: the dust / mud / spray sprites (engine/sprite_hw.h) */
+                                           g_sprite_smooth = !strncmp(v, "on", 2) || atoi(v) == 1; return; }
     if (!strcmp(line, "texture_aniso")) { extern int g_eng_tex_aniso_setting; int n = atoi(eq + 1);        /* off | 2 | 4 | 8 | 16: with trilinear */
                                           g_eng_tex_aniso_setting = n >= 16 ? 16 : n >= 8 ? 8 : n >= 4 ? 4 : n >= 2 ? 2 : 0; return; }
     if (!strcmp(line, "frame_rate")) { g_ui_fps = eng_vsync_rate_valid(atoi(eq + 1)); return; }
@@ -602,6 +605,11 @@ void ui_draw(SDL_Window *win, bool *quit) {
                   if (nk_option_label(ctx, b, g_eng_tex_aniso_setting == lv[i]) && g_eng_tex_aniso_setting != lv[i]) { g_eng_tex_aniso_setting = lv[i]; changed = true; }
               }
               if (g_eng_tex_filter_setting != 2) nk_widget_disable_end(ctx); }
+            { extern int g_sprite_smooth;                       /* the effect sprites only: dust, mud, spray -- never the gauges, banners, digits or titles */
+              nk_layout_row_dynamic(ctx, 24, 1);
+              nk_bool fx = g_sprite_smooth != 0, fx0 = fx;
+              nk_checkbox_label(ctx, fx ? "Effects filter (dust, mud, spray): Smooth" : "Effects filter (dust, mud, spray): Off (arcade)", &fx);
+              if (fx != fx0) { g_sprite_smooth = fx ? 1 : 0; changed = true; } }
             if (changed) ui_controls_save();          /* display choices stick without a Save button */
             nk_menu_end(ctx);
         }

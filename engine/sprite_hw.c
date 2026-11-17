@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 #include "sprite_hw.h"
 
 /* MAME nthword over a u32 array: halfword i in big-endian order. */
@@ -50,6 +51,39 @@ static uint32_t *read_words(const char *path, int *nwords)
 uint8_t *g_sprite_tiles;
 size_t   g_sprite_tiles_size;
 int      g_sprite_vics_count_in_list;
+
+/* ---- optional smoothing of the EFFECT sprites ---------------------------
+ * The dust, mud and spray of the Super 22 games are sprites: a 32x32 tile stretched, by nearest sampling, to ~100 px. g_sprite_smooth (the menu's
+ * choice) makes sprite_render_item sample those tiles bilinearly instead -- only the tile ranges a game registered here, never the gauges, the
+ * banners, the digits or any title. */
+int g_sprite_smooth;
+static int g_fx_tiles[16][2], g_fx_n;
+void sprite_set_effect_tiles(const int (*ranges)[2], int n)
+{
+    g_fx_n = n > 16 ? 16 : n;
+    for (int i = 0; i < g_fx_n; i++) { g_fx_tiles[i][0] = ranges[i][0]; g_fx_tiles[i][1] = ranges[i][1]; }
+}
+int sprite_effects_known(void) { return g_fx_n > 0; }
+int sprite_item_smooth(const sprite_item *it)
+{
+    if (!g_sprite_smooth) return 0;
+    for (int i = 0; i < g_fx_n; i++) if (it->tile >= g_fx_tiles[i][0] && it->tile <= g_fx_tiles[i][1]) return 1;
+    return 0;
+}
+/* The item's pixels made ready for a LINEAR texture: premultiplied by alpha (no dark halo where a transparent texel meets an opaque one) in a
+ * buffer one transparent texel larger on every side (the sampler never reads what an earlier sprite left beside it). dst: (w+2)*(h+2)*4 bytes. */
+void sprite_pad_premul(const uint8_t *rgba, int w, int h, uint8_t *dst)
+{
+    const int dw = w + 2;
+    memset(dst, 0, (size_t)dw * (h + 2) * 4);
+    for (int y = 0; y < h; y++) {
+        const uint8_t *s = rgba + (size_t)y * w * 4; uint8_t *d = dst + ((size_t)(y + 1) * dw + 1) * 4;
+        for (int x = 0; x < w; x++, s += 4, d += 4) {
+            const unsigned a = s[3];
+            d[0] = (uint8_t)((s[0] * a + 127) / 255); d[1] = (uint8_t)((s[1] * a + 127) / 255); d[2] = (uint8_t)((s[2] * a + 127) / 255); d[3] = (uint8_t)a;
+        }
+    }
+}
 static uint32_t *live_spr, *live_vicsd;
 
 void sprite_free(sprite_state *st)
@@ -109,6 +143,7 @@ typedef struct {
     int fogfactor, fadefactor, alphafactor;
     int alpha_enabled, alpha_pen, prioverchar;
     int compose_alpha;
+    int smooth;                    /* bilinear instead of nearest when a tile is scaled (the effect sprites: see sprite_set_effect_tiles) */
     const uint8_t *fog_rgb, *fade_rgb;
 } tile_ctx;
 
@@ -162,6 +197,36 @@ static void draw_tile_dst(const tile_dst *dst, const uint8_t *pal,
             if (bx < 0 || bx >= dst->w) continue;
             int u = (int)((ox + 0.5) * 32.0 / ssw);
             int tu = flipx ? 31 - u : u;
+            if (c->smooth) {
+                /* BILINEAR (the effect sprites): the four tile texels around the pixel centre, weighted by their share of it. A transparent
+                 * texel weighs nothing (its colour never tints the opaque ones); a translucent one weighs its blend factor; what is left
+                 * of the weights is the pixel's alpha, so an edge fades out instead of cutting off. The pixel centre is the same one the
+                 * nearest path above uses. */
+                const float uf = ((float)ox + 0.5f) * 32.0f / (float)ssw - 0.5f, vf = ((float)oy + 0.5f) * 32.0f / (float)ssh - 0.5f;
+                const int u0 = (int)floorf(uf), v0 = (int)floorf(vf);
+                const float fu = uf - (float)u0, fv = vf - (float)v0;
+                float sa = 0.0f, sr = 0.0f, sg = 0.0f, sb = 0.0f;
+                for (int k = 0; k < 4; k++) {
+                    int tx = u0 + (k & 1), ty = v0 + (k >> 1);
+                    tx = tx < 0 ? 0 : tx > 31 ? 31 : tx; ty = ty < 0 ? 0 : ty > 31 ? 31 : ty;
+                    const float wgt = ((k & 1) ? fu : 1.0f - fu) * ((k >> 1) ? fv : 1.0f - fv);
+                    const uint8_t tp = tilep[(flipy ? 31 - ty : ty) * 32 + (flipx ? 31 - tx : tx)];
+                    if (tp == 0xFF || wgt <= 0.0f) continue;
+                    const int tix = (pal_base + tp) & 0x7FFF;
+                    uint8_t trgb[3] = { pal[tix], pal[0x8000 + tix], pal[0x10000 + tix] };
+                    if (c->fogfactor)  blend3(trgb, c->fog_rgb,  0xFF - c->fogfactor);
+                    if (c->fadefactor) blend3(trgb, c->fade_rgb, 0xFF - c->fadefactor);
+                    const int tl = (c->alphafactor != 0xFF && (c->alpha_enabled || tp == c->alpha_pen));
+                    const float wa = wgt * (tl ? (float)(c->alphafactor & 0xFF) / 255.0f : 1.0f);
+                    sa += wa; sr += wa * trgb[0]; sg += wa * trgb[1]; sb += wa * trgb[2];
+                }
+                if (sa < 0.004f) continue;
+                const int so = (by * dst->w + bx) * 4;
+                dst->rgba[so]     = (uint8_t)(sr / sa + 0.5f); dst->rgba[so + 1] = (uint8_t)(sg / sa + 0.5f); dst->rgba[so + 2] = (uint8_t)(sb / sa + 0.5f);
+                dst->rgba[so + 3] = (uint8_t)((sa > 1.0f ? 1.0f : sa) * 255.0f + 0.5f);
+                if (dst->prio) dst->prio[by * dst->w + bx] = (uint8_t)(2 | c->prioverchar);
+                continue;
+            }
             uint8_t pen = rowb[tu];
             if (pen == 0xFF) continue;             /* transparent */
             int idx = (pal_base + pen) & 0x7FFF;
@@ -384,6 +449,7 @@ void sprite_render_item(const sprite_state *st, const fog_state *fog,
     spr_decoded d;
     decode_sprite(st, fog, it->idx, &d, fr, fa);
     d.c.compose_alpha = compose_alpha;
+    d.c.smooth = compose_alpha && sprite_item_smooth(it);
     tile_dst dst = { rgba, NULL, it->x0, it->y0, it->w, it->h };
     const uint32_t *w = st->spr;
     int offset = 0;
@@ -468,7 +534,7 @@ void sprite_render_ex(const sprite_state *st, const fog_state *fog,
         c.alpha_enabled = (color & 0x7F) != fog->poly_alpha_color;
         c.alpha_pen = fog->poly_alpha_pen;
         c.prioverchar = prioverchar;
-        c.compose_alpha = compose_alpha;
+        c.compose_alpha = compose_alpha; c.smooth = 0;
         c.fog_rgb = fog_rgb; c.fade_rgb = fade_rgb;
 
         int pal_base = 256 * (color & 0x7F);
