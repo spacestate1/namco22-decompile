@@ -57,6 +57,7 @@ int      g_sprite_vics_count_in_list;
  * choice) makes sprite_render_item sample those tiles bilinearly instead -- only the tile ranges a game registered here, never the gauges, the
  * banners, the digits or any title. */
 int g_sprite_smooth;
+int g_sprite_smooth_fast;      /* 1: the smooth path resolves each tile's texels once (draw_tile_smooth) instead of per tap -- same pixels, much cheaper; set by the Super 22 compositor */
 static int g_fx_tiles[16][2], g_fx_n;
 void sprite_set_effect_tiles(const int (*ranges)[2], int n)
 {
@@ -163,6 +164,95 @@ static void draw_tile(uint8_t *rgba, uint8_t *prio, const uint8_t *pal,
     draw_tile_dst(&d, pal, pal_base, code, flipx, flipy, sx, sy, sizex, sizey, c);
 }
 
+/* The bilinear (effect sprite) draw of one tile, with the same arithmetic as the per-tap loop in draw_tile_dst below -- every pixel comes out identical -- but
+ * the work that does not depend on the pixel is done once: each of the tile's 1024 texels is looked up in the palette, fogged and faded ONCE (not four times per
+ * output pixel), the sample columns / rows and their weights are computed once per column / row, and a pixel whose four texels are all transparent (or a whole row
+ * of them) is skipped without the arithmetic. A big dust cloud is ~150 000 pixels; this is what keeps it cheap. */
+typedef struct { float a, r, g, b; uint8_t ok; } smooth_texel;
+static void draw_tile_smooth(const tile_dst *dst, const uint8_t *pal, int pal_base, const uint8_t *tilep, int flipx, int flipy,
+                             int x0, int y0, int ssw, int ssh, const tile_ctx *c)
+{
+    smooth_texel tx[32 * 32];
+    uint8_t rowany[32];
+    const float af = (float)(c->alphafactor & 0xFF) / 255.0f;
+    for (int ty = 0; ty < 32; ty++) {
+        rowany[ty] = 0;
+        for (int tcol = 0; tcol < 32; tcol++) {
+            smooth_texel *t = &tx[ty * 32 + tcol];
+            const uint8_t tp = tilep[(flipy ? 31 - ty : ty) * 32 + (flipx ? 31 - tcol : tcol)];
+            if (tp == 0xFF) { t->ok = 0; continue; }
+            const int tix = (pal_base + tp) & 0x7FFF;
+            uint8_t trgb[3] = { pal[tix], pal[0x8000 + tix], pal[0x10000 + tix] };
+            if (c->fogfactor)  blend3(trgb, c->fog_rgb,  0xFF - c->fogfactor);
+            if (c->fadefactor) blend3(trgb, c->fade_rgb, 0xFF - c->fadefactor);
+            const int tl = (c->alphafactor != 0xFF && (c->alpha_enabled || tp == c->alpha_pen));
+            t->ok = 1; t->a = tl ? af : 1.0f; t->r = trgb[0]; t->g = trgb[1]; t->b = trgb[2];
+            rowany[ty] = 1;
+        }
+    }
+    /* the sample columns and rows (clamped tile indices, weights) */
+    static int cap; static int *cu0, *cu1; static float *cwu0, *cwu1; static int *rv0, *rv1; static float *rwv0, *rwv1;
+    const int need = (ssw > ssh ? ssw : ssh) + 1;
+    if (need > cap) {
+        const int n = need + 256;
+        int *a = realloc(cu0, n * sizeof *a), *b = realloc(cu1, n * sizeof *b), *e = realloc(rv0, n * sizeof *e), *f = realloc(rv1, n * sizeof *f);
+        float *w0 = realloc(cwu0, n * sizeof *w0), *w1 = realloc(cwu1, n * sizeof *w1), *v0 = realloc(rwv0, n * sizeof *v0), *v1 = realloc(rwv1, n * sizeof *v1);
+        if (a) cu0 = a; if (b) cu1 = b; if (e) rv0 = e; if (f) rv1 = f; if (w0) cwu0 = w0; if (w1) cwu1 = w1; if (v0) rwv0 = v0; if (v1) rwv1 = v1;
+        if (!a || !b || !e || !f || !w0 || !w1 || !v0 || !v1) return;
+        cap = n;
+    }
+    for (int ox = 0; ox < ssw; ox++) {
+        const float uf = ((float)ox + 0.5f) * 32.0f / (float)ssw - 0.5f;
+        const int u0 = (int)floorf(uf); const float fu = uf - (float)u0;
+        int a = u0, b = u0 + 1; a = a < 0 ? 0 : a > 31 ? 31 : a; b = b < 0 ? 0 : b > 31 ? 31 : b;
+        cu0[ox] = a; cu1[ox] = b; cwu0[ox] = 1.0f - fu; cwu1[ox] = fu;
+    }
+    for (int oy = 0; oy < ssh; oy++) {
+        const float vf = ((float)oy + 0.5f) * 32.0f / (float)ssh - 0.5f;
+        const int v0 = (int)floorf(vf); const float fv = vf - (float)v0;
+        int a = v0, b = v0 + 1; a = a < 0 ? 0 : a > 31 ? 31 : a; b = b < 0 ? 0 : b > 31 ? 31 : b;
+        rv0[oy] = a; rv1[oy] = b; rwv0[oy] = 1.0f - fv; rwv1[oy] = fv;
+    }
+    for (int oy = 0; oy < ssh; oy++) {
+        const int py = y0 + oy;
+        if (py < 0 || py >= SPR_H || py < c->cyn || py > c->cyx) continue;
+        const int by = py - dst->oy;
+        if (by < 0 || by >= dst->h) continue;
+        const int ta = rv0[oy], tb = rv1[oy];
+        if (!rowany[ta] && !rowany[tb]) continue;                   /* four transparent texels under every pixel of the row */
+        const smooth_texel *ra = tx + ta * 32, *rb = tx + tb * 32;
+        const float wv0 = rwv0[oy], wv1 = rwv1[oy];
+        for (int ox = 0; ox < ssw; ox++) {
+            const int px = x0 + ox;
+            if (px < 0 || px >= SPR_W || px < c->cxn || px > c->cxx) continue;
+            const int bx = px - dst->ox;
+            if (bx < 0 || bx >= dst->w) continue;
+            const smooth_texel *t[4] = { ra + cu0[ox], ra + cu1[ox], rb + cu0[ox], rb + cu1[ox] };
+            if (!(t[0]->ok | t[1]->ok | t[2]->ok | t[3]->ok)) continue;
+            const float wu0 = cwu0[ox], wu1 = cwu1[ox];
+            const float wg[4] = { wu0 * wv0, wu1 * wv0, wu0 * wv1, wu1 * wv1 };
+            float sa = 0.0f, sr = 0.0f, sg = 0.0f, sb = 0.0f;
+            if (t[0]->ok & t[1]->ok & t[2]->ok & t[3]->ok) {         /* the inside of a puff: all four count (a zero weight adds +0.0f, the same as skipping it) */
+                const float w0 = wg[0] * t[0]->a, w1 = wg[1] * t[1]->a, w2 = wg[2] * t[2]->a, w3 = wg[3] * t[3]->a;
+                sa = w0 + w1 + w2 + w3;
+                sr = w0 * t[0]->r + w1 * t[1]->r + w2 * t[2]->r + w3 * t[3]->r;
+                sg = w0 * t[0]->g + w1 * t[1]->g + w2 * t[2]->g + w3 * t[3]->g;
+                sb = w0 * t[0]->b + w1 * t[1]->b + w2 * t[2]->b + w3 * t[3]->b;
+            } else
+            for (int k = 0; k < 4; k++) {
+                if (!t[k]->ok || wg[k] <= 0.0f) continue;
+                const float wa = wg[k] * t[k]->a;
+                sa += wa; sr += wa * t[k]->r; sg += wa * t[k]->g; sb += wa * t[k]->b;
+            }
+            if (sa < 0.004f) continue;
+            const int so = (by * dst->w + bx) * 4;
+            dst->rgba[so]     = (uint8_t)(sr / sa + 0.5f); dst->rgba[so + 1] = (uint8_t)(sg / sa + 0.5f); dst->rgba[so + 2] = (uint8_t)(sb / sa + 0.5f);
+            dst->rgba[so + 3] = (uint8_t)((sa > 1.0f ? 1.0f : sa) * 255.0f + 0.5f);
+            if (dst->prio) dst->prio[by * dst->w + bx] = (uint8_t)(2 | c->prioverchar);
+        }
+    }
+}
+
 static void draw_tile_dst(const tile_dst *dst, const uint8_t *pal,
                           int pal_base, uint32_t code, int flipx, int flipy,
                           int sx, int sy, int sizex, int sizey, const tile_ctx *c)
@@ -177,6 +267,8 @@ static void draw_tile_dst(const tile_dst *dst, const uint8_t *pal,
 
     int x0 = sizex > 0 ? sx : sx + sizex + 1;
     int y0 = sizey > 0 ? sy : sy + sizey + 1;
+
+    if (c->smooth && g_sprite_smooth_fast) { draw_tile_smooth(dst, pal, pal_base, tilep, flipx, flipy, x0, y0, ssw, ssh, c); return; }
 
     for (int oy = 0; oy < ssh; oy++) {
         int py = y0 + oy;

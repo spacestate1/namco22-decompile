@@ -105,6 +105,7 @@ void ss22_gl_set_effects(const int (*ranges)[2], int n)
 {
     if (!ranges || n <= 0) return;
     sprite_set_effect_tiles(ranges, n);
+    g_sprite_smooth_fast = 1;                 /* Prop Cycle (its own renderer) keeps the plain per-tap loop */
     g_eng_fx_known = 1;                       /* the menu shows its row */
 }
 
@@ -245,37 +246,70 @@ static void tex_alloc(GLuint *t)
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, SPR_W, SPR_H, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 }
 
-/* An effect sprite (Display > Effects): sprite_render_item has already sampled the 32x32 tiles bilinearly; the item is premultiplied into a texture one
- * transparent texel larger on every side and drawn LINEARLY, so what the stretched tiles show has no blocks. Only the sprites named in the game's fx table. */
-static GLuint spr_fx_tex;
+/* An effect sprite (Display > Effects): sprite_render_item has already sampled the 32x32 tiles bilinearly (engine/sprite_hw.c); what it made is premultiplied
+ * and drawn LINEARLY, so the stretched tiles show no blocks. Only the sprites named in the game's fx table come here. */
+/* Only the part of the item that has something in it is made, uploaded and drawn: a dust cloud's box is mostly empty, and a transparent texel adds nothing under the
+ * premultiplied blend, so the picture is the same as for the whole box (one transparent texel is kept round the content for the linear sampler). The textures take
+ * turns, so an upload never lands in one a draw of this frame may still be reading. */
+#define FX_TEX_N 4
+static GLuint spr_fx_tex[FX_TEX_N];
+static int spr_fx_next;
 static uint8_t *spr_fx_buf;
 static void draw_effect_sprite(const sprite_item *it)
 {
     const int TW = SPR_W + 2, TH = SPR_H + 2;
     if (!spr_fx_buf && !(spr_fx_buf = malloc((size_t)TW * TH * 4))) return;
-    sprite_pad_premul(spr_buf, it->w, it->h, spr_fx_buf);
-    if (!spr_fx_tex) {
-        glGenTextures(1, &spr_fx_tex);
-        glBindTexture(GL_TEXTURE_2D, spr_fx_tex);
+    const int w = it->w, h = it->h;
+    int bx0 = w, bx1 = -1, by0 = h, by1 = -1;                                /* the pixels with any alpha */
+    for (int y = 0; y < h; y++) {
+        const uint8_t *s = spr_buf + (size_t)y * w * 4 + 3;
+        int xa = -1, xb = -1;
+        for (int x = 0; x < w; x++) if (s[(size_t)x * 4]) { xa = x; break; }
+        if (xa < 0) continue;
+        for (int x = w - 1; x >= xa; x--) if (s[(size_t)x * 4]) { xb = x; break; }
+        if (xa < bx0) bx0 = xa;
+        if (xb > bx1) bx1 = xb;
+        if (y < by0) by0 = y;
+        by1 = y;
+    }
+    if (bx1 < 0) return;                                                     /* nothing in it: nothing to draw */
+    const int bw = bx1 - bx0 + 1, bh = by1 - by0 + 1, rw = bw + 2, rh = bh + 2;
+    for (int y = 0; y < rh; y++) {                                           /* premultiplied, a transparent texel all round */
+        uint8_t *d = spr_fx_buf + (size_t)y * rw * 4;
+        const int sy = by0 + y - 1;
+        if (sy < by0 || sy > by1) { memset(d, 0, (size_t)rw * 4); continue; }
+        d[0] = d[1] = d[2] = d[3] = 0;
+        const uint8_t *s = spr_buf + ((size_t)sy * w + bx0) * 4; d += 4;
+        for (int x = 0; x < bw; x++, s += 4, d += 4) {
+            const unsigned a = s[3];
+            d[0] = (uint8_t)((s[0] * a + 127) / 255); d[1] = (uint8_t)((s[1] * a + 127) / 255); d[2] = (uint8_t)((s[2] * a + 127) / 255); d[3] = (uint8_t)a;
+        }
+        d[0] = d[1] = d[2] = d[3] = 0;
+    }
+    GLuint *tp = &spr_fx_tex[spr_fx_next]; spr_fx_next = (spr_fx_next + 1) % FX_TEX_N;
+    if (!*tp) {
+        glGenTextures(1, tp);
+        glBindTexture(GL_TEXTURE_2D, *tp);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, TW, TH, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
-    } else glBindTexture(GL_TEXTURE_2D, spr_fx_tex);
-    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, it->w + 2, it->h + 2, GL_RGBA, GL_UNSIGNED_BYTE, spr_fx_buf);
-    const float u0 = 1.0f / TW, u1 = (float)(it->w + 1) / TW, v0 = 1.0f / TH, v1 = (float)(it->h + 1) / TH;
+    } else glBindTexture(GL_TEXTURE_2D, *tp);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, rw, rh, GL_RGBA, GL_UNSIGNED_BYTE, spr_fx_buf);
+    const float u0 = 1.0f / TW, u1 = (float)(bw + 1) / TW, v0 = 1.0f / TH, v1 = (float)(bh + 1) / TH;
     glEnable(GL_TEXTURE_2D);
     glDisable(GL_ALPHA_TEST);
     glEnable(GL_BLEND);
     glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
     glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
     const int dx = (g_eng_hud_e && hud_cfg && (int)(it->z & 0x1FFFFF) <= hud_cfg->sprite_zmax) ? eng_hud_dx(it->x0 + it->w / 2.0) : 0;
+    const float qx0 = (float)(it->x0 + bx0 + dx), qx1 = qx0 + (float)bw, qy0 = (float)(it->y0 + by0), qy1 = qy0 + (float)bh;
     glBegin(GL_QUADS);
-    glTexCoord2f(u0, v0); glVertex2f((float)(it->x0 + dx),          (float)it->y0);
-    glTexCoord2f(u1, v0); glVertex2f((float)(it->x0 + it->w + dx), (float)it->y0);
-    glTexCoord2f(u1, v1); glVertex2f((float)(it->x0 + it->w + dx), (float)(it->y0 + it->h));
-    glTexCoord2f(u0, v1); glVertex2f((float)(it->x0 + dx),          (float)(it->y0 + it->h));
+    glTexCoord2f(u0, v0); glVertex2f(qx0, qy0);
+    glTexCoord2f(u1, v0); glVertex2f(qx1, qy0);
+    glTexCoord2f(u1, v1); glVertex2f(qx1, qy1);
+    glTexCoord2f(u0, v1); glVertex2f(qx0, qy1);
     glEnd();
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glDisable(GL_BLEND);

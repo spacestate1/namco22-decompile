@@ -91,6 +91,7 @@ int  sprite_collect(const sprite_state *st, const fog_state *fog,
  * ranges (inclusive) of its effect art; g_sprite_smooth (the menu's choice, 0/1) switches it on. sprite_render_item then samples those tiles
  * bilinearly; a renderer draws such an item (sprite_item_smooth) from a LINEAR texture made by sprite_pad_premul, blended GL_ONE / GL_ONE_MINUS_SRC_ALPHA. */
 extern int g_sprite_smooth;
+extern int g_sprite_smooth_fast;   /* 1: resolve each tile's texels once for the smooth path (identical pixels, a fraction of the time); the Super 22 compositor sets it */
 void sprite_set_effect_tiles(const int (*ranges)[2], int n);
 int  sprite_effects_known(void);                       /* 1 once a game registered ranges: the menu offers the option */
 int  sprite_item_smooth(const sprite_item *it);
