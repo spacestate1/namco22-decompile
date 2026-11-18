@@ -87,7 +87,7 @@ static void disp_text(int r, char *l, size_t ln, char *v, size_t vn)
                     snprintf(v, vn, "%s", g_eng_disp.wide ? (g_eng_disp.wide_169 ? "16:9" : "Fill the window") : eng_disp_aspect_name(g_eng_disp.aspect)); break;
     case D_SCALING: snprintf(l, ln, "Scaling"); snprintf(v, vn, "%s", eng_disp_scaling_name(g_eng_disp.scaling)); break;
     case D_HUD:     snprintf(l, ln, "Widescreen HUD"); snprintf(v, vn, "%s", g_eng_disp.hud_edges ? "at the screen edges" : "original (4:3 centre)"); break;
-    case D_TEXF:    snprintf(l, ln, "3D texture filter"); snprintf(v, vn, "%s", g_eng_disp.tex_filter ? "Bilinear (3D only)" : "Off (arcade)"); break;
+    case D_TEXF:    snprintf(l, ln, "3D texture filter"); snprintf(v, vn, "%s", g_eng_disp.tex_filter == 2 ? "Sharp bilinear (3D only)" : g_eng_disp.tex_filter ? "Bilinear (3D only)" : "Off (arcade)"); break;
     case D_FX:      snprintf(l, ln, "Effects (dust, mud, spray)"); snprintf(v, vn, "%s", g_eng_disp.fx_filter ? "Smooth (2D effects only)" : "Off (arcade)"); break;
     case D_FPS:     snprintf(l, ln, "Frame rate"); snprintf(v, vn, "%s", eng_vsync_rate_name(g_eng_disp.fps)); break;
     case D_CROSS:   snprintf(l, ln, "Crosshair"); snprintf(v, vn, "%s", g_eng_disp.crosshair ? "ON" : "OFF"); break;
@@ -114,7 +114,7 @@ static void disp_change(int r, int dir)
     case D_HUD:     eng_disp_set_hud_edges(!g_eng_disp.hud_edges); break;
     case D_FX:      eng_disp_set_fx(!g_eng_disp.fx_filter); break;
     case D_FPS:     eng_disp_set_fps(eng_vsync_rate_step(g_eng_disp.fps, d)); break;
-    case D_TEXF:    eng_disp_set_texfilter(cyc(g_eng_disp.tex_filter, d, 2)); break;
+    case D_TEXF:    eng_disp_set_texfilter(cyc(g_eng_disp.tex_filter, d, 3)); break;
     case D_CROSS:   eng_disp_set_crosshair(!g_eng_disp.crosshair); break;
     case D_XIMG:    eng_xhair_step(d); break;
     }

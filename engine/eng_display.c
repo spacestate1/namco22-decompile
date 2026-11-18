@@ -160,8 +160,8 @@ void eng_disp_load(const char *cfg_path, int scale, bool fullscreen)
     if (d->gun_border < 0 || d->gun_border > 6) d->gun_border = 0;
     d->crosshair = eng_cfg_int("crosshair", 1) != 0;
     { const char *tf = eng_cfg_get("texture_filter");
-      /* off or bilinear only: a "trilinear" (or an anisotropy level) left in an older cfg is read as bilinear / ignored */
-      d->tex_filter = tf && (!strcmp(tf, "bilinear") || !strcmp(tf, "trilinear") || !strcmp(tf, "1") || !strcmp(tf, "2")) ? 1 : 0;
+      /* off, bilinear or sharp bilinear: a "trilinear" (or an anisotropy level) left in an older cfg is read as bilinear / ignored */
+      d->tex_filter = tf && (!strcmp(tf, "sharp") || !strcmp(tf, "2")) ? 2 : tf && (!strcmp(tf, "bilinear") || !strcmp(tf, "trilinear") || !strcmp(tf, "1")) ? 1 : 0;
       g_eng_tex_filter_setting = d->tex_filter; }
     { const char *fx = eng_cfg_get("effects_filter");
       d->fx_filter = fx && (!strncmp(fx, "on", 2) || atoi(fx) == 1);
@@ -227,9 +227,9 @@ void eng_disp_set_crosshair(int on)
 
 void eng_disp_set_texfilter(int mode)
 {
-    g_eng_disp.tex_filter = mode < 0 ? 0 : mode > 1 ? 1 : mode;
+    g_eng_disp.tex_filter = mode < 0 ? 0 : mode > 2 ? 2 : mode;
     g_eng_tex_filter_setting = g_eng_disp.tex_filter;
-    eng_cfg_set("texture_filter", g_eng_disp.tex_filter ? "bilinear" : "off");
+    eng_cfg_set("texture_filter", g_eng_disp.tex_filter == 2 ? "sharp" : g_eng_disp.tex_filter ? "bilinear" : "off");
 }
 
 void eng_disp_set_fx(int on)

@@ -148,7 +148,7 @@ static void row_text(int t, int r, char *label, size_t ln, char *value, size_t v
                         snprintf(value, vn, "%s", g_cfg_wide ? (g_cfg_wide_169 ? "16:9" : "Fill the window") : asp[g_cfg_aspect]); break;
         case D_SCALING: snprintf(label, ln, "Scaling"); snprintf(value, vn, "%s", sc[g_cfg_scaling]); break;
         case D_TEXF:    snprintf(label, ln, "3D texture filter");
-                        snprintf(value, vn, "%s", g_cfg_texfilter ? "Bilinear (3D only)" : "Off (arcade)");
+                        snprintf(value, vn, "%s", g_cfg_texfilter == 2 ? "Sharp bilinear (3D only)" : g_cfg_texfilter ? "Bilinear (3D only)" : "Off (arcade)");
                         break;
         case D_FPS:     snprintf(label, ln, "Frame rate"); snprintf(value, vn, "%s", eng_vsync_rate_name(g_cfg_fps)); break;
         case D_HUD:     { extern int g_eng_hud_edges_on; snprintf(label, ln, "Widescreen HUD"); snprintf(value, vn, "%s", g_eng_hud_edges_on ? "at the screen edges" : "original (4:3 centre)"); break; }
@@ -283,7 +283,7 @@ static void row_change(int t, int r, int dir)
             break; }
         case D_ASPECT:  if (g_cfg_wide) rr_host_set_wide_169(!g_cfg_wide_169); else rr_host_set_aspect(cyc(g_cfg_aspect, d, 4)); break;
         case D_SCALING: rr_host_set_scaling(cyc(g_cfg_scaling, d, 3)); break;
-        case D_TEXF:    rr_host_set_texfilter(cyc(g_cfg_texfilter, d, 2)); break;
+        case D_TEXF:    rr_host_set_texfilter(cyc(g_cfg_texfilter, d, 3)); break;
         case D_HUD:     { extern int g_eng_hud_edges_on; rr_host_set_hud_edges(!g_eng_hud_edges_on); break; }
         case D_FPS:     { extern void rr_host_set_fps(int); rr_host_set_fps(eng_vsync_rate_step(g_cfg_fps, d)); break; }
         }

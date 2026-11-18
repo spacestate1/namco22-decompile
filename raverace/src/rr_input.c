@@ -38,7 +38,7 @@ int g_cfg_fullscreen = 0, g_cfg_scale = 2, g_cfg_scaling = 0;
  * widescreen; and the picture aspect when widescreen is off (0 stretch, 1 4:3,
  * 2 8:7, 3 16:9) */
 int g_cfg_draw = 0;          /* draw distance level 0..3 (rr_host_set_draw) */
-int g_cfg_texfilter = 0;     /* 3D polygon texture filter: 0 off (the board's NEAREST), 1 bilinear; never the HUD, text or sprite layers (rr_host_set_texfilter) */
+int g_cfg_texfilter = 0;     /* 3D polygon texture filter: 0 off (the board's NEAREST), 1 bilinear, 2 sharp bilinear; never the HUD, text or sprite layers (rr_host_set_texfilter) */
 int g_cfg_wide_169;                  /* widescreen's shape: 0 the window's (default), 1 16:9 (saved as wide_aspect) */
 int g_cfg_fps;                       /* Display > Frame rate: pictures a second, 0 = Auto, the default (engine/eng_vsync.h) */
 int g_cfg_winmode = -1, g_cfg_res_w = 640, g_cfg_res_h = 480, g_cfg_wide = 0, g_cfg_aspect = 1;   /* scaling: 0 smooth, 1 sharp, 2 integer */            /* free_play = 0|1 in rr_controls.cfg; -1 = not set */
@@ -136,7 +136,7 @@ static void load_kv(const char *path, char *k, char *v)
     if (!strcmp(k, "wide_aspect")) { g_cfg_wide_169 = !strcmp(v, "16:9"); return; }
     if (!strcmp(k, "widescreen")) { g_cfg_wide = atoi(v) ? 1 : 0; return; }
     if (!strcmp(k, "wide_hud")) { extern int g_eng_hud_edges_on; g_eng_hud_edges_on = atoi(v) ? 1 : 0; return; }
-    if (!strcmp(k, "texture_filter")) { g_cfg_texfilter = (!strcmp(v, "bilinear") || !strcmp(v, "trilinear") || !strcmp(v, "1") || !strcmp(v, "2")) ? 1 : 0; return; }   /* (an old "trilinear" now means bilinear) */
+    if (!strcmp(k, "texture_filter")) { g_cfg_texfilter = (!strcmp(v, "sharp") || !strcmp(v, "2")) ? 2 : (!strcmp(v, "bilinear") || !strcmp(v, "trilinear") || !strcmp(v, "1")) ? 1 : 0; return; }   /* (an old "trilinear" now means bilinear) */
     if (!strcmp(k, "draw_distance")) {
         g_cfg_draw = !strcmp(v, "far") ? 1 : !strcmp(v, "farther") ? 2 : !strcmp(v, "maximum") ? 3 : 0;
         return; }
@@ -239,7 +239,7 @@ bool rr_input_write(const char *path)
                "resolution = 640x480  # render size: 640x480 (the board) | native (window) | WxH\n"
                "widescreen = 0      # 1: fill a wide window with more track at the sides\n"
                "draw_distance = original  # original | far | farther | maximum: track pieces drawn ahead\n"
-               "texture_filter = off  # off | bilinear: smooth the 3D polygon textures (the HUD, text and sprites stay sharp)\n"
+               "texture_filter = off  # off | bilinear | sharp: smooth the 3D polygon textures; sharp keeps the texels solid and smooths only their edges (the HUD, text and sprites stay as they are)\n"
                "aspect = 4:3        # widescreen off: stretch | 4:3 | 8:7 | 16:9\n"
                "scaling = smooth    # smooth | sharp | integer\nvolume = 100        # master volume, percent\n"
                "ffb_strength = 100  # the steering motor on a force-feedback wheel, percent (0 = off)\n"

@@ -743,10 +743,10 @@ void tex_bake_set_layout(int mips)
  * board's bake) each baked texel is the mean of its block instead -- a pre-filtered texture at the size the quad has on screen, what
  * a mip level would give, with no mips, no extra memory and no extra texture work on the GPU. Switching the filter re-bakes
  * everything once (the cache would otherwise hand back the other kind). */
-static int g_bake_filtered;
+static int g_bake_filtered;               /* 0 off, 1 bilinear, 2 sharp bilinear */
 void tex_bake_set_filtered(int on)
 {
-    on = on ? 1 : 0;
+    on = on < 0 ? 0 : on > 2 ? 2 : on;
     if (on == g_bake_filtered || !atlas_on()) return;
     atlas_drop_all();
     g_bake_filtered = on;
@@ -1037,6 +1037,18 @@ static GLuint bake_impl(int min_u, int min_v, int range_u, int range_v,
         aw = (bw + 2 * moff + TEX_MIPM - 1) & ~(TEX_MIPM - 1);
         ah = (bh + 2 * moff + TEX_MIPM - 1) & ~(TEX_MIPM - 1);
     }
+    /* FILTERED BAKES (tex_bake_set_filtered), in the plain layout:
+     *  - DECIMATED (step > 1): a vertex on the first source texel samples (0.5 / step) baked texels, less than half a texel from the
+     *    slot's near edge, so the filter mixed in the texel before the slot -- ANOTHER texture's -- and drew coloured, jagged lines
+     *    along those quads' edges (the road strips). The slot gets a guard column and row on the near side too, a copy of its first
+     *    column and row (what clamping a texture of its own would give). The texture coordinates are unchanged, so nothing shifts.
+     *  - SHARP BILINEAR, a quad baked one-to-one (step 1, up to 512 texels): every texel is baked as a 2 x 2 block. The bilinear
+     *    filter then mixes two texels only across HALF a texel at their border: texels stay solid, their edges smooth. */
+    int up = 1, ng = 0;
+    if (g_bake_filtered && atlas_on() && !atlas_mips()) {
+        if (step_u > 1 || step_v > 1) { ng = 1; moff = 1; aw = bw + 1; ah = bh + 1; }
+        else if (g_bake_filtered == 2 && bw <= 513 && bh <= 513) { up = 2; aw = 2 * bw; ah = 2 * bh; }
+    }
     g_bake_texels += (double)bw * bh;
     /* THE HOT LOOP OF THE WHOLE RENDERER. Measured over a 3600-frame run:
      * 1046 MILLION texels baked, 14.0 s of a 17.8 s flush -- and in gameplay
@@ -1169,6 +1181,24 @@ static GLuint bake_impl(int min_u, int min_v, int range_u, int range_v,
             }
         }
     }
+    if ((ng || up > 1) && apages[slot_page].shadow) {
+        uint8_t *org = apages[slot_page].shadow + ((size_t)slot_y * ATLAS_DIM + slot_x) * 4;   /* the slot's corner */
+        const long st = (long)ATLAS_DIM * 4;
+        if (ng) {                                   /* the near guard: column 0 <- column 1, then row 0 <- row 1 (corner included) */
+            for (int py = 1; py < ah; py++) memcpy(org + (size_t)py * st, org + (size_t)py * st + 4, 4);
+            memcpy(org, org + st, (size_t)aw * 4);
+        } else {                                    /* 2 x 2 blocks, backwards: a block is never written over a texel still to be read */
+            for (int py = bh - 1; py >= 0; py--) {
+                const uint8_t *srow = org + (size_t)py * st;
+                uint8_t *d0 = org + (size_t)(2 * py) * st, *d1 = d0 + st;
+                for (int px = bw - 1; px >= 0; px--) {
+                    uint32_t t; memcpy(&t, srow + px * 4, 4);
+                    memcpy(d0 + px * 8, &t, 4); memcpy(d0 + px * 8 + 4, &t, 4);
+                }
+                memcpy(d1, d0, (size_t)bw * 8);     /* the block's second row: the first one again */
+            }
+        }
+    }
     if (atlas_mips() && apages[slot_page].shadow) {
         /* the block's margin: a copy of the nearest edge texel of the slot (guard texel included), left and right, then top and bottom rows */
         uint8_t *org = apages[slot_page].shadow + ((size_t)slot_y * ATLAS_DIM + slot_x) * 4;   /* the block's corner */
@@ -1208,8 +1238,8 @@ static GLuint bake_impl(int min_u, int min_v, int range_u, int range_v,
         tex = apages[slot_page].tex;
         /* texel d/step of the bake sits at slot texel d/step: normalized, that
          * is ou + ((u-bmin)+cu)/brange * range/(step*DIM) */
-        su = (float)range_u / (float)(step_u * ATLAS_DIM);
-        sv = (float)range_v / (float)(step_v * ATLAS_DIM);
+        su = (float)(range_u * up) / (float)(step_u * ATLAS_DIM);
+        sv = (float)(range_v * up) / (float)(step_v * ATLAS_DIM);
         if (out_su) *out_su = su;
         if (out_sv) *out_sv = sv;
         if (out_ou) *out_ou = (float)(slot_x + moff) / ATLAS_DIM;

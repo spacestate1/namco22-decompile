@@ -2036,8 +2036,8 @@ static void geohw_flush(void)
     int qi = 0, si = 0;
     /* the optional 3D texture filter (Display > 3D texture filter, texture_filter in the cfg; ENG_TEX_FILTER=0|1 wins for a run) */
     { static int ef = -2; extern int g_eng_tex_filter, g_eng_tex_filter_setting, g_eng_tex_aniso; extern void tex_bake_set_filtered(int); /* engine/tex_bake.h (not included: this file has its own texture_pen_lookup) */
-      if (ef == -2) { const char *e = getenv("ENG_TEX_FILTER"); ef = e && *e ? (atoi(e) != 0) : -1; }
-      g_eng_tex_filter = ef >= 0 ? ef : (g_eng_tex_filter_setting ? 1 : 0);             /* 0 off, 1 bilinear: no mips, no anisotropy */
+      if (ef == -2) { const char *e = getenv("ENG_TEX_FILTER"); ef = e && *e ? atoi(e) : -1; if (ef > 2) ef = 2; }
+      g_eng_tex_filter = ef >= 0 ? ef : (g_eng_tex_filter_setting < 0 ? 0 : g_eng_tex_filter_setting > 2 ? 2 : g_eng_tex_filter_setting);   /* 0 off, 1 bilinear, 2 sharp bilinear: no mips, no anisotropy */
       g_eng_tex_aniso = 0;
       tex_bake_set_filtered(g_eng_tex_filter); }                                         /* bakes made for filtering (a no-op while unchanged) */
     { /* the effect sprites' smoothing (Display > Effects filter, effects_filter in the cfg; ENG_FX_FILTER=0|1 wins for a run): dust, mud and spray only,

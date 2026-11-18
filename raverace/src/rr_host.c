@@ -191,8 +191,8 @@ void rr_host_set_draw(int level)
  * polygons that are the HUD (rr_gl.c) and the text, sprite and tilemap layers are never filtered. ENG_TEX_FILTER=0|1 overrides for a run. */
 void rr_host_set_texfilter(int mode)
 {
-    g_cfg_texfilter = mode < 0 ? 0 : mode > 1 ? 1 : mode;
-    const char *n = g_cfg_texfilter == 1 ? "bilinear" : "off";
+    g_cfg_texfilter = mode < 0 ? 0 : mode > 2 ? 2 : mode;
+    const char *n = g_cfg_texfilter == 2 ? "sharp" : g_cfg_texfilter == 1 ? "bilinear" : "off";
     save_opt("texture_filter", n);
     fprintf(stderr, "[HOST] 3D texture filter: %s\n", n);
 }

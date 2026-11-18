@@ -96,7 +96,7 @@ int ui_controls_save(void) {
     fprintf(f, "resolution=%dx%d\n", want_w, want_h);
     fprintf(f, "frame_rate=%d\n", g_ui_fps);
     { extern int g_eng_tex_filter_setting;
-      fprintf(f, "texture_filter=%s\n", g_eng_tex_filter_setting ? "bilinear" : "off"); }
+      fprintf(f, "texture_filter=%s\n", g_eng_tex_filter_setting == 2 ? "sharp" : g_eng_tex_filter_setting ? "bilinear" : "off"); }
     { extern int g_sprite_smooth; fprintf(f, "effects_filter=%s\n", g_sprite_smooth ? "on" : "off"); }
     { extern void input_joy_cfg_save(FILE *); input_joy_cfg_save(f); }
     fclose(f);
@@ -113,8 +113,8 @@ static void load_setting(char *line, char *eq) {
     if (!strcmp(line, "aspect")) { int a = atoi(eq + 1); if (a >= 0 && a < naspect()) cur_aspect = a;
                                    else if (a == naspect()) widescreen = 1;   /* the old list's last entry */
                                    display_cfg = 1; return; }
-    if (!strcmp(line, "texture_filter")) { extern int g_eng_tex_filter_setting; const char *v = eq + 1;   /* off | bilinear: the 3D polygons only (engine/tex_bake.h); an old "trilinear" reads as bilinear */
-                                           g_eng_tex_filter_setting = (!strncmp(v, "bilinear", 8) || !strncmp(v, "trilinear", 9) || atoi(v) == 1 || atoi(v) == 2) ? 1 : 0; return; }
+    if (!strcmp(line, "texture_filter")) { extern int g_eng_tex_filter_setting; const char *v = eq + 1;   /* off | bilinear | sharp: the 3D polygons only (engine/tex_bake.h); an old "trilinear" reads as bilinear */
+                                           g_eng_tex_filter_setting = (!strncmp(v, "sharp", 5) || atoi(v) == 2) ? 2 : (!strncmp(v, "bilinear", 8) || !strncmp(v, "trilinear", 9) || atoi(v) == 1) ? 1 : 0; return; }
     if (!strcmp(line, "effects_filter")) { extern int g_sprite_smooth; const char *v = eq + 1;   /* off | on: the dust / mud / spray sprites (engine/sprite_hw.h) */
                                            g_sprite_smooth = !strncmp(v, "on", 2) || atoi(v) == 1; return; }
     if (!strcmp(line, "frame_rate")) { g_ui_fps = eng_vsync_rate_valid(atoi(eq + 1)); return; }
@@ -591,13 +591,13 @@ void ui_draw(SDL_Window *win, bool *quit) {
             nk_layout_row_push(ctx, 30);
             if (nk_button_label(ctx, ">")) { g_ui_fps = eng_vsync_rate_step(g_ui_fps, +1); changed = true; }
             nk_layout_row_end(ctx);
-            /* 3D texture filter: off is the board's own NEAREST; bilinear smooths the 3D polygons only (the HUD, text and sprites stay sharp) */
+            /* 3D texture filter: off is the board's own NEAREST; bilinear / sharp bilinear smooth the 3D polygons only (the HUD, text and sprites stay sharp) */
             { extern int g_eng_tex_filter_setting;
-              static const char *const tfl[2] = { "Off", "Bilinear" };
+              static const char *const tfl[3] = { "Off", "Bilinear", "Sharp" };
               nk_layout_row_dynamic(ctx, 18, 1);
               nk_label(ctx, "3D texture filter (3D only; Off = arcade)", NK_TEXT_LEFT);
-              nk_layout_row_dynamic(ctx, 22, 2);
-              for (int i = 0; i < 2; i++)
+              nk_layout_row_dynamic(ctx, 22, 3);
+              for (int i = 0; i < 3; i++)
                   if (nk_option_label(ctx, tfl[i], g_eng_tex_filter_setting == i) && g_eng_tex_filter_setting != i) { g_eng_tex_filter_setting = i; changed = true; }
             }
             { extern int g_sprite_smooth;                       /* the effect sprites only: dust, mud, spray -- never the gauges, banners, digits or titles */
