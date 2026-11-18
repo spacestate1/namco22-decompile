@@ -55,6 +55,8 @@ const tc2_game_t tc2_game = {
     .zip_help = "MAME's crszone.zip (Crisis Zone, World CSZO4 Ver. B)",
     .zips = zips, .nzips = 2, .chips = chips, .nchips = (int)(sizeof chips / sizeof chips[0]),
     .evo2 = 1,
+    .beam_wait_lo = 0x801F76F0u, .beam_wait_hi = 0x801F772Cu,   /* the zone select's "read the counter until two reads agree": called only by the
+                                                                  * two ticker waits (0x801A3F54, 0x801A40A4), which loop on it for most of a frame */
     .clock = 203212800u,                          /* BUSCLOCK * 6 */
     .px_num = 500, .px_den = 3969,                /* 25.6 MHz / 203.2128 MHz */
     .sub_div = 12,                                /* 16.9344 MHz */

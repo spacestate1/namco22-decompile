@@ -56,6 +56,8 @@ typedef struct {
                                                    * Crisis Zone 0: with "exact" its hotel scene (frame 2280) loses the sky (the background colour shows where
                                                    * coverage proves the sky polygons drawn) and gains black bands top and bottom -- cause not found yet (NOT
                                                    * transparent texels: System 23 has none, only the stencil, which the pre-pass honours) */
+    uint32_t beam_wait_lo, beam_wait_hi;          /* 0, or the game's routine that does nothing but wait on the beam counter (0x0682000A): its
+                                                   * reads are fast-forwarded to the next line (src/tc2_screen.c poll_skip). Crisis Zone's ticker wait */
     uint16_t c417_status;                         /* the C417 status read's fixed bits (MAME: System 23 0x008E; crszone_state::c417_status_r 0) | test mode << 15 */
     uint16_t gun_x0, gun_xw, gun_y0, gun_yh;      /* the light gun's port range (MAME JVS_SCREEN_POSITION_INPUT_X1/Y1 PORT_MINMAX): first value + width */
     uint8_t io_6001_held;                         /* bits of the I/O board's 0x6001 that read as PRESSED always (MAME namco_tss_io_device::in_r: bit 3 =
