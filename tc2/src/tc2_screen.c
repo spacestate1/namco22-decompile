@@ -23,6 +23,13 @@
 #define FRAME_PIX  (814ull * 525ull)
 #define VBL_LINE   480ull
 #define NEVER      UINT64_MAX
+/* THE BEAM COUNTER ON EVOLUTION 2 (0x0682000A; Crisis Zone): a plain line count, 0 where the PICTURE enters vblank -- not System 23's
+ * MAME format (line * 2 | vblank), which Time Crisis 2 checks against its raster interrupt's line. Crisis Zone's zone select resets the
+ * text layer's x scroll at vblank and waits for the count to reach row * 16 + 45 (the ticker's first line: 45 = the vblank's lines) to
+ * scroll only the ticker; its other waits stop at 518..520 (just before vblank). In MAME's format every one of them was already met
+ * in vblank: the ticker's scroll went to the whole layer (the header, the zone names and the timer slid with it). The picture runs 8
+ * lines behind our beam line (MAME's row scroll offsets, tc2_text_scroll), hence 480 - 8 */
+#define EVO2_VPOS_ZERO 472u
 
 static uint64_t cyc;                         /* CPU cycles up to the last tc2_screen_advance */
 static uint64_t off_pix;                     /* the pixel clock at cycle 0 (power-on: 0; a snapshot: the start of vblank) */
@@ -128,7 +135,7 @@ int tc2_screen_read(uint32_t p, int size, uint32_t *v)
 {
     if (size != 2) return 0;
     int vb;
-    if (p == 0x0682000Au) { const uint32_t l = vpos_now(&vb); cause(TC2_SRC_C361, 0); *v = (l * 2) | (uint32_t)vb;
+    if (p == 0x0682000Au) { const uint32_t l = vpos_now(&vb); cause(TC2_SRC_C361, 0); *v = tc2_game.evo2 ? (l + 525u - EVO2_VPOS_ZERO) % 525u : (l * 2) | (uint32_t)vb;
         { static int lg = -1; static uint32_t fr = ~0u; if (lg < 0) lg = getenv("TC2_VPLOG") != NULL;   /* $TC2_VPLOG: the line of each frame's first beam read */
           extern uint32_t rr_frame; if (lg && rr_frame != fr) { fr = rr_frame; fprintf(stderr, "[VP] %u %u\n", rr_frame, l); } }
         return 1; }
