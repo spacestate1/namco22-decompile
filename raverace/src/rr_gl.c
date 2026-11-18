@@ -462,7 +462,8 @@ void rr_gl_draw(int vw, int vh)
     { static int ef = -2;                                                  /* the 3D texture filter is off (the board's NEAREST) or bilinear: no mips, no anisotropy */
       if (ef == -2) { const char *e = getenv("ENG_TEX_FILTER"); ef = e && *e ? (atoi(e) != 0) : -1; }
       g_eng_tex_filter = ef >= 0 ? ef : (g_cfg_texfilter ? 1 : 0);         /* env first (A/B), then the setting */
-      g_eng_tex_aniso = 0; }
+      g_eng_tex_aniso = 0;
+      tex_bake_set_filtered(g_eng_tex_filter); }                           /* bakes made for filtering (a no-op while unchanged) */
     { static int last = -1;
       if (g_eng_tex_filter != last) { last = g_eng_tex_filter; fprintf(stderr, "[TEX] 3D texture filter: %s\n", last ? "bilinear" : "off"); } }
     dc.nofilter_quad = eng_hud_quad_piece;

@@ -550,17 +550,18 @@ void tex_bake_set_filter(GLuint tex, int mode)
     mode = mode < 0 ? 0 : mode > 2 ? 2 : mode;
     int an = 0;
     if (mode == 2 && atlas_mips() && g_eng_tex_aniso >= 2) { float mx = aniso_max_get(); an = (int)(g_eng_tex_aniso < mx ? g_eng_tex_aniso : mx); if (an < 2) an = 0; }
-    int code = mode | (an << 4);
+    int code = mode | (an << 4), had_an = 1;      /* (a texture this file does not track: assume it may carry an anisotropy) */
     for (int i = 0; i < ap_n; i++)
         if (apages[i].tex == tex) {
             if (apages[i].filt == code) return;
+            had_an = apages[i].filt >> 4;
             apages[i].filt = code;
             break;
         }
     if (mode == 2 && !atlas_mips()) mode = 1;      /* no mips on this page (layout switching): the plain bilinear */
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, mode == 2 ? GL_LINEAR_MIPMAP_LINEAR : mode ? GL_LINEAR : GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, mode ? GL_LINEAR : GL_NEAREST);
-    if (aniso_max_get() > 0.0f) glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, an >= 2 ? (float)an : 1.0f);
+    if ((an >= 2 || had_an) && aniso_max_get() > 0.0f) glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, an >= 2 ? (float)an : 1.0f);   /* only when an anisotropy is set or taken off: off / bilinear never touch it */
 }
 
 /* evict every cache entry living on page p (a page reset) */
@@ -712,10 +713,8 @@ static void atlas_page_reset(int p)
 /* Switch the atlas between the plain slots (filter off / bilinear) and the block-aligned mip layout (trilinear). Every page is dropped
  * and every cache entry on one evicted (they re-bake on demand), then page 0 is made so the white slot exists at once. Call it between
  * frames, before a draw pass starts (quad_gl's pending batch is drawn first through the flush hook, as a page reset does). */
-void tex_bake_set_layout(int mips)
+static void atlas_drop_all(void)
 {
-    mips = mips ? 1 : 0;
-    if (mips == g_mip_layout || !atlas_on()) return;
     for (int i = 0; i < ap_n; i++) {
         tex_bake_commit(apages[i].tex);
         if (atlas_flush_hook) atlas_flush_hook(apages[i].tex);
@@ -726,8 +725,31 @@ void tex_bake_set_layout(int mips)
     }
     for (int i = 0; i < ap_n; i++) { glDeleteTextures(1, &apages[i].tex); free(apages[i].shadow); apages[i].shadow = NULL; apages[i].tex = 0; }
     ap_n = 0; ap_reset_hand = 0;
+}
+void tex_bake_set_layout(int mips)
+{
+    mips = mips ? 1 : 0;
+    if (mips == g_mip_layout || !atlas_on()) return;
+    atlas_drop_all();
     g_mip_layout = mips;
     fprintf(stderr, "[TEX] atlas layout: %s\n", mips ? "mip blocks (trilinear)" : "plain slots");
+    if (ap_n < atlas_maxp) atlas_page_init(ap_n++);
+}
+
+/* BAKES FOR THE BILINEAR FILTER. A quad whose uv range is over the bake cap (a wide road strip, a long banner, a tall sign: 300 to
+ * 1300 texels, baked at 256 / 512 / 1024 by its on-screen size) is DECIMATED: one source texel kept per step x step block. NEAREST
+ * shows that as the board would (the reference samples one texel per pixel too), but the bilinear filter then smooths an irregular
+ * pick: thin lines and lettering break up and crawl as the quad moves. With the filter on (only then: off stays byte for byte the
+ * board's bake) each baked texel is the mean of its block instead -- a pre-filtered texture at the size the quad has on screen, what
+ * a mip level would give, with no mips, no extra memory and no extra texture work on the GPU. Switching the filter re-bakes
+ * everything once (the cache would otherwise hand back the other kind). */
+static int g_bake_filtered;
+void tex_bake_set_filtered(int on)
+{
+    on = on ? 1 : 0;
+    if (on == g_bake_filtered || !atlas_on()) return;
+    atlas_drop_all();
+    g_bake_filtered = on;
     if (ap_n < atlas_maxp) atlas_page_init(ap_n++);
 }
 
@@ -1122,8 +1144,8 @@ static GLuint bake_impl(int min_u, int min_v, int range_u, int range_v,
             dst += 4;
         }
     }
-    if (atlas_mips() && (step_u > 1 || step_v > 1)) {
-        /* TRILINEAR + decimated (a quad whose uv range is over the cap): every baked texel is the MEAN of the step_u x step_v block of
+    if ((atlas_mips() || g_bake_filtered) && (step_u > 1 || step_v > 1)) {
+        /* FILTERED (bilinear, trilinear) + decimated (a quad whose uv range is over the cap): every baked texel is the MEAN of the step_u x step_v block of
          * source texels it stands for -- alpha-weighted, like the mips -- instead of the one at the block's corner. The texel-centre
          * mapping (u-min+0.5)/step puts a baked texel's centre on the middle of that block, so this is also where it belongs. */
         const int nu = step_u < 3 ? step_u : 3, nv = step_v < 3 ? step_v : 3;   /* exact for steps up to 3; a wider block is sampled 3 x 3 (each lookup walks the tile map) */

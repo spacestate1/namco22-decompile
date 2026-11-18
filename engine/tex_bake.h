@@ -33,6 +33,7 @@ extern int g_eng_fx_filter_setting; /* the saved "Effects filter" choice (0 off,
 extern int g_eng_fx_known;          /* 1 once the running game has told the compositor which sprite tiles are such effects (the Display menu shows the row only then) */
 extern int g_eng_tex_aniso;         /* the level a draw pass uses: set from the setting, clamped by the GPU's maximum */
 int  tex_bake_aniso_max(void);      /* the GPU's maximum anisotropy, 0 when it offers none (needs a GL context) */
+void tex_bake_set_filtered(int on); /* 1 while the 3D texture filter is on: decimated bakes are box-filtered (the mean of each block); a change re-bakes everything; call before a draw pass */
 void tex_bake_set_layout(int mips); /* 1: the block-aligned mip layout the trilinear filter needs (re-bakes everything), 0: the plain slots; call before a draw pass */
 void tex_bake_set_filter(GLuint tex, int mode);   /* set the BOUND texture's filter: 0 NEAREST, 1 bilinear, 2 trilinear (+ g_eng_tex_aniso); tracked per atlas page */
 
