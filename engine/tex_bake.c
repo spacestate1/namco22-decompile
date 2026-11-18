@@ -1038,16 +1038,19 @@ static GLuint bake_impl(int min_u, int min_v, int range_u, int range_v,
         ah = (bh + 2 * moff + TEX_MIPM - 1) & ~(TEX_MIPM - 1);
     }
     /* FILTERED BAKES (tex_bake_set_filtered), in the plain layout:
-     *  - DECIMATED (step > 1): a vertex on the first source texel samples (0.5 / step) baked texels, less than half a texel from the
-     *    slot's near edge, so the filter mixed in the texel before the slot -- ANOTHER texture's -- and drew coloured, jagged lines
-     *    along those quads' edges (the road strips). The slot gets a guard column and row on the near side too, a copy of its first
-     *    column and row (what clamping a texture of its own would give). The texture coordinates are unchanged, so nothing shifts.
+     *  - A BORDER ROUND EVERY SLOT. The slots sit side by side in the atlas, and a filtered sample on a quad's edge reaches the texel
+     *    past it, by as little as the rasteriser's rounding (a pixel centre a hair outside the polygon) and by up to half a texel on a
+     *    decimated quad (its first source texel is (0.5 / step) baked texels from the slot's edge). That texel is ANOTHER texture's:
+     *    a few percent of a bright texel on a dark surface drew the coloured dashes and jagged lines along the quads' edges (the far
+     *    ceilings of the tunnels, the road), worse the more pixels an edge has (4K). NEAREST never shows it (it needs a whole half
+     *    texel). Every filtered slot now has a one-texel border all round, a copy of its edge texels (what clamping a texture of its
+     *    own would give), so a sample past the edge finds the quad's own colour. The texture coordinates are unchanged: nothing shifts.
      *  - SHARP BILINEAR, a quad baked one-to-one (step 1, up to 512 texels): every texel is baked as a 2 x 2 block. The bilinear
      *    filter then mixes two texels only across HALF a texel at their border: texels stay solid, their edges smooth. */
-    int up = 1, ng = 0;
+    int up = 1, bord = 0;
     if (g_bake_filtered && atlas_on() && !atlas_mips()) {
-        if (step_u > 1 || step_v > 1) { ng = 1; moff = 1; aw = bw + 1; ah = bh + 1; }
-        else if (g_bake_filtered == 2 && bw <= 513 && bh <= 513) { up = 2; aw = 2 * bw; ah = 2 * bh; }
+        if (g_bake_filtered == 2 && step_u == 1 && step_v == 1 && bw <= 513 && bh <= 513) up = 2;
+        bord = 1; moff = 1; aw = bw * up + 2; ah = bh * up + 2;
     }
     g_bake_texels += (double)bw * bh;
     /* THE HOT LOOP OF THE WHOLE RENDERER. Measured over a 3600-frame run:
@@ -1181,23 +1184,26 @@ static GLuint bake_impl(int min_u, int min_v, int range_u, int range_v,
             }
         }
     }
-    if ((ng || up > 1) && apages[slot_page].shadow) {
-        uint8_t *org = apages[slot_page].shadow + ((size_t)slot_y * ATLAS_DIM + slot_x) * 4;   /* the slot's corner */
+    if (bord && apages[slot_page].shadow) {
         const long st = (long)ATLAS_DIM * 4;
-        if (ng) {                                   /* the near guard: column 0 <- column 1, then row 0 <- row 1 (corner included) */
-            for (int py = 1; py < ah; py++) memcpy(org + (size_t)py * st, org + (size_t)py * st + 4, 4);
-            memcpy(org, org + st, (size_t)aw * 4);
-        } else {                                    /* 2 x 2 blocks, backwards: a block is never written over a texel still to be read */
+        uint8_t *base = apages[slot_page].shadow + ((size_t)(slot_y + 1) * ATLAS_DIM + slot_x + 1) * 4;   /* the baked texels' corner (inside the border) */
+        const int cw = bw * up, ch = bh * up;
+        if (up > 1)                                 /* 2 x 2 blocks, backwards: a block is never written over a texel still to be read */
             for (int py = bh - 1; py >= 0; py--) {
-                const uint8_t *srow = org + (size_t)py * st;
-                uint8_t *d0 = org + (size_t)(2 * py) * st, *d1 = d0 + st;
+                const uint8_t *srow = base + (size_t)py * st;
+                uint8_t *d0 = base + (size_t)(2 * py) * st, *d1 = d0 + st;
                 for (int px = bw - 1; px >= 0; px--) {
                     uint32_t t; memcpy(&t, srow + px * 4, 4);
                     memcpy(d0 + px * 8, &t, 4); memcpy(d0 + px * 8 + 4, &t, 4);
                 }
                 memcpy(d1, d0, (size_t)bw * 8);     /* the block's second row: the first one again */
             }
+        for (int py = 0; py < ch; py++) {           /* the border: left / right columns, then the rows above and below (corners included) */
+            uint8_t *r = base + (size_t)py * st;
+            memcpy(r - 4, r, 4); memcpy(r + (size_t)cw * 4, r + (size_t)(cw - 1) * 4, 4);
         }
+        memcpy(base - st - 4, base - 4, (size_t)(cw + 2) * 4);
+        memcpy(base + (size_t)ch * st - 4, base + (size_t)(ch - 1) * st - 4, (size_t)(cw + 2) * 4);
     }
     if (atlas_mips() && apages[slot_page].shadow) {
         /* the block's margin: a copy of the nearest edge texel of the slot (guard texel included), left and right, then top and bottom rows */
