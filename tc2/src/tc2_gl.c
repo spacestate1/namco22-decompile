@@ -73,7 +73,7 @@ static const char *fs_poly =
     "uniform sampler2D t_fog; uniform int u_fog, u_seam;\n"
     "in vec3 v_uvs; flat in vec4 v_par; flat in vec4 v_clip; flat in vec2 v_ext; flat in vec4 v_uvb;\n"
     "uint b8(vec4 t, int c) { return uint(t[c] * 255.0 + 0.5); }\n"
-    "uniform int u_filt, u_aniso;\n"                                   /* the optional 3D texture filter for polygons without the no-filter flag (128): 1 bilinear, 2 trilinear-like (u_aniso 0) or anisotropic (u_aniso = 2..16), 3 sharp bilinear */
+    "uniform int u_filt, u_aniso;\n"                                   /* the optional 3D texture filter for polygons without the no-filter flag (128): 1 bilinear, 2 trilinear-like (u_aniso 0) or anisotropic (u_aniso = 2..16), 3 sharp bilinear, 4 sharp trilinear */
     "uint tex_pen(uint tx, uint ty) {\n"                               /* the pen at texel (tx, ty): tile map, its flips, the texture ROM -- ty already holds the polygon's tbase */
     "  uint id = ((tx >> 4u) & 0xFFu) | ((ty << 4u) & 0x1FFF00u);\n"
     "  vec4 m = texelFetch(t_map, ivec2(int(id & 2047u), int(id >> 11u)), 0);\n"
@@ -88,15 +88,20 @@ static const char *fs_poly =
     "  uint ci = pbase + ((pen >> pshift) & pmask);\n"
     "  return texelFetch(t_pal, ivec2(int(ci & 255u), int((ci >> 8u) & 127u)), 0).rgb * 255.0;\n"
     "}\n"
-    "vec3 tap_bl(vec2 p, uint zb, uint pbase, uint pshift, uint pmask) {\n"    /* a bilinear tap at the texel coordinate p (texel i centred on i, as the plain bilinear path below) */
-    "  vec2 f = floor(p), w = p - f; uint x = uint(int(f.x)), y = uint(int(f.y)) + zb;\n"
-    "  vec3 c00 = pen_col(tex_pen(x, y), pbase, pshift, pmask), c10 = pen_col(tex_pen(x + 1u, y), pbase, pshift, pmask);\n"
-    "  vec3 c01 = pen_col(tex_pen(x, y + 1u), pbase, pshift, pmask), c11 = pen_col(tex_pen(x + 1u, y + 1u), pbase, pshift, pmask);\n"
+    /* THE FILTERS' TEXEL FETCHES. The board shows texel floor(u): texel i covers [i, i+1), its centre is i + 0.5. Every filtered fetch
+     * keeps to THIS polygon's texels (v_uvb, its uv box: the first texel and the last one the board shows): a tap past its edge takes the
+     * edge texel, never the next texel of the tile map (another piece of art). */
+    "vec3 tap_bl(vec2 uv, vec2 sw, uint zb, uint pbase, uint pshift, uint pmask) {\n"   /* bilinear round uv - 0.5; sw > 1 narrows the blend between two texels (SHARP: sw = pixels per texel) */
+    "  vec2 p = uv - 0.5, f0 = floor(p), w = clamp((p - f0 - 0.5) * sw + 0.5, 0.0, 1.0);\n"
+    "  int x0 = clamp(int(f0.x), int(v_uvb.x), int(v_uvb.z)), x1 = clamp(int(f0.x) + 1, int(v_uvb.x), int(v_uvb.z));\n"
+    "  int y0 = clamp(int(f0.y), int(v_uvb.y), int(v_uvb.w)), y1 = clamp(int(f0.y) + 1, int(v_uvb.y), int(v_uvb.w));\n"
+    "  vec3 c00 = pen_col(tex_pen(uint(x0), uint(y0) + zb), pbase, pshift, pmask), c10 = pen_col(tex_pen(uint(x1), uint(y0) + zb), pbase, pshift, pmask);\n"
+    "  vec3 c01 = pen_col(tex_pen(uint(x0), uint(y1) + zb), pbase, pshift, pmask), c11 = pen_col(tex_pen(uint(x1), uint(y1) + zb), pbase, pshift, pmask);\n"
     "  return mix(mix(c00, c10, w.x), mix(c01, c11, w.x), w.y);\n"
     "}\n"
-    "vec3 tap_nn(vec2 p, uint zb, uint pbase, uint pshift, uint pmask) {\n"    /* the nearest texel to p, for the wide footprints (taps spaced a texel or more apart) */
-    "  vec2 r = floor(p + 0.5);\n"
-    "  return pen_col(tex_pen(uint(int(r.x)), uint(int(r.y)) + zb), pbase, pshift, pmask);\n"
+    "vec3 tap_nn(vec2 uv, uint zb, uint pbase, uint pshift, uint pmask) {\n"   /* the texel under uv, for the wide footprints (taps spaced a texel or more apart) */
+    "  vec2 r = floor(uv);\n"
+    "  return pen_col(tex_pen(uint(clamp(int(r.x), int(v_uvb.x), int(v_uvb.z))), uint(clamp(int(r.y), int(v_uvb.y), int(v_uvb.w))) + zb), pbase, pshift, pmask);\n"
     "}\n"
     "void main() {\n"
     "  vec2 d_x = dFdx(v_uvs.xy), d_y = dFdy(v_uvs.xy);\n"                 /* the texel footprint of one fragment: before any discard, derivatives need the whole 2x2 quad */
@@ -135,28 +140,20 @@ static const char *fs_poly =
     "    gl_FragColor = vec4(pv == 7 ? 1.0 : 0.0, pv != 0 ? 1.0 : 0.0, 0.0, pv == 7 ? 1.0 : 0.0); return;\n"
     "  }\n"
     "  vec3 cf = pen_col(pen, pbase, pshift, pmask);\n"
-    "  if ((u_filt == 1 || u_filt == 3) && (fl & 128) == 0) {\n"      /* BILINEAR and SHARP BILINEAR. The board shows texel floor(u), i.e. texel i covers [i, i+1) and its centre is i + 0.5: the four
-                                                                           texels round (u - 0.5), so the filtered picture sits where the board's does (no half-texel shift down and right). The texels
-                                                                           are those of THIS polygon: v_uvb is its uv box (the first texel, the last one the board shows), and a tap past its edge takes
-                                                                           the edge texel -- the filter no longer mixes in the next texel of the tile map (another piece of art) along the polygon's edges.
-                                                                           SHARP: the blend between two texels only across about one screen pixel at their border, so the texels stay solid however big
-                                                                           they are on screen; where a texel is smaller than a pixel it is the plain bilinear. */
-    "    vec2 p = v_uvs.xy - 0.5, f0 = floor(p), w = p - f0;\n"
-    "    if (u_filt == 3) { vec2 tpp = vec2(length(vec2(d_x.x, d_y.x)), length(vec2(d_x.y, d_y.y))); w = clamp((w - 0.5) * max(1.0 / max(tpp, vec2(1e-4)), vec2(1.0)) + 0.5, 0.0, 1.0); }\n"
-    "    int x0 = clamp(int(f0.x), int(v_uvb.x), int(v_uvb.z)), x1 = clamp(int(f0.x) + 1, int(v_uvb.x), int(v_uvb.z));\n"
-    "    int y0 = clamp(int(f0.y), int(v_uvb.y), int(v_uvb.w)), y1 = clamp(int(f0.y) + 1, int(v_uvb.y), int(v_uvb.w));\n"
+    "  if (u_filt != 0 && (fl & 128) == 0) {\n"                          /* THE OPTIONAL 3D TEXTURE FILTER (Display > 3D texture filter), the same five as the System 22 games:
+                                                                           1 BILINEAR, 3 SHARP BILINEAR (the blend between two texels only across about one screen pixel at their border, so the texels
+                                                                           stay solid however big they are on screen; plain bilinear where a texel is smaller than a pixel), 2 TRILINEAR and 4 SHARP
+                                                                           TRILINEAR. The board's texture is paletted and tile-mapped, with no mip chain to sample, so the trilinear modes average the
+                                                                           footprint of the fragment directly: the texel-space derivatives give its size, and a grid of taps over it stands in for the
+                                                                           mip level (a square the size of the longer side, like an isotropic mip) or, with u_aniso, the true parallelogram (N taps along
+                                                                           the long axis, the short side kept sharp). Where the footprint is a texel or less (magnified) they are the bilinear -- the
+                                                                           sharp one for sharp trilinear. */
     "    uint zb = uint(v_par.z);\n"
-    "    vec3 c00 = pen_col(tex_pen(uint(x0), uint(y0) + zb), pbase, pshift, pmask), c10 = pen_col(tex_pen(uint(x1), uint(y0) + zb), pbase, pshift, pmask);\n"
-    "    vec3 c01 = pen_col(tex_pen(uint(x0), uint(y1) + zb), pbase, pshift, pmask), c11 = pen_col(tex_pen(uint(x1), uint(y1) + zb), pbase, pshift, pmask);\n"
-    "    cf = mix(mix(c00, c10, w.x), mix(c01, c11, w.x), w.y);\n"
-    "  } else if (u_filt == 2 && (fl & 128) == 0) {\n"                          /* the optional filter. BILINEAR: the four texels from (tx, ty) on, weighted by the texel coordinate's fraction -- each fetched through the whole
-                                                                           tile-map chain, so a blend across a tile edge is right. The board's texture is paletted and tile-mapped, with no mip chain to
-                                                                           sample, so the wider filters average the footprint of the fragment directly: the texel-space derivatives give its size, and
-                                                                           a grid of taps over it stands in for the mip level (TRILINEAR: a square the size of the longer side, like an isotropic mip)
-                                                                           or, with u_aniso, over the true parallelogram (ANISOTROPIC: N taps along the long axis, the short side kept sharp). */
+    "    vec2 tpp = vec2(length(vec2(d_x.x, d_y.x)), length(vec2(d_x.y, d_y.y)));\n"   /* texels per screen pixel, per axis */
+    "    vec2 sw = (u_filt == 3 || u_filt == 4) ? max(1.0 / max(tpp, vec2(1e-4)), vec2(1.0)) : vec2(1.0);\n"
     "    float l1 = length(d_x), l2 = length(d_y), lmaj = max(l1, l2), lmin = min(l1, l2);\n"
     "    int am = 1, an = 1; vec2 ax = vec2(0.0), ay = vec2(0.0);\n"
-    "    if (u_filt == 2 && lmaj > 1.0) {\n"
+    "    if ((u_filt == 2 || u_filt == 4) && lmaj > 1.0) {\n"
     "      lmaj = min(lmaj, 128.0);\n"
     "      vec2 mj = (l1 >= l2 ? d_x : d_y) * (lmaj / max(max(l1, l2), 1e-6)), mn = l1 >= l2 ? d_y : d_x;\n"
     "      vec2 pd = vec2(-mj.y, mj.x) / lmaj;\n"                          /* unit vector across the long axis */
@@ -166,17 +163,12 @@ static const char *fs_poly =
     "      ax = mj; ay = mn;\n"
     "      am = clamp(int(ceil(lmaj)), 1, u_aniso >= 2 ? 16 : 8); an = clamp(int(ceil(ln)), 1, u_aniso >= 2 ? 4 : 8);\n"
     "    }\n"
-    "    if (am * an == 1) {\n"
-    "      float fx = fract(v_uvs.x), fy = fract(v_uvs.y);\n"
-    "      vec3 c10 = pen_col(tex_pen(tx + 1u, ty), pbase, pshift, pmask);\n"
-    "      vec3 c01 = pen_col(tex_pen(tx, ty + 1u), pbase, pshift, pmask);\n"
-    "      vec3 c11 = pen_col(tex_pen(tx + 1u, ty + 1u), pbase, pshift, pmask);\n"
-    "      cf = mix(mix(cf, c10, fx), mix(c01, c11, fx), fy);\n"
-    "    } else {\n"
-    "      uint zb = uint(v_par.z); vec3 acc = vec3(0.0); bool bl = am * an <= 4;\n"
+    "    if (am * an == 1) cf = tap_bl(v_uvs.xy, sw, zb, pbase, pshift, pmask);\n"
+    "    else {\n"
+    "      vec3 acc = vec3(0.0); bool bl = am * an <= 4;\n"
     "      for (int i = 0; i < am; i++) for (int j = 0; j < an; j++) {\n"
     "        vec2 p = v_uvs.xy + ax * ((float(i) + 0.5) / float(am) - 0.5) + ay * ((float(j) + 0.5) / float(an) - 0.5);\n"
-    "        acc += bl ? tap_bl(p, zb, pbase, pshift, pmask) : tap_nn(p, zb, pbase, pshift, pmask);\n"
+    "        acc += bl ? tap_bl(p, vec2(1.0), zb, pbase, pshift, pmask) : tap_nn(p, zb, pbase, pshift, pmask);\n"
     "      }\n"
     "      cf = acc / float(am * an);\n"
     "    }\n"
@@ -500,12 +492,12 @@ unsigned tc2_gl_draw(const tc2_built *b)
         bind_tex(0, t_rom); bind_tex(1, t_map); bind_tex(2, t_pal); bind_tex(3, t_sten);
         p_glUniform1i(up[22], seam);
         { static int ef = -2, ea = -2;
-          if (ef == -2) { const char *e = getenv("TC2_TEX_FILTER"); ef = e && *e ? atoi(e) : -1; if (ef > 3) ef = 3; }       /* TC2_TEX_FILTER=0|1|2|3 (3 sharp bilinear), TC2_TEX_ANISO=0|2|4|8|16 win for a run */
+          if (ef == -2) { const char *e = getenv("TC2_TEX_FILTER"); ef = e && *e ? atoi(e) : -1; if (ef > 4) ef = 4; }       /* TC2_TEX_FILTER=0|1|2|3|4 (2 trilinear, 3 sharp bilinear, 4 sharp trilinear), TC2_TEX_ANISO=0|2|4|8|16 win for a run */
           if (ea == -2) { const char *e = getenv("TC2_TEX_ANISO"); ea = e && *e ? atoi(e) : -1; }
           const int tf = ef >= 0 ? ef : g_eng_disp.tex_filter;
-          const int ta = tf == 2 ? (ea >= 0 ? ea : g_eng_disp.tex_aniso) : 0;
+          const int ta = (tf == 2 || tf == 4) ? (ea >= 0 ? ea : g_eng_disp.tex_aniso) : 0;
           static int last = -1, lasta = -1;
-          if (tf != last || ta != lasta) { last = tf; lasta = ta; fprintf(stderr, "[GPU] 3D texture filter: %s, anisotropy %dx\n", tf == 3 ? "sharp bilinear" : tf == 2 ? "trilinear" : tf ? "bilinear" : "off", ta ? ta : 1); }
+          if (tf != last || ta != lasta) { last = tf; lasta = ta; fprintf(stderr, "[GPU] 3D texture filter: %s, anisotropy %dx\n", tf == 4 ? "sharp trilinear" : tf == 3 ? "sharp bilinear" : tf == 2 ? "trilinear" : tf ? "bilinear" : "off", ta ? ta : 1); }
           p_glUniform1i(up[23], tf); p_glUniform1i(up[24], ta); }
         bind_tex(6, t_fog); p_glUniform1i(up[19], 6); p_glUniform1i(up[20], f->fog); p_glUniform3i(up[21], f->cr, f->cg, f->cb);
         p_glUniform1i(up[14], 4); p_glUniform1i(up[15], 5); p_glUniform1i(up[16], 0);

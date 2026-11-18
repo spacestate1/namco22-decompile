@@ -83,7 +83,7 @@ static bool disp_enabled(int r)
     if (r == D_SIZE) return g_eng_disp.winmode == 0;
     if (r == D_ASPECT) return !g_eng_disp.wide;
     if (r == D_HUD) return g_eng_disp.wide;
-    if (r == D_ANISO) return g_eng_disp.tex_filter == 2;     /* anisotropy rides on the trilinear filter */
+    if (r == D_ANISO) return g_eng_disp.tex_filter == 2 || g_eng_disp.tex_filter == 4;     /* anisotropy rides on the trilinear modes */
     if (r == D_XIMG) return g_eng_disp.crosshair;
     return true;
 }
@@ -99,7 +99,7 @@ static void disp_text(int r, char *l, size_t ln, char *v, size_t vn)
     case D_ASPECT:  snprintf(l, ln, "Aspect ratio"); snprintf(v, vn, "%s", eng_disp_aspect_name(g_eng_disp.aspect)); break;
     case D_SCALING: snprintf(l, ln, "Scaling"); snprintf(v, vn, "%s", eng_disp_scaling_name(g_eng_disp.scaling)); break;
     case D_HUD:     snprintf(l, ln, "Widescreen HUD"); snprintf(v, vn, "%s", g_eng_disp.hud_edges ? "at the screen edges" : "original (4:3 centre)"); break;
-    case D_TEXF:    snprintf(l, ln, "3D texture filter"); snprintf(v, vn, "%s", g_eng_disp.tex_filter == 3 ? "Sharp bilinear (3D only)" : g_eng_disp.tex_filter == 2 ? "Trilinear (3D only)" : g_eng_disp.tex_filter ? "Bilinear (3D only)" : "Off (arcade)"); break;
+    case D_TEXF:    snprintf(l, ln, "3D texture filter"); snprintf(v, vn, "%s", g_eng_disp.tex_filter == 4 ? "Sharp trilinear (3D only)" : g_eng_disp.tex_filter == 3 ? "Sharp bilinear (3D only)" : g_eng_disp.tex_filter == 2 ? "Trilinear (3D only)" : g_eng_disp.tex_filter ? "Bilinear (3D only)" : "Off (arcade)"); break;
     case D_ANISO:   snprintf(l, ln, "Anisotropic filter"); if (g_eng_disp.tex_aniso) snprintf(v, vn, "%dx", g_eng_disp.tex_aniso); else snprintf(v, vn, "Off"); break;
     case D_FPS:     snprintf(l, ln, "Frame rate"); snprintf(v, vn, "%s", eng_vsync_rate_name(g_eng_disp.fps)); break;
     case D_SMOOTH:  snprintf(l, ln, "Motion smoothing (100+ fps)"); snprintf(v, vn, "%s", tc2_smooth_on() ? "ON (in-between pictures, +8 ms lag)" : "OFF (as the arcade)"); break;
@@ -136,8 +136,8 @@ static void disp_change(int r, int dir)
     case D_SCALING: eng_disp_set_scaling(cyc(g_eng_disp.scaling, d, 3)); break;
     case D_HUD:     eng_disp_set_hud_edges(!g_eng_disp.hud_edges); break;
     case D_FPS:     eng_disp_set_fps(eng_vsync_rate_step(g_eng_disp.fps, d)); break;
-    case D_TEXF:    { static const int ord[4] = { 0, 1, 3, 2 }; int i = 0; for (int k = 0; k < 4; k++) if (ord[k] == g_eng_disp.tex_filter) i = k;   /* Off, Bilinear, Sharp bilinear, Trilinear */
-                      eng_disp_set_texfilter(ord[cyc(i, d, 4)]); break; }
+    case D_TEXF:    { static const int ord[5] = { 0, 1, 3, 2, 4 }; int i = 0; for (int k = 0; k < 5; k++) if (ord[k] == g_eng_disp.tex_filter) i = k;   /* Off, Bilinear, Sharp bilinear, Trilinear, Sharp trilinear */
+                      eng_disp_set_texfilter(ord[cyc(i, d, 5)]); break; }
     case D_ANISO:   { static const int lv[5] = { 0, 2, 4, 8, 16 }; int i = 0; for (int k = 0; k < 5; k++) if (lv[k] == g_eng_disp.tex_aniso) i = k;
                       eng_disp_set_texaniso(lv[cyc(i, d, 5)]); break; }
     case D_SMOOTH:  tc2_smooth_set(!tc2_smooth_on()); eng_cfg_set_int("motion_smooth", tc2_smooth_on()); break;
