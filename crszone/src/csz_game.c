@@ -66,7 +66,7 @@ const tc2_game_t tc2_game = {
     .irq_prompt = 1,                              /* ~550 C450 DMA interrupts a frame: take each at once, as MAME */
     .ip = { [TC2_SRC_RS232] = TC2_IP(0), [TC2_SRC_SUB] = TC2_IP(1), [TC2_SRC_C422] = TC2_IP(1), [TC2_SRC_VBLANK] = TC2_IP(2),
             [TC2_SRC_C361] = TC2_IP(3), [TC2_SRC_C451] = TC2_IP(3), [TC2_SRC_C450] = TC2_IP(4), [TC2_SRC_TIMER] = TC2_IP(5) },
-    .boot_size = 0x800000, .rom_boot = rom_boot, .rom_sub = rom_sub, .rom_io = rom_io, .io_rom_size = 0x4000, .c417_status = 0x0000, .no_direct_buf = 1, .depth_default = 0, .gun_x0 = 0x040, .gun_xw = 0x33F - 0x040, .gun_y0 = 0x020, .gun_yh = 0x0FF - 0x020, .sub_p7 = 0x80, .io_6001_held = 0x08,
+    .boot_size = 0x800000, .rom_boot = rom_boot, .rom_sub = rom_sub, .rom_io = rom_io, .io_rom_size = 0x4000, .c417_status = 0x0000, .direct_off_bit = 1, .depth_default = 0, .gun_x0 = 0x040, .gun_xw = 0x33F - 0x040, .gun_y0 = 0x020, .gun_yh = 0x0FF - 0x020, .sub_p7 = 0x80, .io_6001_held = 0x08,
     .data_rom = { { "csz1mtah.2j", "csz1mtal.2h" }, { "csz1mtbh.2m", "csz1mtbl.2f" } },
     .npt = 4, .pt_rom = { { "csz1pt0h.7a", "csz1pt0l.7c" }, { "csz1pt1h.5a", "csz1pt1l.5c" }, { "csz1pt2h.4a", "csz1pt2l.4c" }, { "csz1pt3h.3a", "csz1pt3l.3c" } },
     .ccrl = "csz1ccrl.7f", .ccrh = "csz1ccrh.7e", .cg = { "csz1cgll.4m", "csz1cglm.4k", "csz1cgum.4j", "csz1cguu.5f" },

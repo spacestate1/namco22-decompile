@@ -262,6 +262,7 @@ static void state_pio(uint16_t w)
 
 static void direct_entry(void)
 {
+    if (tc2_game.direct_off_bit && (direct_buf[2] & 0x8000)) return;   /* (tc2_game.h) */
     tc2_render_entry *e = new_entry(TC2_RE_DIRECT);
     if (!e) return;
     memcpy(e->d, direct_buf, sizeof e->d);
@@ -294,9 +295,8 @@ int tc2_c435_write(uint32_t p, int size, uint32_t v)
             direct_nonempty = 0; direct_pos = 0;
         }
         return 1;
-    case 0x0CC00002u: if (tc2_game.no_direct_buf) return 1; direct_open = (v & 0xFFFF) != 0; direct_pos = 0; return 1;
+    case 0x0CC00002u: direct_open = (v & 0xFFFF) != 0; direct_pos = 0; return 1;
     case 0x0CC00000u:
-        if (tc2_game.no_direct_buf) return 1;
         { static int lg = -1; if (lg < 0) lg = getenv("TC2_DIRECTLOG") != NULL; if (lg) fprintf(stderr, "[DIRECT] frame %u BUF %04X open %d\n", rr_frame, (unsigned)v, direct_open); }
         if (!direct_open) return 1;
         if (direct_pos == 0) { direct_pos++; return 1; }

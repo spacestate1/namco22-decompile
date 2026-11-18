@@ -317,6 +317,7 @@ static void render_direct(const tc2_render_entry *e)
         p->vp_size_x = e->vp_size_x; p->vp_size_y = e->vp_size_y; p->vp_offset_x = e->vp_offset_x; p->vp_offset_y = e->vp_offset_y;
         p->entry = (int)(e - FS->list.e); p->model = -1;
         effects(p, (d[2] >> 8) & 0x7F, 0, 0, (d[2] >> 15) & 1);
+        p->fog = 0;                                       /* MAME: a direct polygon's fog factor is 0 (screen-space panels: Crisis Zone's RULES) */
         p->blend = 0;
         p->prioverchar = 2;                               /* MAME 0.289: render_direct_poly works out (cmode == 1 ? 7 : 0), but render_flush draws EVERY
                                                           * polygon with prioverchar 2 -- text the polygon covers is drawn again over it (Angler King's NOTICE) */
@@ -378,7 +379,7 @@ static void span(const poly *p, int y, int x0, int x1, const float *s, const flo
         uint32_t tx = (uint32_t)(int32_t)(u * ooz), ty = (uint32_t)(int32_t)(v * ooz);
         const int vx = x + clip_left;
         if (vx < clip_left || vx >= clip_right || vx < 0 || vx >= 640) continue;
-        { static int hide = -2; if (hide == -2) { const char *e = getenv("TC2_HIDEMODEL"); hide = e ? atoi(e) : -1; } if (p->model == hide) continue; }   /* TEST: leave one model out */
+        { static int hide = -2; if (hide == -2) { const char *e = getenv("TC2_HIDEMODEL"); hide = e ? atoi(e) : -3; } if (p->model == hide) continue; }   /* TEST: leave one model out (-3: none -- -1 is every immediate and direct polygon) */
         { static int only = -2; if (only == -2) { const char *e = getenv("TC2_ONLYMODEL"); only = e ? atoi(e) : -1; } if (only >= 0 && p->model != only) continue; }   /* TEST: one model only */
         if (seamtest == 3) {                              /* 3: OVERDRAW of translucent polygons (blend / alpha) -- 0x20 a layer; opaque ones not drawn */
             static int only = -2; if (only == -2) { const char *e = getenv("TC2_SEAMMODEL"); only = e ? atoi(e) : -1; }   /* only this model */
