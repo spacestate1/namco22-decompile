@@ -21,6 +21,7 @@
  *
  * Needs OpenGL 3.0 / GLSL 1.30 (in a compatibility context) and 8192-texel textures: every Intel GPU since Sandy Bridge (HD 2000 / 3000).
  */
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -60,9 +61,9 @@ void tc2_render_assets(const uint8_t **texrom, const uint32_t **tm_decoded, cons
 
 static const char *vs_poly =
     "#version 130\n"
-    "in vec4 a_pos; in vec3 a_uvs; in vec4 a_par; in vec4 a_clip; in vec2 a_ext;\n"
-    "out vec3 v_uvs; flat out vec4 v_par; flat out vec4 v_clip; flat out vec2 v_ext;\n"
-    "void main() { gl_Position = a_pos; v_uvs = a_uvs; v_par = a_par; v_clip = a_clip; v_ext = a_ext; }\n";
+    "in vec4 a_pos; in vec3 a_uvs; in vec4 a_par; in vec4 a_clip; in vec2 a_ext; in vec4 a_uvb;\n"
+    "out vec3 v_uvs; flat out vec4 v_par; flat out vec4 v_clip; flat out vec2 v_ext; flat out vec4 v_uvb;\n"
+    "void main() { gl_Position = a_pos; v_uvs = a_uvs; v_par = a_par; v_clip = a_clip; v_ext = a_ext; v_uvb = a_uvb; }\n";
 static const char *fs_poly =
     "#version 130\n"
     "uniform sampler2D t_rom, t_map, t_pal, t_sten, t_near, t_nearz;\n"
@@ -70,9 +71,9 @@ static const char *fs_poly =
     "uniform float u_keep;\n"
     "uniform ivec3 u_pcol, u_fcol, u_fogc;\n"
     "uniform sampler2D t_fog; uniform int u_fog, u_seam;\n"
-    "in vec3 v_uvs; flat in vec4 v_par; flat in vec4 v_clip; flat in vec2 v_ext;\n"
+    "in vec3 v_uvs; flat in vec4 v_par; flat in vec4 v_clip; flat in vec2 v_ext; flat in vec4 v_uvb;\n"
     "uint b8(vec4 t, int c) { return uint(t[c] * 255.0 + 0.5); }\n"
-    "uniform int u_filt, u_aniso;\n"                                   /* the optional 3D texture filter for polygons without the no-filter flag (128): 1 bilinear, 2 trilinear-like (u_aniso 0) or anisotropic (u_aniso = 2..16) */
+    "uniform int u_filt, u_aniso;\n"                                   /* the optional 3D texture filter for polygons without the no-filter flag (128): 1 bilinear, 2 trilinear-like (u_aniso 0) or anisotropic (u_aniso = 2..16), 3 sharp bilinear */
     "uint tex_pen(uint tx, uint ty) {\n"                               /* the pen at texel (tx, ty): tile map, its flips, the texture ROM -- ty already holds the polygon's tbase */
     "  uint id = ((tx >> 4u) & 0xFFu) | ((ty << 4u) & 0x1FFF00u);\n"
     "  vec4 m = texelFetch(t_map, ivec2(int(id & 2047u), int(id >> 11u)), 0);\n"
@@ -134,7 +135,21 @@ static const char *fs_poly =
     "    gl_FragColor = vec4(pv == 7 ? 1.0 : 0.0, pv != 0 ? 1.0 : 0.0, 0.0, pv == 7 ? 1.0 : 0.0); return;\n"
     "  }\n"
     "  vec3 cf = pen_col(pen, pbase, pshift, pmask);\n"
-    "  if (u_filt != 0 && (fl & 128) == 0) {\n"                          /* the optional filter. BILINEAR: the four texels from (tx, ty) on, weighted by the texel coordinate's fraction -- each fetched through the whole
+    "  if ((u_filt == 1 || u_filt == 3) && (fl & 128) == 0) {\n"      /* BILINEAR and SHARP BILINEAR. The board shows texel floor(u), i.e. texel i covers [i, i+1) and its centre is i + 0.5: the four
+                                                                           texels round (u - 0.5), so the filtered picture sits where the board's does (no half-texel shift down and right). The texels
+                                                                           are those of THIS polygon: v_uvb is its uv box (the first texel, the last one the board shows), and a tap past its edge takes
+                                                                           the edge texel -- the filter no longer mixes in the next texel of the tile map (another piece of art) along the polygon's edges.
+                                                                           SHARP: the blend between two texels only across about one screen pixel at their border, so the texels stay solid however big
+                                                                           they are on screen; where a texel is smaller than a pixel it is the plain bilinear. */
+    "    vec2 p = v_uvs.xy - 0.5, f0 = floor(p), w = p - f0;\n"
+    "    if (u_filt == 3) { vec2 tpp = vec2(length(vec2(d_x.x, d_y.x)), length(vec2(d_x.y, d_y.y))); w = clamp((w - 0.5) * max(1.0 / max(tpp, vec2(1e-4)), vec2(1.0)) + 0.5, 0.0, 1.0); }\n"
+    "    int x0 = clamp(int(f0.x), int(v_uvb.x), int(v_uvb.z)), x1 = clamp(int(f0.x) + 1, int(v_uvb.x), int(v_uvb.z));\n"
+    "    int y0 = clamp(int(f0.y), int(v_uvb.y), int(v_uvb.w)), y1 = clamp(int(f0.y) + 1, int(v_uvb.y), int(v_uvb.w));\n"
+    "    uint zb = uint(v_par.z);\n"
+    "    vec3 c00 = pen_col(tex_pen(uint(x0), uint(y0) + zb), pbase, pshift, pmask), c10 = pen_col(tex_pen(uint(x1), uint(y0) + zb), pbase, pshift, pmask);\n"
+    "    vec3 c01 = pen_col(tex_pen(uint(x0), uint(y1) + zb), pbase, pshift, pmask), c11 = pen_col(tex_pen(uint(x1), uint(y1) + zb), pbase, pshift, pmask);\n"
+    "    cf = mix(mix(c00, c10, w.x), mix(c01, c11, w.x), w.y);\n"
+    "  } else if (u_filt == 2 && (fl & 128) == 0) {\n"                          /* the optional filter. BILINEAR: the four texels from (tx, ty) on, weighted by the texel coordinate's fraction -- each fetched through the whole
                                                                            tile-map chain, so a blend across a tile edge is right. The board's texture is paletted and tile-mapped, with no mip chain to
                                                                            sample, so the wider filters average the footprint of the fragment directly: the texel-space derivatives give its size, and
                                                                            a grid of taps over it stands in for the mip level (TRILINEAR: a square the size of the longer side, like an isotropic mip)
@@ -224,8 +239,8 @@ static GLint ug[2];
 static GLuint t_fog, t_band, t_rom, t_map, t_pal, t_sten, t_mix, t_col, t_prio, fbo_col, fbo_prio;
 static GLint up[32], ut[16];
 static GLuint t_near, t_nearz, fbo_near;          /* the exact-depth pre-pass target: nearest object / band (colour), its 1/z (depth) */
-enum { A_POS, A_UVS, A_PAR, A_CLIP, A_EXT };
-#define VFLOATS 17
+enum { A_POS, A_UVS, A_PAR, A_CLIP, A_EXT, A_UVB };
+#define VFLOATS 21
 static float *verts; static size_t vcap;
 
 static GLuint shader(GLenum kind, const char *src)
@@ -244,6 +259,7 @@ static GLuint program(const char *vs, const char *fs)
     p_glAttachShader(p, v); p_glAttachShader(p, f);
     p_glBindAttribLocation(p, A_POS, "a_pos"); p_glBindAttribLocation(p, A_UVS, "a_uvs");
     p_glBindAttribLocation(p, A_PAR, "a_par"); p_glBindAttribLocation(p, A_CLIP, "a_clip"); p_glBindAttribLocation(p, A_EXT, "a_ext");
+    p_glBindAttribLocation(p, A_UVB, "a_uvb");
     p_glLinkProgram(p);
     GLint good = 0; p_glGetProgramiv(p, GL_LINK_STATUS, &good);
     if (!good) { char log[2048]; p_glGetProgramInfoLog(p, sizeof log, NULL, log); fprintf(stderr, "[GPU] link: %s\n", log); return 0; }
@@ -380,6 +396,16 @@ static int fill_vertices(const tc2_built *b)
         const int full = ex && cl <= 0 && cr >= 640;
         const int ccl = full ? -ex : cl, ccr = full ? 640 + ex : cr;
         const float flags = (float)(p->stencil | p->blend << 1 | p->alpha_enabled << 2 | (p->prioverchar & 7) << 3 | p->fog << 6 | (p->model < 0) << 7);   /* bit 7: an immediate (screen-space) polygon: the 3D texture filter leaves it sharp */
+        /* the polygon's uv box for the bilinear filters (fs_poly): the first texel and the last one the board shows (texel floor(u) for u
+         * inside the box: ceil(max) - 1, a hair of float slack below an exact integer) */
+        float bu0 = 1e30f, bv0 = 1e30f, bu1 = -1e30f, bv1 = -1e30f;
+        for (int k = 0; k < p->n; k++) {
+            const tc2_pvert *v = &p->pv[k];
+            const float ooz = v->p[0] != 0 ? v->p[0] : 1e-30f, u = v->p[1] / ooz, vv = v->p[2] / ooz;
+            if (u < bu0) bu0 = u; if (u > bu1) bu1 = u; if (vv < bv0) bv0 = vv; if (vv > bv1) bv1 = vv;
+        }
+        const float uvb[4] = { floorf(bu0 + 1e-3f), floorf(bv0 + 1e-3f), ceilf(bu1 - 1e-3f) - 1.0f, ceilf(bv1 - 1e-3f) - 1.0f };
+        const float ub0 = uvb[0], vb0 = uvb[1], ub1 = uvb[2] < uvb[0] ? uvb[0] : uvb[2], vb1 = uvb[3] < uvb[1] ? uvb[1] : uvb[3];
         for (int k = 1; k + 1 < p->n; k++) {
             const int tri[3] = { 0, k, k + 1 };
             for (int j = 0; j < 3; j++) {
@@ -391,6 +417,7 @@ static int fill_vertices(const tc2_built *b)
                 *o++ = (float)p->color_base; *o++ = (float)p->cmode; *o++ = (float)p->tbase; *o++ = flags;
                 *o++ = (float)ccl; *o++ = (float)ct; *o++ = (float)ccr; *o++ = (float)cb;
                 *o++ = (float)((p->entry & 0x3FFF) + 1); *o++ = (float)(p->zkey >> 21);
+                *o++ = ub0; *o++ = vb0; *o++ = ub1; *o++ = vb1;
             }
         }
     }
@@ -463,6 +490,7 @@ unsigned tc2_gl_draw(const tc2_built *b)
         p_glEnableVertexAttribArray(A_PAR); p_glVertexAttribPointer(A_PAR, 4, GL_FLOAT, GL_FALSE, st, (void *)(7 * sizeof(float)));
         p_glEnableVertexAttribArray(A_CLIP); p_glVertexAttribPointer(A_CLIP, 4, GL_FLOAT, GL_FALSE, st, (void *)(11 * sizeof(float)));
         p_glEnableVertexAttribArray(A_EXT); p_glVertexAttribPointer(A_EXT, 2, GL_FLOAT, GL_FALSE, st, (void *)(15 * sizeof(float)));
+        p_glEnableVertexAttribArray(A_UVB); p_glVertexAttribPointer(A_UVB, 4, GL_FLOAT, GL_FALSE, st, (void *)(17 * sizeof(float)));
         p_glUseProgram(prog_poly);
         p_glUniform1i(up[0], 0); p_glUniform1i(up[1], 1); p_glUniform1i(up[2], 2); p_glUniform1i(up[3], 3);
         p_glUniform1i(up[4], scale); p_glUniform1i(up[5], fbh);
@@ -472,12 +500,12 @@ unsigned tc2_gl_draw(const tc2_built *b)
         bind_tex(0, t_rom); bind_tex(1, t_map); bind_tex(2, t_pal); bind_tex(3, t_sten);
         p_glUniform1i(up[22], seam);
         { static int ef = -2, ea = -2;
-          if (ef == -2) { const char *e = getenv("TC2_TEX_FILTER"); ef = e && *e ? atoi(e) : -1; if (ef > 2) ef = 2; }       /* TC2_TEX_FILTER=0|1|2, TC2_TEX_ANISO=0|2|4|8|16 win for a run */
+          if (ef == -2) { const char *e = getenv("TC2_TEX_FILTER"); ef = e && *e ? atoi(e) : -1; if (ef > 3) ef = 3; }       /* TC2_TEX_FILTER=0|1|2|3 (3 sharp bilinear), TC2_TEX_ANISO=0|2|4|8|16 win for a run */
           if (ea == -2) { const char *e = getenv("TC2_TEX_ANISO"); ea = e && *e ? atoi(e) : -1; }
           const int tf = ef >= 0 ? ef : g_eng_disp.tex_filter;
           const int ta = tf == 2 ? (ea >= 0 ? ea : g_eng_disp.tex_aniso) : 0;
           static int last = -1, lasta = -1;
-          if (tf != last || ta != lasta) { last = tf; lasta = ta; fprintf(stderr, "[GPU] 3D texture filter: %s, anisotropy %dx\n", tf == 2 ? "trilinear" : tf ? "bilinear" : "off", ta ? ta : 1); }
+          if (tf != last || ta != lasta) { last = tf; lasta = ta; fprintf(stderr, "[GPU] 3D texture filter: %s, anisotropy %dx\n", tf == 3 ? "sharp bilinear" : tf == 2 ? "trilinear" : tf ? "bilinear" : "off", ta ? ta : 1); }
           p_glUniform1i(up[23], tf); p_glUniform1i(up[24], ta); }
         bind_tex(6, t_fog); p_glUniform1i(up[19], 6); p_glUniform1i(up[20], f->fog); p_glUniform3i(up[21], f->cr, f->cg, f->cb);
         p_glUniform1i(up[14], 4); p_glUniform1i(up[15], 5); p_glUniform1i(up[16], 0);
@@ -505,7 +533,7 @@ unsigned tc2_gl_draw(const tc2_built *b)
             glDrawArrays(GL_TRIANGLES, 0, nv);
             p_glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
         }
-        for (int a = A_POS; a <= A_EXT; a++) p_glDisableVertexAttribArray((GLuint)a);
+        for (int a = A_POS; a <= A_UVB; a++) p_glDisableVertexAttribArray((GLuint)a);
         bind_tex(4, 0); bind_tex(5, 0); p_glActiveTexture(GL_TEXTURE0);
     }
     /* 5. the text the polygons let through again */
