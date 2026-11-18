@@ -191,17 +191,10 @@ void rr_host_set_draw(int level)
  * polygons that are the HUD (rr_gl.c) and the text, sprite and tilemap layers are never filtered. ENG_TEX_FILTER=0|1 overrides for a run. */
 void rr_host_set_texfilter(int mode)
 {
-    g_cfg_texfilter = mode < 0 ? 0 : mode > 2 ? 2 : mode;
-    const char *n = g_cfg_texfilter == 2 ? "trilinear" : g_cfg_texfilter == 1 ? "bilinear" : "off";
+    g_cfg_texfilter = mode < 0 ? 0 : mode > 1 ? 1 : mode;
+    const char *n = g_cfg_texfilter == 1 ? "bilinear" : "off";
     save_opt("texture_filter", n);
     fprintf(stderr, "[HOST] 3D texture filter: %s\n", n);
-}
-void rr_host_set_texaniso(int level)
-{
-    g_cfg_texaniso = level >= 16 ? 16 : level >= 8 ? 8 : level >= 4 ? 4 : level >= 2 ? 2 : 0;
-    char b[8]; snprintf(b, sizeof b, g_cfg_texaniso ? "%d" : "off", g_cfg_texaniso);
-    save_opt("texture_aniso", b);
-    fprintf(stderr, "[HOST] anisotropic filtering: %s\n", b);
 }
 
 void rr_host_set_hud_edges(int on)

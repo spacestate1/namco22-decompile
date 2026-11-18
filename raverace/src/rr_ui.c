@@ -74,7 +74,7 @@ static int row = 0;                    /* -1 = the tab strip */
 static bool kb_moved;                  /* keep the selected row in view after a key */
 
 /* ---- the rows ------------------------------------------------------------- */
-enum { D_WIDE, D_DRAW, D_MODE, D_SIZE, D_RES, D_ASPECT, D_SCALING, D_HUD, D_FPS, D_TEXF, D_ANISO, D_N };
+enum { D_WIDE, D_DRAW, D_MODE, D_SIZE, D_RES, D_ASPECT, D_SCALING, D_HUD, D_FPS, D_TEXF, D_N };
 enum { C_FREEPLAY, C_FFB, C_FFB_DIR, C_FFB_KEEP, C_FFB_LOG, C_STICK, C_CAR, C_FIXED = C_CAR };   /* the Controls page's rows before the bindings */
 #define C_N (C_FIXED + (g_rr_game->ncars > 0))                 /* + Car, for a game that lists its cars (rr_game_t.cars) */
 enum { O_SERVER, O_NAME, O_HOST, O_FIND, O_CONNECT, O_STATUS, O_LOBBY0 };   /* then, not connected: one row per LAN game found; connected: the players, Ready, Start */
@@ -117,7 +117,6 @@ static bool has_value(int t, int r)
 static bool row_enabled(int t, int r)
 {
     if (t == T_DISPLAY && r == D_SIZE) return g_cfg_winmode == 0;
-    if (t == T_DISPLAY && r == D_ANISO) return g_cfg_texfilter == 2;     /* anisotropy rides on the trilinear filter's mips */
     if (t == T_DISPLAY && r == D_HUD) return g_cfg_wide;
     return true;
 }
@@ -149,10 +148,7 @@ static void row_text(int t, int r, char *label, size_t ln, char *value, size_t v
                         snprintf(value, vn, "%s", g_cfg_wide ? (g_cfg_wide_169 ? "16:9" : "Fill the window") : asp[g_cfg_aspect]); break;
         case D_SCALING: snprintf(label, ln, "Scaling"); snprintf(value, vn, "%s", sc[g_cfg_scaling]); break;
         case D_TEXF:    snprintf(label, ln, "3D texture filter");
-                        snprintf(value, vn, "%s", g_cfg_texfilter == 2 ? "Trilinear (3D only)" : g_cfg_texfilter ? "Bilinear (3D only)" : "Off (arcade)");
-                        break;
-        case D_ANISO:   snprintf(label, ln, "Anisotropic filter");
-                        if (g_cfg_texaniso) snprintf(value, vn, "%dx", g_cfg_texaniso); else snprintf(value, vn, "Off");
+                        snprintf(value, vn, "%s", g_cfg_texfilter ? "Bilinear (3D only)" : "Off (arcade)");
                         break;
         case D_FPS:     snprintf(label, ln, "Frame rate"); snprintf(value, vn, "%s", eng_vsync_rate_name(g_cfg_fps)); break;
         case D_HUD:     { extern int g_eng_hud_edges_on; snprintf(label, ln, "Widescreen HUD"); snprintf(value, vn, "%s", g_eng_hud_edges_on ? "at the screen edges" : "original (4:3 centre)"); break; }
@@ -287,9 +283,7 @@ static void row_change(int t, int r, int dir)
             break; }
         case D_ASPECT:  if (g_cfg_wide) rr_host_set_wide_169(!g_cfg_wide_169); else rr_host_set_aspect(cyc(g_cfg_aspect, d, 4)); break;
         case D_SCALING: rr_host_set_scaling(cyc(g_cfg_scaling, d, 3)); break;
-        case D_TEXF:    rr_host_set_texfilter(cyc(g_cfg_texfilter, d, 3)); break;
-        case D_ANISO:   { static const int lv[5] = { 0, 2, 4, 8, 16 }; int i = 0; for (int k = 0; k < 5; k++) if (lv[k] == g_cfg_texaniso) i = k;
-                          rr_host_set_texaniso(lv[cyc(i, d, 5)]); break; }
+        case D_TEXF:    rr_host_set_texfilter(cyc(g_cfg_texfilter, d, 2)); break;
         case D_HUD:     { extern int g_eng_hud_edges_on; rr_host_set_hud_edges(!g_eng_hud_edges_on); break; }
         case D_FPS:     { extern void rr_host_set_fps(int); rr_host_set_fps(eng_vsync_rate_step(g_cfg_fps, d)); break; }
         }

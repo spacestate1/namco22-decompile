@@ -664,15 +664,12 @@ void ss22_draw(int vw, int vh)
     { static int tc = -1; if (tc < 0) { const char *e = getenv("ENG_TEXEL_CENTRE"); tc = e ? atoi(e) : 1; } cfg.texel_centre = tc; }
     /* the optional 3D texture filter (Display > 3D texture filter, texture_filter in the cfg; ENG_TEX_FILTER=0|1 wins for a run): world
      * polygons only -- the HUD pieces drawn as polygons, and the sprite and text layers, stay NEAREST */
-    { static int ef = -2, ea = -2;
-      if (ef == -2) { const char *e = getenv("ENG_TEX_FILTER"); ef = e && *e ? atoi(e) : -1; if (ef > 2) ef = 2; }
-      if (ea == -2) { const char *e = getenv("ENG_TEX_ANISO"); ea = e && *e ? atoi(e) : -1; }
-      g_eng_tex_filter = ef >= 0 ? ef : g_eng_tex_filter_setting;                       /* 0 off, 1 bilinear, 2 trilinear (mips) */
-      g_eng_tex_aniso = g_eng_tex_filter == 2 ? (ea >= 0 ? ea : g_eng_tex_aniso_setting) : 0;
-      tex_bake_set_layout(g_eng_tex_filter == 2); }                                      /* trilinear needs the block-aligned mip layout (a no-op while unchanged) */
-    { static int last = -1, lasta = -1;
-      if (g_eng_tex_filter != last || g_eng_tex_aniso != lasta) { last = g_eng_tex_filter; lasta = g_eng_tex_aniso;
-          fprintf(stderr, "[TEX] 3D texture filter: %s, anisotropy %dx\n", last == 2 ? "trilinear" : last ? "bilinear" : "off", lasta ? lasta : 1); } }
+    { static int ef = -2;                                                              /* off (the board's NEAREST) or bilinear: no mips, no anisotropy */
+      if (ef == -2) { const char *e = getenv("ENG_TEX_FILTER"); ef = e && *e ? (atoi(e) != 0) : -1; }
+      g_eng_tex_filter = ef >= 0 ? ef : (g_eng_tex_filter_setting ? 1 : 0);
+      g_eng_tex_aniso = 0; }
+    { static int last = -1;
+      if (g_eng_tex_filter != last) { last = g_eng_tex_filter; fprintf(stderr, "[TEX] 3D texture filter: %s\n", last ? "bilinear" : "off"); } }
     cfg.nofilter_quad = eng_hud_quad_piece;
     if (g_eng_fx_known) {                                /* the 2D effects option (Display > Effects; ENG_FX_FILTER=0|1 wins for a run) */
         static int ef = -2;

@@ -414,7 +414,7 @@ int rr_gl_quads(void) { return qn; }
 /* The polygons that are the HUD, not the world, stay NEAREST when the 3D texture filter is on, like the text and sprite layers: the same pieces the
  * widescreen HUD moves (engine/hud_edges.c, scanned just below with band 0 and zero depth): direct polygons, band 0 (map dots, mirror frame), depth 0 (the
  * tacho needle). */
-extern int g_cfg_texfilter, g_cfg_texaniso;             /* rr_input.c: Display > 3D texture filter, anisotropic filter */
+extern int g_cfg_texfilter;                             /* rr_input.c: Display > 3D texture filter */
 
 void rr_gl_draw(int vw, int vh)
 {
@@ -459,16 +459,12 @@ void rr_gl_draw(int vw, int vh)
     dc.write_prio_alpha = 1;
     { static int tc = -1; if (tc < 0) { const char *e = getenv("RR_TEXEL_CENTRE"); tc = e ? atoi(e) : 1; }
       dc.texel_centre = tc; }
-    { static int ef = -2, ea = -2;
-      if (ef == -2) { const char *e = getenv("ENG_TEX_FILTER"); ef = e && *e ? atoi(e) : -1; if (ef > 2) ef = 2; }
-      if (ea == -2) { const char *e = getenv("ENG_TEX_ANISO"); ea = e && *e ? atoi(e) : -1; }
-      int mode = ef >= 0 ? ef : g_cfg_texfilter;                           /* env first (A/B), then the setting */
-      g_eng_tex_aniso = mode == 2 ? (ea >= 0 ? ea : g_cfg_texaniso) : 0;
-      g_eng_tex_filter = mode;
-      tex_bake_set_layout(mode == 2); }                                    /* trilinear needs the block-aligned mip layout (a no-op while it is unchanged) */
-    { static int last = -1, lasta = -1;
-      if (g_eng_tex_filter != last || g_eng_tex_aniso != lasta) { last = g_eng_tex_filter; lasta = g_eng_tex_aniso;
-          fprintf(stderr, "[TEX] 3D texture filter: %s, anisotropy %dx\n", last == 2 ? "trilinear" : last ? "bilinear" : "off", lasta ? lasta : 1); } }
+    { static int ef = -2;                                                  /* the 3D texture filter is off (the board's NEAREST) or bilinear: no mips, no anisotropy */
+      if (ef == -2) { const char *e = getenv("ENG_TEX_FILTER"); ef = e && *e ? (atoi(e) != 0) : -1; }
+      g_eng_tex_filter = ef >= 0 ? ef : (g_cfg_texfilter ? 1 : 0);         /* env first (A/B), then the setting */
+      g_eng_tex_aniso = 0; }
+    { static int last = -1;
+      if (g_eng_tex_filter != last) { last = g_eng_tex_filter; fprintf(stderr, "[TEX] 3D texture filter: %s\n", last ? "bilinear" : "off"); } }
     dc.nofilter_quad = eng_hud_quad_piece;
     dc.flat_white = seamtest == 1 || seamtest == 2;
     if (seamtest >= 3) { dc.flat_quad = seam_colour; seam_by_quad = seamtest == 4; }         /* RR_SEAMTEST=3: each object its own flat colour, to name the backdrop pieces */

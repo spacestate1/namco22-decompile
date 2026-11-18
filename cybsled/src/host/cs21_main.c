@@ -120,12 +120,13 @@ static void audio_frame(void)
 }
 #endif
 
-extern int g_eng_disp_native_default;
+extern int g_eng_disp_native_default, g_eng_tex_filter_known;   /* engine/eng_display.c, engine/tex_bake.c */
 int main(int argc, char **argv)
 {
     eng_args_strip(&argc, argv);    /* --set KEY=VALUE: a setting for this run (engine/eng_args.h, GitHub #85) */
 #ifdef S21_WITH_HOST
     g_eng_disp_native_default = 1;    /* the board is 496x480: draw at the window's size, so the picture is resized once (s21_glutil.c) */
+    g_eng_tex_filter_known = 0;       /* flat and shaded colour polygons, no textures: the Display menu has no 3D texture filter row */
 #endif
 #ifdef S21_WITH_HOST
     eng_win_startup("cybsled.log");     /* Windows: the program's own folder, the log beside the .exe, real pixel sizes (a no-op elsewhere) */

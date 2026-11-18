@@ -355,7 +355,7 @@ static int atlas_mips(void) { return g_mip_layout && atlas_on(); }
 int g_eng_tex_aniso = 0;               /* anisotropic filtering level for trilinear pages: 0 off, else 2/4/8/16 (clamped to what the GPU offers) */
 int g_eng_fx_filter_setting = 0;
 int g_eng_fx_known = 0;
-int g_eng_tex_aniso_setting = 0;       /* the player's choice (the menu / cfg writes it); the draw pass copies it to g_eng_tex_aniso */
+int g_eng_tex_filter_known = 1;        /* 0: the game has nothing to filter (Cyber Sled's polygons are flat / shaded colours): the Display menu leaves the 3D texture filter row out */
 
 /* Bakes write the page's SHADOW (CPU memory); the GL texture is refreshed in
  * dirty SLOT RECTS, once, when a drawn quad actually needs the page

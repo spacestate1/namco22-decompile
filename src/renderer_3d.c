@@ -2035,12 +2035,10 @@ static void geohw_flush(void)
 
     int qi = 0, si = 0;
     /* the optional 3D texture filter (Display > 3D texture filter, texture_filter in the cfg; ENG_TEX_FILTER=0|1 wins for a run) */
-    { static int ef = -2, ea = -2; extern int g_eng_tex_filter, g_eng_tex_filter_setting, g_eng_tex_aniso, g_eng_tex_aniso_setting; extern void tex_bake_set_layout(int); /* engine/tex_bake.h (not included: this file has its own texture_pen_lookup) */
-      if (ef == -2) { const char *e = getenv("ENG_TEX_FILTER"); ef = e && *e ? atoi(e) : -1; if (ef > 2) ef = 2; }
-      if (ea == -2) { const char *e = getenv("ENG_TEX_ANISO"); ea = e && *e ? atoi(e) : -1; }
-      g_eng_tex_filter = ef >= 0 ? ef : g_eng_tex_filter_setting;                       /* 0 off, 1 bilinear, 2 trilinear (mips) */
-      g_eng_tex_aniso = g_eng_tex_filter == 2 ? (ea >= 0 ? ea : g_eng_tex_aniso_setting) : 0;
-      tex_bake_set_layout(g_eng_tex_filter == 2); }
+    { static int ef = -2; extern int g_eng_tex_filter, g_eng_tex_filter_setting, g_eng_tex_aniso; /* engine/tex_bake.h (not included: this file has its own texture_pen_lookup) */
+      if (ef == -2) { const char *e = getenv("ENG_TEX_FILTER"); ef = e && *e ? (atoi(e) != 0) : -1; }
+      g_eng_tex_filter = ef >= 0 ? ef : (g_eng_tex_filter_setting ? 1 : 0);             /* 0 off, 1 bilinear: no mips, no anisotropy */
+      g_eng_tex_aniso = 0; }
     { /* the effect sprites' smoothing (Display > Effects filter, effects_filter in the cfg; ENG_FX_FILTER=0|1 wins for a run): dust, mud and spray only,
        * these Prop Cycle sprite tiles -- the gauges, banners, digits and titles stay as the board draws them */
       static const int fx_tiles[][2] = { { 975, 1182 } };
