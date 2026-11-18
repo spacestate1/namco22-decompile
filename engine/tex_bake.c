@@ -355,6 +355,7 @@ static int atlas_mips(void) { return g_mip_layout && atlas_on(); }
 int g_eng_tex_aniso = 0;               /* anisotropic filtering level for trilinear pages: 0 off, else 2/4/8/16 (clamped to what the GPU offers) */
 int g_eng_fx_filter_setting = 0;
 int g_eng_fx_known = 0;
+int g_eng_tex_aniso_setting = 0;
 int g_eng_tex_filter_known = 1;        /* 0: the game has nothing to filter (Cyber Sled's polygons are flat / shaded colours): the Display menu leaves the 3D texture filter row out */
 
 /* Bakes write the page's SHADOW (CPU memory); the GL texture is refreshed in
@@ -743,10 +744,27 @@ void tex_bake_set_layout(int mips)
  * board's bake) each baked texel is the mean of its block instead -- a pre-filtered texture at the size the quad has on screen, what
  * a mip level would give, with no mips, no extra memory and no extra texture work on the GPU. Switching the filter re-bakes
  * everything once (the cache would otherwise hand back the other kind). */
-static int g_bake_filtered;               /* 0 off, 1 bilinear, 2 sharp bilinear */
+static int g_bake_filtered;               /* 0 off, 1 bilinear, 2 sharp bilinear, 3 trilinear, 4 sharp trilinear */
+/* THE SIZE TIERS of a wide texture (its uv range over TEX_BAKE_MAX): 256 / 512 / 1024 by its on-screen size, and with a filter on also
+ * 2048 -- a road strip of 1300 texels filling a 1440p / 4K screen was decimated to every 2nd texel at 1024, blurring the road right in
+ * front of the car under every filter. The trilinear modes get it (their mips keep the big bake from shimmering far away); off and
+ * the bilinear modes keep the board-era 1024 (byte for byte as before). */
+/* The sharp modes sharpen in quad_gl's fragment shader when it has one (no 2 x 2 bake then); Prop Cycle's own renderer, or no GLSL,
+ * keeps the 2 x 2 bake. A change re-bakes (the cache holds the other kind). */
+static int g_sharp_shader;
+int tex_bake_atlas_dim(void) { return ATLAS_DIM; }
+void tex_bake_set_sharp_shader(int on)
+{
+    on = on ? 1 : 0;
+    if (on == g_sharp_shader) return;
+    g_sharp_shader = on;
+    if (atlas_on() && (g_bake_filtered == 2 || g_bake_filtered == 4) && ap_n) { atlas_drop_all(); if (ap_n < atlas_maxp) atlas_page_init(ap_n++); }
+}
+static int tier_max(void) { return g_bake_filtered >= 3 && atlas_on() ? 2048 : 1024; }
+static int tier_of(int req) { return req > 1024 && tier_max() >= 2048 ? 2048 : req > 512 ? 1024 : req > 256 ? 512 : 256; }
 void tex_bake_set_filtered(int on)
 {
-    on = on < 0 ? 0 : on > 2 ? 2 : on;
+    on = on < 0 ? 0 : on > 4 ? 4 : on;
     if (on == g_bake_filtered || !atlas_on()) return;
     atlas_drop_all();
     g_bake_filtered = on;
@@ -824,6 +842,37 @@ static uint32_t tex_cache_hash(int min_u, int min_v, int range_u, int range_v,
  * visible. Degenerate ranges < 16 are expanded to 16 (matches Python exporter).
  * pen=0 pixels are transparent (alpha=0).
  */
+/* One row of the box filter's samples (bake_impl, decimated + filtered): the pens at (us[k], tv), through the hot loop's tile walk --
+ * the tile map read once per tile, not per sample. Must decode exactly as the hot loop and texture_pen_lookup() do. */
+static void box_fetch_row(const uint8_t *tmap, const uint8_t *tdata, int tv, int texbank, const int *us, int n, uint8_t *pens)
+{
+    const int v = (tv & 0xFFF) | (texbank * 0x1000), vrow = (v & 0xFFF0) << 4, local_y0 = v & 0xF;
+    int last_idx = -1; uint32_t tile = 0; int attr = 0;
+    for (int k = 0; k < n; k++) {
+        uint8_t fetch = 0;
+        if (tmap && tdata) {
+            const int u = us[k] & 0xFFF, tilemap_index = vrow | ((u & 0xFF0) >> 4);
+            if (tilemap_index != last_idx) {
+                last_idx = tilemap_index;
+                const int byte_off = tilemap_index * 2;
+                if (byte_off + 1 < 0x200000) {
+                    tile = tmap[byte_off] | (tmap[byte_off + 1] << 8);
+                    const int ao = 0x200000 + (tilemap_index >> 1);
+                    attr = (ao < (int)TEXTUREMAP_SIZE) ? ((tilemap_index & 1) ? (tmap[ao] & 0xF) : ((tmap[ao] >> 4) & 0xF)) : 0;
+                    if ((attr & 0x1) && !g_eng_tex_tile16) tile |= 0x10000;
+                } else { tile = 0; attr = 0; last_idx = -1; }
+            }
+            int local_x = u & 0xF, local_y = local_y0;
+            if (attr & 0x4) local_x = 15 - local_x;
+            if (attr & 0x2) local_y = 15 - local_y;
+            if (attr & 0x8) { const int t = local_x; local_x = local_y; local_y = t; }
+            const uint32_t po = tile * 256 + local_y * 16 + local_x;
+            if (po < TEXTURE_TOTAL_SIZE) fetch = tdata[po];
+        }
+        pens[k] = fetch;
+    }
+}
+
 static GLuint bake_impl(int min_u, int min_v, int range_u, int range_v,
                         int texbank, int pal_group, int cmode,
                         float *out_su, float *out_sv, float *out_ou, float *out_ov,
@@ -843,7 +892,7 @@ static GLuint bake_impl(int min_u, int min_v, int range_u, int range_v,
     int cap = TEX_BAKE_MAX;
     if (!g_tex_fixedcap && (range_u > TEX_BAKE_MAX || range_v > TEX_BAKE_MAX)) {
         int want = g_tex_bake_cap_req;
-        cap = want > 512 ? 1024 : want > 256 ? 512 : 256;
+        cap = tier_of(want);
         { if (!g_caplog_ini) { g_caplog_ini = 1; const char *e = getenv("ENG_TEX_CAPLOG"); if (e) g_caplog = fopen(e, "w"); }
         }
     }
@@ -1042,12 +1091,20 @@ static GLuint bake_impl(int min_u, int min_v, int range_u, int range_v,
      *    slot's near edge, so the filter mixed in the texel before the slot -- ANOTHER texture's -- and drew coloured, jagged lines
      *    along those quads' edges (the road strips). The slot gets a guard column and row on the near side too, a copy of its first
      *    column and row (what clamping a texture of its own would give). The texture coordinates are unchanged, so nothing shifts.
-     *  - SHARP BILINEAR, a quad baked one-to-one (step 1, up to 512 texels): every texel is baked as a 2 x 2 block. The bilinear
+     *  - SHARP BILINEAR, a quad baked one-to-one (step 1, up to 257 x 257 texels or a strip as long as 1025): every texel is baked as a 2 x 2 block. The bilinear
      *    filter then mixes two texels only across HALF a texel at their border: texels stay solid, their edges smooth. */
     int up = 1, ng = 0;
     if (g_bake_filtered && atlas_on() && !atlas_mips()) {
         if (step_u > 1 || step_v > 1) { ng = 1; moff = 1; aw = bw + 1; ah = bh + 1; }
-        else if (g_bake_filtered == 2 && bw <= 513 && bh <= 513) { up = 2; aw = 2 * bw; ah = 2 * bh; }
+        else if (g_bake_filtered == 2 && !g_sharp_shader && bw <= 1025 && bh <= 1025 && bw * bh <= 257 * 257) { up = 2; aw = 2 * bw; ah = 2 * bh; }   /* (a long strip too: the road) */
+    }
+    /* SHARP TRILINEAR (mode 4, the mip layout): a quad baked one-to-one (up to 257 x 257 texels, or a strip as long as 1025) is baked as 2 x 2 blocks, the block in the middle
+     * of its margin as ever. Level 0 is then the sharp magnification (two texels mix only across half a texel), and level 1 is exactly
+     * the texture at its own size: where a texel is one pixel or smaller the GPU's level choice lands on the plain trilinear mips. */
+    if (g_bake_filtered == 4 && !g_sharp_shader && atlas_mips() && step_u == 1 && step_v == 1 && bw <= 1025 && bh <= 1025 && bw * bh <= 257 * 257) {   /* (a long strip too: the road) */
+        up = 2;
+        aw = (2 * bw + 2 * moff + TEX_MIPM - 1) & ~(TEX_MIPM - 1);
+        ah = (2 * bh + 2 * moff + TEX_MIPM - 1) & ~(TEX_MIPM - 1);
     }
     g_bake_texels += (double)bw * bh;
     /* THE HOT LOOP OF THE WHOLE RENDERER. Measured over a 3600-frame run:
@@ -1072,7 +1129,7 @@ static GLuint bake_impl(int min_u, int min_v, int range_u, int range_v,
      *     hit the SAME tilemap entry. Cached on the entry index. */
     {
     /* 1. tu per column, once */
-    static int tu_row[1024 + 1];   /* up to the 1024 cap + guard texel */
+    static int tu_row[2048 + 1];   /* up to the 2048 cap (filtered, tier_max) + guard texel */
     if (g_tex_pow2sample)
         for (int px = 0; px < bw; px++) tu_row[px] = min_u + px * range_u / sw;
     else
@@ -1160,31 +1217,43 @@ static GLuint bake_impl(int min_u, int min_v, int range_u, int range_v,
         /* FILTERED (bilinear, trilinear) + decimated (a quad whose uv range is over the cap): every baked texel is the MEAN of the step_u x step_v block of
          * source texels it stands for -- alpha-weighted, like the mips -- instead of the one at the block's corner. The texel-centre
          * mapping (u-min+0.5)/step puts a baked texel's centre on the middle of that block, so this is also where it belongs. */
-        const int nu = step_u < 3 ? step_u : 3, nv = step_v < 3 ? step_v : 3;   /* exact for steps up to 3; a wider block is sampled 3 x 3 (each lookup walks the tile map) */
+        const int nu = step_u < 3 ? step_u : 3, nv = step_v < 3 ? step_v : 3;   /* exact for steps up to 3; a wider block is sampled 3 x 3 */
+        /* The samples go through the hot loop's own tile walk (box_fetch_row: one tile-map read per 16 texels, not per sample): this was
+         * a texture_pen_lookup() per sample, 4 to 9 per texel -- 0.4 ms a frame in Rave Racer's attract. Same values, same order. */
+        static int ubox[(2048 + 1) * 3];
+        static uint8_t pbox[(2048 + 1) * 3];
+        static uint32_t acc[(2048 + 1) * 4];
+        for (int px = 0; px < bw; px++)
+            for (int iu = 0; iu < nu; iu++) ubox[px * nu + iu] = tu_row[px] + (2 * iu + 1) * step_u / (2 * nu);
         for (int py = 0; py < bh; py++) {
             int tv0 = min_v + py * step_v;
             if (atlas_clamp_v && py == sh) tv0 = min_v + (sh - 1) * step_v;
-            uint8_t *dst = bake_dst + (size_t)py * bake_stride;
-            for (int px = 0; px < bw; px++, dst += 4) {
-                unsigned as = 0, rs = 0, gs = 0, bs = 0;
-                for (int iv = 0; iv < nv; iv++)
-                    for (int iu = 0; iu < nu; iu++) {
-                        const int dv = (2 * iv + 1) * step_v / (2 * nv), du = (2 * iu + 1) * step_u / (2 * nu);   /* evenly spread over the block */
-                        uint8_t fetch = texture_pen_lookup(tu_row[px] + du, tv0 + dv, texbank);
-                        const uint8_t *c = lut[(cm_offset + ((fetch >> cm_shift) & cm_mask)) & 0xFF];
-                        as += c[3]; rs += c[0] * c[3]; gs += c[1] * c[3]; bs += c[2] * c[3];
+            memset(acc, 0, (size_t)bw * 4 * sizeof acc[0]);
+            for (int iv = 0; iv < nv; iv++) {
+                box_fetch_row(tmap, tdata, tv0 + (2 * iv + 1) * step_v / (2 * nv), texbank, ubox, bw * nu, pbox);
+                for (int k = 0, px = 0; px < bw; px++) {
+                    uint32_t *a = acc + px * 4;
+                    for (int iu = 0; iu < nu; iu++, k++) {
+                        const uint8_t *c = lut[(cm_offset + ((pbox[k] >> cm_shift) & cm_mask)) & 0xFF];
+                        a[0] += c[3]; a[1] += c[0] * c[3]; a[2] += c[1] * c[3]; a[3] += c[2] * c[3];
                     }
-                const unsigned n = (unsigned)(nu * nv);
+                }
+            }
+            uint8_t *dst = bake_dst + (size_t)py * bake_stride;
+            const unsigned n = (unsigned)(nu * nv);
+            for (int px = 0; px < bw; px++, dst += 4) {
+                const uint32_t *a = acc + px * 4; const unsigned as = a[0];
                 if (!as) { dst[0] = dst[1] = dst[2] = dst[3] = 0; continue; }
-                dst[0] = (uint8_t)((rs + as / 2) / as); dst[1] = (uint8_t)((gs + as / 2) / as); dst[2] = (uint8_t)((bs + as / 2) / as);
+                dst[0] = (uint8_t)((a[1] + as / 2) / as); dst[1] = (uint8_t)((a[2] + as / 2) / as); dst[2] = (uint8_t)((a[3] + as / 2) / as);
                 dst[3] = (uint8_t)((as + n / 2) / n);
             }
         }
     }
     if ((ng || up > 1) && apages[slot_page].shadow) {
-        uint8_t *org = apages[slot_page].shadow + ((size_t)slot_y * ATLAS_DIM + slot_x) * 4;   /* the slot's corner */
+        uint8_t *org = apages[slot_page].shadow + ((size_t)(slot_y + moff) * ATLAS_DIM + slot_x + moff) * 4;   /* the baked texels' corner */
         const long st = (long)ATLAS_DIM * 4;
-        if (ng) {                                   /* the near guard: column 0 <- column 1, then row 0 <- row 1 (corner included) */
+        if (ng) {
+            org = apages[slot_page].shadow + ((size_t)slot_y * ATLAS_DIM + slot_x) * 4;   /* (the guard is the slot's own first row / column) */                                   /* the near guard: column 0 <- column 1, then row 0 <- row 1 (corner included) */
             for (int py = 1; py < ah; py++) memcpy(org + (size_t)py * st, org + (size_t)py * st + 4, 4);
             memcpy(org, org + st, (size_t)aw * 4);
         } else {                                    /* 2 x 2 blocks, backwards: a block is never written over a texel still to be read */
@@ -1203,13 +1272,15 @@ static GLuint bake_impl(int min_u, int min_v, int range_u, int range_v,
         /* the block's margin: a copy of the nearest edge texel of the slot (guard texel included), left and right, then top and bottom rows */
         uint8_t *org = apages[slot_page].shadow + ((size_t)slot_y * ATLAS_DIM + slot_x) * 4;   /* the block's corner */
         const long st = (long)ATLAS_DIM * 4;
-        for (int py = moff; py < moff + bh; py++) {
+        const int cw = bw * up, ch = bh * up;     /* the baked texels (2 x 2 blocks with sharp trilinear) */
+        for (int py = moff; py < moff + ch; py++) {
             uint8_t *row = org + (size_t)py * st;
-            for (int px = 0; px < moff; px++) memcpy(row + px * 4, row + moff * 4, 4);
-            for (int px = moff + bw; px < aw; px++) memcpy(row + px * 4, row + (moff + bw - 1) * 4, 4);
+            uint32_t l, r; memcpy(&l, row + moff * 4, 4); memcpy(&r, row + (moff + cw - 1) * 4, 4);
+            for (int px = 0; px < moff; px++) memcpy(row + px * 4, &l, 4);
+            for (int px = moff + cw; px < aw; px++) memcpy(row + px * 4, &r, 4);
         }
         for (int py = 0; py < moff; py++) memcpy(org + (size_t)py * st, org + (size_t)moff * st, (size_t)aw * 4);
-        for (int py = moff + bh; py < ah; py++) memcpy(org + (size_t)py * st, org + (size_t)(moff + bh - 1) * st, (size_t)aw * 4);
+        for (int py = moff + ch; py < ah; py++) memcpy(org + (size_t)py * st, org + (size_t)(moff + ch - 1) * st, (size_t)aw * 4);
     }
     }
 
@@ -1436,9 +1507,9 @@ GLuint bake_quad_texture(int min_u, int min_v, int range_u, int range_v,
      * on the UV range alone was measured: 19x the texels, p99 150 ms. ENG_TEX_TIERSTICKY=0 restores the old rule. */
     if (!in_pump && (range_u > TEX_BAKE_MAX || range_v > TEX_BAKE_MAX)) {
         static int sticky = -1; if (sticky < 0) { const char *e = getenv("ENG_TEX_TIERSTICKY"); sticky = !(e && *e == '0'); }
-        const int req = g_tex_bake_cap_req, rt = req > 512 ? 1024 : req > 256 ? 512 : 256;
-        if (sticky && rt < 1024) {
-            for (int want = 1024; want > rt; want >>= 1) {
+        const int req = g_tex_bake_cap_req, rt = tier_of(req);
+        if (sticky && rt < tier_max()) {
+            for (int want = tier_max(); want > rt; want >>= 1) {
                 g_tex_bake_cap_req = want;
                 GLuint t = bake_impl(min_u, min_v, range_u, range_v, texbank, pal_group, cmode, out_su, out_sv, out_ou, out_ov, 0, 1);
                 if (t) { g_tex_bake_cap_req = req; return t; }
@@ -1472,10 +1543,10 @@ GLuint bake_quad_texture(int min_u, int min_v, int range_u, int range_v,
     { static int tierfb = -1; if (tierfb < 0) { const char *e = getenv("ENG_TEX_TIERFALLBACK"); tierfb = !(e && *e == '0'); }
       if (tierfb && (range_u > TEX_BAKE_MAX || range_v > TEX_BAKE_MAX)) {
           const int req = g_tex_bake_cap_req;
-          static const int tiers[3] = { 1024, 512, 256 };
-          for (int k = 0; k < 3 && !t; k++) {
+          static const int tiers[4] = { 2048, 1024, 512, 256 };
+          for (int k = 0; k < 4 && !t; k++) {
               const int want = tiers[k];
-              if ((want > 512 ? 1024 : want > 256 ? 512 : 256) == (req > 512 ? 1024 : req > 256 ? 512 : 256)) continue;   /* the tier just missed */
+              if (want > tier_max() || tier_of(want) == tier_of(req)) continue;   /* (no 2048 tier unfiltered) / the tier just missed */
               g_tex_bake_cap_req = want;
               t = bake_impl(min_u, min_v, range_u, range_v, texbank, pal_group, cmode, out_su, out_sv, out_ou, out_ov, 0, 1);
           }

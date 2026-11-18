@@ -42,6 +42,97 @@ static void mt_resolve(void)
     p_active_texture(GL_TEXTURE0);
 }
 
+/* ---- SHARP FILTERING IN A FRAGMENT SHADER (3D texture filter "sharp bilinear" / "sharp trilinear") ----------------------------------
+ * The texenv chain below stays the renderer; only the TEXTURED, FILTERED runs of the two sharp modes draw through this small program,
+ * which is that same chain (MODULATE with the RGB_SCALE headroom, and the two single-pass fog orders) with one change in how the texel
+ * is fetched: the sample point is moved inside its texel so the bilinear blend between two texels happens only across about one
+ * screen pixel at their border, however big the texels are on screen (the fragment's texel footprint, from the derivatives). Where a
+ * texel is a pixel or smaller the point is not moved: the plain bilinear, and with the trilinear pages the GPU's mip / anisotropy
+ * choice is untouched. This replaces baking every texel as a 2 x 2 block (4x the atlas, and edges still half a texel wide): no extra
+ * memory, no extra bake time, and an edge of one pixel at 4K as at 640x480. Alpha test, blending, the colour mask and depth are the
+ * fixed pipeline's as ever. No GLSL (or a compile error): the sharp modes fall back to the 2 x 2 bake (tex_bake_set_sharp_shader). */
+static struct {
+    int state;                                       /* -1 untried, 0 unavailable, 1 ready */
+    GLuint prog; GLint u_tex, u_dim, u_scale, u_fog, u_frgb;
+    void (APIENTRY *use)(GLuint);
+    void (APIENTRY *u1i)(GLint, GLint);
+    void (APIENTRY *u1f)(GLint, GLfloat);
+    void (APIENTRY *u3fv)(GLint, GLsizei, const GLfloat *);
+    int on; float dim, scale, frgb[3]; int fog;      /* what is set (on: the program is in use) */
+} sh = { -1 };
+static const char *const sh_vs =
+    "varying vec4 v_st; varying vec4 v_col;\n"
+    "void main() { gl_Position = ftransform(); v_st = gl_MultiTexCoord0; v_col = gl_Color; }\n";
+static const char *const sh_fs =
+    "uniform sampler2D u_tex; uniform float u_dim, u_scale; uniform int u_fog; uniform vec3 u_frgb;\n"
+    "varying vec4 v_st; varying vec4 v_col;\n"
+    "void main() {\n"
+    "  vec2 p = v_st.xy / v_st.w * u_dim - 0.5;\n"                        /* texel space, texel centres on integers */
+    "  vec2 dx = dFdx(p), dy = dFdy(p);\n"
+    "  vec2 tpp = vec2(length(vec2(dx.x, dy.x)), length(vec2(dx.y, dy.y)));\n"   /* texels per screen pixel, per axis */
+    "  vec2 f = fract(p);\n"
+    "  vec2 w = clamp((f - 0.5) * max(1.0 / max(tpp, vec2(1e-4)), vec2(1.0)) + 0.5, 0.0, 1.0);\n"
+    "  vec4 t = texture2D(u_tex, (p - f + w + 0.5) / u_dim);\n"
+    "  vec3 c; float a;\n"
+    "  if (u_fog == 0) { c = clamp(t.rgb * v_col.rgb * u_scale, 0.0, 1.0); a = t.a * v_col.a; }\n"          /* MODULATE (RGB_SCALE) */
+    "  else if (u_fog == 2) { c = clamp(t.rgb * v_col.rgb * u_scale, 0.0, 1.0); c = c * v_col.a + u_frgb * (1.0 - v_col.a); a = t.a; }\n"   /* Super 22: shade, then fog */
+    "  else { c = t.rgb * v_col.a + u_frgb * (1.0 - v_col.a); c = clamp(c * v_col.rgb * u_scale, 0.0, 1.0); a = t.a; }\n"               /* System 22: fog, then shade */
+    "  gl_FragColor = vec4(c, a);\n"
+    "}\n";
+static GLuint sh_compile(GLenum type, const char *src)
+{
+    GLuint (APIENTRY *create)(GLenum) = (GLuint (APIENTRY *)(GLenum))SDL_GL_GetProcAddress("glCreateShader");
+    void (APIENTRY *source)(GLuint, GLsizei, const char *const *, const GLint *) = (void (APIENTRY *)(GLuint, GLsizei, const char *const *, const GLint *))SDL_GL_GetProcAddress("glShaderSource");
+    void (APIENTRY *compile)(GLuint) = (void (APIENTRY *)(GLuint))SDL_GL_GetProcAddress("glCompileShader");
+    void (APIENTRY *getiv)(GLuint, GLenum, GLint *) = (void (APIENTRY *)(GLuint, GLenum, GLint *))SDL_GL_GetProcAddress("glGetShaderiv");
+    void (APIENTRY *getlog)(GLuint, GLsizei, GLsizei *, char *) = (void (APIENTRY *)(GLuint, GLsizei, GLsizei *, char *))SDL_GL_GetProcAddress("glGetShaderInfoLog");
+    if (!create || !source || !compile || !getiv) return 0;
+    GLuint o = create(type); if (!o) return 0;
+    source(o, 1, &src, NULL); compile(o);
+    GLint ok = 0; getiv(o, 0x8B81 /* GL_COMPILE_STATUS */, &ok);
+    if (!ok) { char lg[1024] = ""; if (getlog) getlog(o, sizeof lg, NULL, lg); fprintf(stderr, "[GL] sharp filter shader: %s\n", lg); return 0; }
+    return o;
+}
+static void sh_resolve(void)
+{
+    if (sh.state >= 0) return;
+    sh.state = 0;
+    const char *e = getenv("ENG_SHARP_BAKE");                       /* =1: the old 2 x 2 bake instead (A/B) */
+    if (e && *e == '1') return;
+    GLuint (APIENTRY *cprog)(void) = (GLuint (APIENTRY *)(void))SDL_GL_GetProcAddress("glCreateProgram");
+    void (APIENTRY *attach)(GLuint, GLuint) = (void (APIENTRY *)(GLuint, GLuint))SDL_GL_GetProcAddress("glAttachShader");
+    void (APIENTRY *link)(GLuint) = (void (APIENTRY *)(GLuint))SDL_GL_GetProcAddress("glLinkProgram");
+    void (APIENTRY *getpiv)(GLuint, GLenum, GLint *) = (void (APIENTRY *)(GLuint, GLenum, GLint *))SDL_GL_GetProcAddress("glGetProgramiv");
+    GLint (APIENTRY *uloc)(GLuint, const char *) = (GLint (APIENTRY *)(GLuint, const char *))SDL_GL_GetProcAddress("glGetUniformLocation");
+    sh.use = (void (APIENTRY *)(GLuint))SDL_GL_GetProcAddress("glUseProgram");
+    sh.u1i = (void (APIENTRY *)(GLint, GLint))SDL_GL_GetProcAddress("glUniform1i");
+    sh.u1f = (void (APIENTRY *)(GLint, GLfloat))SDL_GL_GetProcAddress("glUniform1f");
+    sh.u3fv = (void (APIENTRY *)(GLint, GLsizei, const GLfloat *))SDL_GL_GetProcAddress("glUniform3fv");
+    if (!cprog || !attach || !link || !getpiv || !uloc || !sh.use || !sh.u1i || !sh.u1f || !sh.u3fv) return;
+    GLuint vs = sh_compile(0x8B31 /* GL_VERTEX_SHADER */, sh_vs), fs = sh_compile(0x8B30 /* GL_FRAGMENT_SHADER */, sh_fs);
+    if (!vs || !fs) return;
+    GLuint p = cprog(); attach(p, vs); attach(p, fs); link(p);
+    GLint ok = 0; getpiv(p, 0x8B82 /* GL_LINK_STATUS */, &ok);
+    if (!ok) { fprintf(stderr, "[GL] sharp filter shader: link failed\n"); return; }
+    sh.prog = p;
+    sh.u_tex = uloc(p, "u_tex"); sh.u_dim = uloc(p, "u_dim"); sh.u_scale = uloc(p, "u_scale"); sh.u_fog = uloc(p, "u_fog"); sh.u_frgb = uloc(p, "u_frgb");
+    sh.use(p); sh.u1i(sh.u_tex, 0); sh.use(0);
+    sh.dim = sh.scale = -1.0f; sh.fog = -1;
+    sh.state = 1;
+    fprintf(stderr, "[GL] sharp filters: in the fragment shader\n");
+}
+static void sh_set(int on, const float *frgb, int scale, int fog)  /* on: a textured, filtered run of a sharp mode */
+{
+    if (sh.state != 1) return;
+    if (on != sh.on) { sh.use(on ? sh.prog : 0); sh.on = on; }
+    if (!on) return;
+    const float d = (float)tex_bake_atlas_dim(), sc = scale > 1 ? (float)scale : 1.0f;
+    if (d != sh.dim) { sh.u1f(sh.u_dim, d); sh.dim = d; }
+    if (sc != sh.scale) { sh.u1f(sh.u_scale, sc); sh.scale = sc; }
+    if (fog != sh.fog) { sh.u1i(sh.u_fog, fog); sh.fog = fog; }
+    if (fog && memcmp(frgb, sh.frgb, sizeof sh.frgb)) { sh.u3fv(sh.u_frgb, 1, frgb); memcpy(sh.frgb, frgb, sizeof sh.frgb); }
+}
+
 float  g_scene_x0 = 0.0f, g_scene_x1 = (float)ENG_SCREEN_W;
 int  (*g_eng_quad_dx)(const geo_quad *q);
 double g_perf_bake, g_perf_gl, g_perf_clip;
@@ -370,9 +461,11 @@ static void bb_apply(const struct bbstate *st)
          * (s,t,r,q) x translate(ou,ov) divides to ou + s/q either way. */
         if (mt_state == 1) qs_fog(st->fog, st->frgb, st->env);
         else qs_env(st->env);
+        sh_set(st->filt && (g_eng_tex_filter == 2 || g_eng_tex_filter == 4), st->frgb, st->env, mt_state == 1 ? st->fog : 0);   /* the sharp modes: the shader's fetch */
     } else if (qs.fog) {
         qs_fog(0, st->frgb, 0);             /* leaving fog for a flat pass: unit 1 off */
     }
+    if (!st->tex_on) sh_set(0, NULL, 0, 0);
     qs_alpha(st->alpha);
     qs_blend(st->blend);
     qs_prio_mask(st->prio);
@@ -470,6 +563,8 @@ void eng_draw_begin(void)
     static int hook_once;
     if (!hook_once) { tex_bake_set_flush_hook(bb_bake_hook); hook_once = 1; }
     mt_resolve();
+    sh_resolve();
+    tex_bake_set_sharp_shader(sh.state == 1);       /* the sharp modes sharpen here, not by baking 2 x 2 blocks */
     glGetIntegerv(GL_VIEWPORT, draw_vp);
     eng_draw_resume();
 }
@@ -488,6 +583,7 @@ void eng_draw_end(void)
 {
     bb_flush();
     bb_valid = 0;
+    sh_set(0, NULL, 0, 0);                  /* the fixed pipeline for the passes after this one */
     glDisableClientState(GL_VERTEX_ARRAY);
     glDisableClientState(GL_COLOR_ARRAY);
     glDisableClientState(GL_TEXTURE_COORD_ARRAY);
@@ -842,7 +938,7 @@ static void draw_quad_one(const geo_quad *q, const eng_draw_cfg *cfg)
         bb_emit(n, &(struct bbstate){ .tex = tex, .env = rgb_scale, .alpha = base_alpha, .blend = 0, .prio = 0,
                                       .tex_on = 1, .sc_on = scissored, .sc = { scbox[0], scbox[1], scbox[2], scbox[3] },
                                       .fog = fogm, .frgb = { fogrgb[0], fogrgb[1], fogrgb[2] },
-                                      .filt = (g_eng_tex_filter && !(cfg->nofilter_quad && cfg->nofilter_quad(q)) && tex_bake_atlas_active()) ? 1 : 0 });   /* GL_LINEAR for bilinear and sharp bilinear alike (sharp is in the bake) */
+                                      .filt = (g_eng_tex_filter && !(cfg->nofilter_quad && cfg->nofilter_quad(q)) && tex_bake_atlas_active()) ? (g_eng_tex_filter >= 3 ? 2 : 1) : 0 });   /* 1 GL_LINEAR (bilinear, sharp bilinear: sharp is in the bake), 2 the mips (trilinear, sharp trilinear) + anisotropy */
     }
     }
     g_perf_gl += eng_now() - _tg;
